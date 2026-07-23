@@ -31,7 +31,7 @@
   --gold: #c6a45c;
   --gold-hi: #d8ba78;
   --gold-deep: #56471f;
-  --gold-bubble: #d4ba8b;
+  --gold-bubble: #d1bd95;
   --gold-bubble-hi: #ddc79c;
 
   /* Dark rail — in-game contact card (#13141a bg, #727273 border) */
@@ -148,6 +148,21 @@ button { color: inherit; }
   transition: background 180ms var(--ease-out), transform 140ms var(--ease-out);
 }
 .close-game:active { transform: scale(0.94); }
+
+.chrome-mute {
+  display: grid;
+  place-items: center;
+  width: 42px; height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  transition: background 180ms var(--ease-out), color 180ms var(--ease-out), transform 140ms var(--ease-out), border-color 180ms var(--ease-out);
+}
+.chrome-mute:hover { background: rgba(0, 0, 0, 0.42); color: #fff; border-color: rgba(216, 186, 120, 0.4); }
+.chrome-mute:active { transform: scale(0.92); }
+.chrome-mute[aria-pressed="true"] { color: rgba(255, 255, 255, 0.5); }
 
 /* ============================================================================
    Stage layout
@@ -384,6 +399,25 @@ button { color: inherit; }
 .chat-heading strong { display: block; font-size: 28px; line-height: 1.15; font-weight: 600; letter-spacing: 0.01em; }
 .chat-heading small { display: block; margin-top: 4px; color: var(--ink-2); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 90%; }
 
+.chat-scroll-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.scroll-bottom {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+  display: grid; place-items: center;
+  width: 40px; height: 40px;
+  border: 1px solid var(--paper-line);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(6px);
+  color: var(--ink-1);
+  cursor: pointer;
+  box-shadow: var(--shadow-float);
+  z-index: 4;
+  animation: chip-in 200ms var(--ease-out) both;
+  transition: transform 140ms var(--ease-out), background 160ms var(--ease-out);
+}
+.scroll-bottom:hover { background: #fff; }
+.scroll-bottom:active { transform: translateX(-50%) scale(0.92); }
+
 .chat-messages { flex: 1; min-height: 0; overflow: auto; padding: 26px 40px 22px; scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.18) transparent; }
 .chat-messages::-webkit-scrollbar { width: 8px; }
 .chat-messages::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.16); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
@@ -400,16 +434,17 @@ button { color: inherit; }
 .hsr-message .hsr-avatar, .user-avatar { width: 56px; height: 56px; }
 .message-body { min-width: 0; }
 .message-name { display: block; margin: 2px 0 6px 4px; color: var(--ink-2); font-size: 14px; }
-/* Received bubble — in-game shape: sharp top-left tail corner, flat neutral gray */
+/* Received bubble — in-game shape: sharp top-left tail corner, near-white with the
+   signature hard (zero-blur) offset shadow that gives the "stamped" look. */
 .message-bubble {
   position: relative;
   width: fit-content;
   max-width: 660px;
-  padding: 11px 16px;
+  padding: 11px 17px 9px;
   border: 0;
-  border-radius: 3px 12px 12px 12px;
-  background: #ebebeb;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  border-radius: 2px 13px 13px 13px;
+  background: #f8f8f8;
+  box-shadow: -1px 2px 0 rgba(158, 158, 158, 0.85);
   font-size: 16px;
   line-height: 1.6;
   color: #2a2a2c;
@@ -417,10 +452,10 @@ button { color: inherit; }
   word-break: break-word;
 }
 .from-user .message-bubble {
-  border-radius: 12px 3px 12px 12px;
+  border-radius: 13px 2px 13px 13px;
   background: var(--gold-bubble);
-  color: #34291a;
-  box-shadow: 0 1px 2px rgba(140, 110, 40, 0.18);
+  color: #282828;
+  box-shadow: 1px 3px 0 rgba(150, 150, 150, 0.55);
 }
 .user-avatar {
   display: grid; place-items: center; flex: 0 0 auto;
@@ -474,30 +509,38 @@ button { color: inherit; }
 .model-bar button.active { color: var(--gold-deep); background: rgba(198, 164, 92, 0.14); }
 .model-bar select { max-width: 240px; margin-left: 4px; padding: 4px 8px; border: 1px solid var(--paper-line); border-radius: 8px; background: rgba(255, 255, 255, 0.5); color: var(--ink-2); font-size: 12px; }
 
-/* Suggested replies — the signature in-game "pick an option" interaction,
-   reproduced with model-generated candidates. */
-.reply-suggestions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
+/* Suggested replies — the signature in-game "pick an option" interaction:
+   full-width options stacked vertically, reproduced with model candidates. */
+.reply-suggestions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .suggestion-chip {
-  max-width: 100%;
-  padding: 9px 17px;
-  border: 1px solid rgba(20, 22, 28, 0.14);
-  border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, 0.62);
+  width: 100%;
+  min-height: 46px;
+  padding: 12px 20px;
+  border: 1px solid rgba(150, 150, 156, 0.5);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fbfbfb, #e9e9ea);
   color: var(--ink-1);
-  font-size: 14px; line-height: 1.4; text-align: left;
+  font-size: 15px; line-height: 1.45; text-align: center;
   cursor: pointer;
-  animation: chip-in 300ms var(--ease-out) both;
+  /* metallic bevel: bright top edge + a hard offset shadow echoing the bubbles */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), -1px 2px 0 rgba(158, 158, 158, 0.5);
+  animation: chip-in 280ms var(--ease-out) both;
   transition: transform 140ms var(--ease-out), background 180ms var(--ease-out), box-shadow 200ms var(--ease-out), border-color 180ms var(--ease-out);
 }
 .suggestion-chip:nth-child(1) { animation-delay: 0ms; }
-.suggestion-chip:nth-child(2) { animation-delay: 55ms; }
-.suggestion-chip:nth-child(3) { animation-delay: 110ms; }
+.suggestion-chip:nth-child(2) { animation-delay: 50ms; }
+.suggestion-chip:nth-child(3) { animation-delay: 100ms; }
 @media (hover: hover) and (pointer: fine) {
-  .suggestion-chip:hover:not(:disabled) { background: #fff; border-color: rgba(198, 164, 92, 0.6); box-shadow: var(--shadow-card); transform: translateY(-1px); }
+  .suggestion-chip:hover:not(:disabled) {
+    background: linear-gradient(180deg, #ffffff, #eeeeef);
+    border-color: rgba(198, 164, 92, 0.6);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), -1px 3px 0 rgba(198, 164, 92, 0.3);
+    transform: translateY(-1px);
+  }
 }
-.suggestion-chip:active:not(:disabled) { transform: scale(0.98); }
+.suggestion-chip:active:not(:disabled) { transform: translateY(0) scale(0.99); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08); }
 .suggestion-chip:disabled { opacity: 0.5; cursor: default; }
-.suggestion-hint { display: inline-flex; align-items: center; gap: 7px; padding: 6px 2px; color: var(--ink-3); font-size: 13px; }
+.suggestion-hint { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 10px 2px; color: var(--ink-3); font-size: 13px; }
 @keyframes chip-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 .reply-composer {

@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  ArrowLeft, Brain, ChevronRight, CircleAlert, Download,
+  ArrowLeft, Brain, ChevronDown, ChevronRight, CircleAlert, Download,
   KeyRound, LoaderCircle, MessageCircle, Send, Settings,
-  Trash2, Upload, UserRound
+  Trash2, Upload, UserRound, Volume2, VolumeX
 } from 'lucide-react';
 import { ProviderSettings } from './components/ProviderSettings';
 import { CharacterImport } from './components/CharacterImport';
 import { api, streamGeneration, type Character, type Message, type ModelConfiguration } from './lib/api';
 import { credentialStore } from './lib/credential-store';
 import { createId } from './lib/id';
+import { playClick, isMuted, setMuted } from './lib/sound';
 
 type View = 'chat' | 'profile' | 'memories' | 'settings';
 
@@ -41,7 +42,15 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggesting, setSuggesting] = useState(false);
+  const [muted, setMutedState] = useState(isMuted());
   const started = useRef(false);
+
+  function toggleMute() {
+    const next = !muted;
+    setMuted(next);
+    setMutedState(next);
+    if (!next) playClick();
+  }
   const conversationIdRef = useRef<string | null>(null);
   const suggestAbortRef = useRef<AbortController | null>(null);
 
@@ -135,6 +144,7 @@ export function App() {
   async function submit(rawText: string) {
     const text = rawText.trim();
     if (!text || !conversationId || sending) return;
+    playClick();
     const targetConversationId = conversationId;
     setDraft('');
     setSuggestions([]);
@@ -180,7 +190,7 @@ export function App() {
     <main className={`hsr-app view-${view}`}>
       <div className="scene-glow scene-glow-one" />
       <div className="scene-glow scene-glow-two" />
-      <TopChrome {...(view === 'memories' && active ? { title: `与${active.name}的回忆` } : view === 'settings' ? { title: 'PomChat' } : {})} />
+      <TopChrome muted={muted} onToggleMute={toggleMute} {...(view === 'memories' && active ? { title: `与${active.name}的回忆` } : view === 'settings' ? { title: 'PomChat' } : {})} />
 
       <section className="hsr-stage">
         {view === 'chat' && contactRail}
@@ -241,10 +251,15 @@ function SmsIcon({ size = 30 }: { size?: number }) {
   );
 }
 
-function TopChrome({ title }: { title?: string }) {
+function TopChrome({ title, muted, onToggleMute }: { title?: string; muted?: boolean; onToggleMute?: () => void }) {
   return (
     <header className="top-chrome">
       <div className="sms-title"><SmsIcon size={30} /><span><strong>短信</strong>{title && <small>{title}</small>}</span></div>
+      {onToggleMute && (
+        <button className="chrome-mute" onClick={onToggleMute} aria-label={muted ? '开启音效' : '关闭音效'} aria-pressed={muted}>
+          {muted ? <VolumeX size={22} /> : <Volume2 size={22} />}
+        </button>
+      )}
     </header>
   );
 }
@@ -290,24 +305,58 @@ function ChatPage({ character, messages, draft, sending, error, usageMode, confi
 }) {
   const lastLine = [...messages].reverse().find((message) => message.role === 'ASSISTANT' && message.content_text.trim())?.content_text
     || character.first_message || character.profile_summary || '角色档案';
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [pinned, setPinned] = useState(true);
+  const pinnedRef = useRef(true);
+  useEffect(() => { pinnedRef.current = pinned; }, [pinned]);
+
+  function scrollToBottom(behavior: ScrollBehavior = 'auto') {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (typeof el.scrollTo === 'function') el.scrollTo({ top: el.scrollHeight, behavior });
+    else el.scrollTop = el.scrollHeight;
+  }
+  // Follow new/streaming content only while the reader is at the bottom.
+  useEffect(() => { if (pinnedRef.current) scrollToBottom('auto'); }, [messages]);
+  // Jump to the latest when switching conversations.
+  useEffect(() => {
+    setPinned(true);
+    const raf = requestAnimationFrame(() => scrollToBottom('auto'));
+    return () => cancelAnimationFrame(raf);
+  }, [character.character_id]);
+
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+  }
+
   return (
     <section className="main-paper chat-paper">
       <button className="chat-heading" onClick={onProfile} aria-label={`打开${character.name}档案`}>
         <strong>{character.name}</strong><small>{lastLine}</small>
       </button>
-      <div className="chat-messages">
-        {messages.map((message) => (
-          <div key={message.message_id} className={`hsr-message ${message.role === 'USER' ? 'from-user' : 'from-character'}`}>
-            {message.role === 'ASSISTANT' && <Avatar character={character} />}
-            <div className="message-body">
-              {message.role === 'ASSISTANT' && <span className="message-name">{character.name}</span>}
-              <div className="message-bubble">{message.content_text || <span className="typing"><i /><i /><i /></span>}</div>
+      <div className="chat-scroll-wrap">
+        <div className="chat-messages" ref={scrollRef} onScroll={handleScroll}>
+          {messages.map((message) => (
+            <div key={message.message_id} className={`hsr-message ${message.role === 'USER' ? 'from-user' : 'from-character'}`}>
+              {message.role === 'ASSISTANT' && <Avatar character={character} />}
+              <div className="message-body">
+                {message.role === 'ASSISTANT' && <span className="message-name">{character.name}</span>}
+                <div className="message-bubble">{message.content_text || <span className="typing"><i /><i /><i /></span>}</div>
+              </div>
+              {message.role === 'USER' && <span className="user-avatar"><UserRound size={26} /></span>}
             </div>
-            {message.role === 'USER' && <span className="user-avatar"><UserRound size={26} /></span>}
-          </div>
-        ))}
-        {!messages.length && <div className="chat-placeholder">开始你们的第一段对话。</div>}
-        {error && <p className="inline-error"><CircleAlert size={17} />{error}</p>}
+          ))}
+          {!messages.length && <div className="chat-placeholder">开始你们的第一段对话。</div>}
+          {error && <p className="inline-error"><CircleAlert size={17} />{error}</p>}
+        </div>
+        {!pinned && (
+          <button className="scroll-bottom" aria-label="滚动到底部" onClick={() => scrollToBottom('smooth')}>
+            <ChevronDown size={20} />
+          </button>
+        )}
       </div>
       <footer className="reply-area">
         {(suggestions.length > 0 || suggesting) && (
