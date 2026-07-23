@@ -67,6 +67,31 @@ describe('PomChat API', () => {
     expect(response.json().characters).toEqual([]);
   });
 
+  it('keeps the legacy provider catalog shape used by Web BYOK settings', async () => {
+    const { app } = await setup();
+    const cookie = await anonymousCookie(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/providers',
+      headers: { cookie }
+    });
+
+    expect(response.statusCode).toBe(200);
+    const openai = response.json().providers.find(
+      (provider: { id: string }) => provider.id === 'openai'
+    );
+    expect(openai).toMatchObject({
+      id: 'openai',
+      protocol: 'openai-compatible',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKeyRequired: true
+    });
+    expect(response.json().providers).not.toContainEqual(
+      expect.objectContaining({ id: 'demo' })
+    );
+  });
+
   it('does not allow another anonymous identity to read a conversation', async () => {
     const { app, database } = await setup();
     const ownerCookie = await anonymousCookie(app);

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { PomChatDatabase } from '@pomchat/database';
 import {
-  PROVIDERS,
+  PROVIDER_RUNTIME_PRESETS,
   modelConfigurationInputSchema,
   providerConnectionValidationSchema
 } from '@pomchat/contracts';
@@ -17,7 +17,9 @@ export function registerModelRoutes(
 ) {
   app.get('/v1/providers', async (request) => {
     await resolveUserId(request, database);
-    return { providers: PROVIDERS.filter((provider) => provider.id !== 'demo') };
+    return {
+      providers: PROVIDER_RUNTIME_PRESETS.filter((provider) => provider.id !== 'demo')
+    };
   });
 
   app.post('/v1/provider-connections/validate', async (request) => {

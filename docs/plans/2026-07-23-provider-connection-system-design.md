@@ -922,3 +922,9 @@ npm.cmd run check
 
 1. 选定首个正式支持的操作系统及对应 OS keyring binding；这不改变 CredentialStore 合同。
 2. 用短提示验证 Codex App Server 是否能满足 PomChat 角色聊天的最低文本质量和控制要求；若不满足，只影响该 AuthMethod 的首期可用性，不影响公共架构。
+
+## 当前实施说明（2026-07-23）
+
+- Phase 1 保留并冻结，作为暂未接入现有 Web/PWA 与 BYOK 执行路径的兼容基础。
+- Phase 2～6 暂停，当前不实施 PC/Local Runtime、系统凭证存储、真实 OAuth 或 Provider 新 UI。
+- 当前优先验证默认 AI、角色、记忆、关系与迁移体验。
