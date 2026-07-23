@@ -1,0 +1,4 @@
+interface:
+  display_name: "自动化测试执行规范"
+  short_description: "按已确认需求增量补充自动化测试并保护测试预期完整性"
+  default_prompt: "Use $automated-testing-workflow to implement this change with incremental tests and report verification honestly."

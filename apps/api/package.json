@@ -1,0 +1,32 @@
+{
+  "name": "@pomchat/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run src",
+    "test:coverage": "vitest run src --coverage"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "latest",
+    "@ai-sdk/google": "latest",
+    "@ai-sdk/openai-compatible": "latest",
+    "@fastify/cookie": "latest",
+    "@fastify/cors": "latest",
+    "@fastify/multipart": "latest",
+    "@pomchat/contracts": "0.1.0",
+    "@pomchat/database": "0.1.0",
+    "ai": "latest",
+    "fastify": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsx": "latest",
+    "vitest": "latest"
+  }
+}

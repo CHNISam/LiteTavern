@@ -1,0 +1,31 @@
+export const ERROR_CODES = [
+  'UNAUTHORIZED',
+  'CROSS_ORIGIN_REQUEST_REJECTED',
+  'RESOURCE_NOT_FOUND',
+  'VALIDATION_ERROR',
+  'IDEMPOTENCY_CONFLICT',
+  'CHARACTER_CARD_INVALID',
+  'CHARACTER_CARD_UNSUPPORTED',
+  'MODEL_CONFIGURATION_INVALID',
+  'CREDENTIAL_REQUIRED',
+  'CREDENTIAL_INVALID',
+  'PLATFORM_QUOTA_EXHAUSTED',
+  'PROVIDER_RATE_LIMITED',
+  'PROVIDER_TIMEOUT',
+  'PROVIDER_UNAVAILABLE',
+  'CONTEXT_TOO_LARGE',
+  'GENERATION_CANCELLED',
+  'POSTPROCESS_FAILED',
+  'INTERNAL_ERROR'
+] as const;
+
+export type ErrorCode = (typeof ERROR_CODES)[number];
+
+export interface ApiErrorPayload {
+  error: {
+    code: ErrorCode;
+    message: string;
+    retryable: boolean;
+    request_id: string;
+  };
+}
