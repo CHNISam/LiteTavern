@@ -290,10 +290,69 @@ export interface DatabaseMigration {
   sql: string;
 }
 
+const PROVIDER_CONNECTION_MIGRATION_SQL = String.raw`
+CREATE TABLE provider_connection (
+  connection_id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
+  provider_id VARCHAR(80) NOT NULL,
+  auth_method_id VARCHAR(100) NOT NULL,
+  display_name VARCHAR(120) NOT NULL,
+  status VARCHAR(30) NOT NULL
+    CHECK (status IN (
+      'connected', 'expired', 'revoked', 'unavailable', 'reconnect_required'
+    )),
+  config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  last_checked_at TIMESTAMPTZ,
+  last_error_code VARCHAR(80),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX idx_provider_connection_user
+  ON provider_connection(user_id, updated_at DESC)
+  WHERE deleted_at IS NULL;
+CREATE INDEX idx_provider_connection_provider
+  ON provider_connection(user_id, provider_id)
+  WHERE deleted_at IS NULL;
+
+CREATE TABLE provider_credential_metadata (
+  credential_ref VARCHAR(160) PRIMARY KEY,
+  connection_id UUID NOT NULL UNIQUE
+    REFERENCES provider_connection(connection_id) ON DELETE CASCADE,
+  kind VARCHAR(30) NOT NULL
+    CHECK (kind IN ('oauth', 'device_code', 'api_key', 'token', 'cli', 'local', 'custom')),
+  store VARCHAR(30) NOT NULL
+    CHECK (store IN ('os_keyring', 'external_cli', 'none')),
+  version INTEGER NOT NULL CHECK (version > 0),
+  expires_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE provider_model_catalog (
+  connection_id UUID NOT NULL
+    REFERENCES provider_connection(connection_id) ON DELETE CASCADE,
+  model_id VARCHAR(240) NOT NULL,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  discovered_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (connection_id, model_id)
+);
+
+ALTER TABLE model_configuration
+  ADD COLUMN connection_id UUID REFERENCES provider_connection(connection_id) ON DELETE SET NULL;
+CREATE INDEX idx_model_configuration_connection
+  ON model_configuration(connection_id)
+  WHERE deleted_at IS NULL;
+`;
+
 export const MIGRATIONS = [
   {
     version: 1,
     name: 'initial_schema',
     sql: MIGRATION_SQL
+  },
+  {
+    version: 2,
+    name: 'provider_connections',
+    sql: PROVIDER_CONNECTION_MIGRATION_SQL
   }
 ] satisfies readonly DatabaseMigration[];

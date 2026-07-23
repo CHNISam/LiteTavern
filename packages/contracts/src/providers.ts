@@ -1,7 +1,90 @@
 export type ProviderProtocol = 'demo' | 'openai-compatible' | 'anthropic' | 'google';
 export type ProviderRegion = 'CN' | 'GLOBAL' | 'LOCAL' | 'CUSTOM';
 
-export interface ProviderPreset {
+export type AuthMethodKind =
+  | 'oauth'
+  | 'device_code'
+  | 'api_key'
+  | 'token'
+  | 'cli'
+  | 'local'
+  | 'custom';
+
+export type ConnectionStatus =
+  | 'connected'
+  | 'expired'
+  | 'revoked'
+  | 'unavailable'
+  | 'reconnect_required';
+
+export type CredentialOwner = 'pomchat' | 'external' | 'none';
+export type AuthMethodGroup = 'recommended' | 'other';
+export type AdditionalBilling = 'none' | 'provider_quota' | 'usage_based' | 'unknown';
+export type ProviderCategory = 'global' | 'cn' | 'local' | 'custom';
+
+export interface AuthMethodDisplay {
+  title: string;
+  description: string;
+  group: AuthMethodGroup;
+  usesExistingSubscription: boolean;
+  additionalBilling: AdditionalBilling;
+  credentialLocation: string;
+  requiresLocalSoftware?: string;
+  modelScope: string;
+}
+
+export interface AuthMethodDefinition {
+  id: string;
+  kind: AuthMethodKind;
+  runtimeAdapterId: string;
+  credentialOwner: CredentialOwner;
+  display: AuthMethodDisplay;
+}
+
+export interface ProviderDefinition {
+  id: string;
+  displayName: string;
+  shortName: string;
+  category: ProviderCategory;
+  helpUrl: string;
+  notice?: string;
+  authMethods: readonly AuthMethodDefinition[];
+}
+
+export interface ProviderConnection {
+  id: string;
+  providerId: string;
+  authMethodId: string;
+  displayName: string;
+  status: ConnectionStatus;
+  nonSecretConfig: Record<string, unknown>;
+  credentialRef?: string;
+  lastCheckedAt?: string;
+  lastErrorCode?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CredentialMetadata {
+  credentialRef: string;
+  connectionId: string;
+  kind: AuthMethodKind;
+  store: 'os_keyring' | 'external_cli' | 'none';
+  version: number;
+  expiresAt?: string;
+  updatedAt?: string;
+}
+
+export interface AvailableModel {
+  id: string;
+  displayName: string;
+  capabilities: string[];
+  contextWindow?: number;
+  recommended?: boolean;
+  billingNote?: string;
+}
+
+export interface ProviderRuntimePreset {
   id: string;
   name: string;
   shortName: string;
@@ -16,7 +99,7 @@ export interface ProviderPreset {
   notice?: string;
 }
 
-export const PROVIDERS = [
+export const PROVIDER_RUNTIME_PRESETS = [
   {
     id: 'deepseek',
     name: 'DeepSeek',
@@ -308,13 +391,231 @@ export const PROVIDERS = [
     helpUrl: '',
     placeholderModels: ['pomchat-demo']
   }
-] as const satisfies readonly ProviderPreset[];
+] as const satisfies readonly ProviderRuntimePreset[];
 
-export type ProviderId = (typeof PROVIDERS)[number]['id'];
+function categoryFor(region: ProviderRegion): ProviderCategory {
+  if (region === 'CN') return 'cn';
+  if (region === 'LOCAL') return 'local';
+  if (region === 'CUSTOM') return 'custom';
+  return 'global';
+}
+
+function apiKeyAuthMethod(providerId: string): AuthMethodDefinition {
+  const runtimeAdapterId =
+    providerId === 'openai'
+      ? 'openai-api'
+      : providerId === 'anthropic'
+        ? 'anthropic-api'
+        : providerId === 'google'
+          ? 'google-api'
+          : 'openai-compatible';
+  return {
+    id: 'api-key',
+    kind: 'api_key',
+    runtimeAdapterId,
+    credentialOwner: 'pomchat',
+    display: {
+      title: '使用 API Key',
+      description: '使用服务商开发者平台的按量调用通道。',
+      group: 'other',
+      usesExistingSubscription: false,
+      additionalBilling: 'usage_based',
+      credentialLocation: 'PomChat 本机安全存储',
+      modelScope: '由 API 账号权限和服务商模型目录决定'
+    }
+  };
+}
+
+function localAuthMethod(providerId: string): AuthMethodDefinition {
+  return {
+    id: 'local',
+    kind: 'local',
+    runtimeAdapterId: providerId === 'ollama' ? 'ollama' : 'openai-compatible',
+    credentialOwner: 'none',
+    display: {
+      title: '使用本地模型',
+      description: '复用这台电脑上运行的本地模型服务。',
+      group: 'recommended',
+      usesExistingSubscription: false,
+      additionalBilling: 'none',
+      credentialLocation: '无需凭证',
+      requiresLocalSoftware: providerId === 'ollama' ? 'Ollama' : 'LM Studio',
+      modelScope: '由本机已安装模型决定'
+    }
+  };
+}
+
+function authMethodsFor(preset: ProviderRuntimePreset): readonly AuthMethodDefinition[] {
+  if (preset.id === 'openai') {
+    return [
+      {
+        id: 'codex-device-code',
+        kind: 'device_code',
+        runtimeAdapterId: 'openai-codex-app-server',
+        credentialOwner: 'external',
+        display: {
+          title: '使用已有 ChatGPT/Codex 账号',
+          description: '通过 Codex 官方登录流程连接已有账号。',
+          group: 'recommended',
+          usesExistingSubscription: true,
+          additionalBilling: 'provider_quota',
+          credentialLocation: 'Codex 官方本机凭证存储',
+          requiresLocalSoftware: 'Codex CLI',
+          modelScope: '由 Codex 订阅和本机 Codex 版本决定'
+        }
+      },
+      {
+        id: 'codex-cli',
+        kind: 'cli',
+        runtimeAdapterId: 'openai-codex-app-server',
+        credentialOwner: 'external',
+        display: {
+          title: '使用本机已登录的 Codex',
+          description: '复用当前电脑上的 Codex 登录状态。',
+          group: 'recommended',
+          usesExistingSubscription: true,
+          additionalBilling: 'provider_quota',
+          credentialLocation: 'Codex 官方本机凭证存储',
+          requiresLocalSoftware: 'Codex CLI',
+          modelScope: '由 Codex 订阅和本机 Codex 版本决定'
+        }
+      },
+      apiKeyAuthMethod(preset.id)
+    ];
+  }
+  if (preset.id === 'ollama' || preset.id === 'lmstudio') {
+    return [localAuthMethod(preset.id)];
+  }
+  if (preset.id === 'custom-openai') {
+    return [
+      {
+        id: 'openai-compatible',
+        kind: 'custom',
+        runtimeAdapterId: 'openai-compatible',
+        credentialOwner: 'pomchat',
+        display: {
+          title: '自定义兼容接口',
+          description: '连接兼容 OpenAI 协议的自定义服务。',
+          group: 'other',
+          usesExistingSubscription: false,
+          additionalBilling: 'unknown',
+          credentialLocation: '可选凭证保存在 PomChat 本机安全存储',
+          modelScope: '由目标接口决定'
+        }
+      }
+    ];
+  }
+  if (preset.id === 'demo') {
+    return [
+      {
+        id: 'local',
+        kind: 'local',
+        runtimeAdapterId: 'demo',
+        credentialOwner: 'none',
+        display: {
+          title: 'PomChat Demo',
+          description: '不连接外部服务的本机演示通道。',
+          group: 'recommended',
+          usesExistingSubscription: false,
+          additionalBilling: 'none',
+          credentialLocation: '无需凭证',
+          modelScope: 'PomChat Demo'
+        }
+      }
+    ];
+  }
+  return [apiKeyAuthMethod(preset.id)];
+}
+
+const providerDefinitions = PROVIDER_RUNTIME_PRESETS.map(
+  (preset: ProviderRuntimePreset): ProviderDefinition => ({
+    id: preset.id,
+    displayName: preset.name,
+    shortName: preset.shortName,
+    category: categoryFor(preset.region),
+    helpUrl: preset.helpUrl,
+    ...(preset.notice ? { notice: preset.notice } : {}),
+    authMethods: authMethodsFor(preset)
+  })
+);
+
+providerDefinitions.push({
+  id: 'google-vertex',
+  displayName: 'Google Vertex AI',
+  shortName: 'Vertex AI',
+  category: 'global',
+  helpUrl: 'https://cloud.google.com/vertex-ai/generative-ai/docs/start/quickstart',
+  authMethods: [
+    {
+      id: 'gcloud-adc',
+      kind: 'cli',
+      runtimeAdapterId: 'vertex-ai',
+      credentialOwner: 'external',
+      display: {
+        title: '使用本机 Google Cloud 登录',
+        description: '复用 gcloud Application Default Credentials。',
+        group: 'recommended',
+        usesExistingSubscription: false,
+        additionalBilling: 'usage_based',
+        credentialLocation: 'Google Cloud Application Default Credentials',
+        requiresLocalSoftware: 'Google Cloud CLI',
+        modelScope: '由 Google Cloud 项目、区域和 IAM 权限决定'
+      }
+    }
+  ]
+});
+
+export const PROVIDERS: readonly ProviderDefinition[] = providerDefinitions;
+export type ProviderId = string;
 export const providerIds = PROVIDERS.map((provider) => provider.id);
 
-export function getProvider(id: string): ProviderPreset {
-  const provider = PROVIDERS.find((candidate) => candidate.id === id);
-  if (!provider) throw new Error(`Unknown provider: ${id}`);
+export class ProviderRegistry {
+  readonly #providers = new Map<string, ProviderDefinition>();
+
+  constructor(providers: readonly ProviderDefinition[] = []) {
+    for (const provider of providers) this.register(provider);
+  }
+
+  register(provider: ProviderDefinition): void {
+    if (this.#providers.has(provider.id)) {
+      throw new Error(`Provider already registered: ${provider.id}`);
+    }
+    const authMethodIds = provider.authMethods.map((method) => method.id);
+    if (new Set(authMethodIds).size !== authMethodIds.length) {
+      throw new Error(`Duplicate auth method for provider: ${provider.id}`);
+    }
+    this.#providers.set(provider.id, provider);
+  }
+
+  get(providerId: string): ProviderDefinition {
+    const provider = this.#providers.get(providerId);
+    if (!provider) throw new Error(`Unknown provider: ${providerId}`);
+    return provider;
+  }
+
+  getAuthMethod(providerId: string, authMethodId: string): AuthMethodDefinition {
+    const method = this.get(providerId).authMethods.find(
+      (candidate) => candidate.id === authMethodId
+    );
+    if (!method) {
+      throw new Error(`Unknown auth method: ${providerId}/${authMethodId}`);
+    }
+    return method;
+  }
+
+  list(): readonly ProviderDefinition[] {
+    return [...this.#providers.values()];
+  }
+}
+
+export const providerRegistry = new ProviderRegistry(PROVIDERS);
+
+export function getProvider(id: string): ProviderDefinition {
+  return providerRegistry.get(id);
+}
+
+export function getProviderRuntimePreset(id: string): ProviderRuntimePreset {
+  const provider = PROVIDER_RUNTIME_PRESETS.find((candidate) => candidate.id === id);
+  if (!provider) throw new Error(`Unknown provider runtime preset: ${id}`);
   return provider;
 }

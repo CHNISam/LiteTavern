@@ -2,7 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { generateText, streamText, type ModelMessage } from 'ai';
-import { getProvider } from '@pomchat/contracts';
+import { getProviderRuntimePreset } from '@pomchat/contracts';
 import { AppError } from '../../lib/errors.js';
 
 export interface ProviderGatewayInput {
@@ -39,7 +39,7 @@ export interface ModelGateway {
 }
 
 function createModel(input: ProviderGatewayInput) {
-  const preset = getProvider(input.provider);
+  const preset = getProviderRuntimePreset(input.provider);
   if (preset.protocol === 'anthropic') {
     return createAnthropic({
       apiKey: input.apiKey,
@@ -75,7 +75,7 @@ export function createModelGateway(): ModelGateway {
         return { ok: true, latencyMs: 0, models: ['pomchat-demo'] };
       }
       try {
-        const preset = getProvider(input.provider);
+        const preset = getProviderRuntimePreset(input.provider);
         const models = await this.listModels({
           provider: input.provider,
           baseUrl: input.baseUrl,
@@ -101,7 +101,7 @@ export function createModelGateway(): ModelGateway {
 
     async listModels(input) {
       if (input.provider === 'demo') return ['pomchat-demo'];
-      const preset = getProvider(input.provider);
+      const preset = getProviderRuntimePreset(input.provider);
       if (preset.modelDiscovery === 'manual') return [...preset.placeholderModels];
       try {
         const baseUrl = input.baseUrl.replace(/\/$/, '');

@@ -44,6 +44,9 @@ describe('database migration', () => {
         'agent_memory',
         'model_configuration',
         'model_usage_ledger',
+        'provider_connection',
+        'provider_credential_metadata',
+        'provider_model_catalog',
         'system_postprocess_job'
       ])
     );
@@ -77,7 +80,10 @@ describe('database migration', () => {
            ORDER BY version`
         )
       ).rows
-    ).toEqual([{ version: 1, name: 'initial_schema' }]);
+    ).toEqual([
+      { version: 1, name: 'initial_schema' },
+      { version: 2, name: 'provider_connections' }
+    ]);
 
     await database.close();
     database = await createDatabase({ dataDir });
@@ -107,6 +113,64 @@ describe('database migration', () => {
     expect(columns.rows.map((row) => row.column_name)).not.toEqual(
       expect.arrayContaining(['api_key', 'ciphertext', 'secret'])
     );
+    const providerColumns = await database.query<{
+      table_name: string;
+      column_name: string;
+    }>(
+      `SELECT table_name, column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name IN ('provider_connection', 'provider_credential_metadata')
+         AND column_name IN (
+           'api_key', 'access_token', 'refresh_token', 'token', 'ciphertext', 'secret'
+         )`
+    );
+    expect(providerColumns.rows).toEqual([]);
+  });
+
+  it('stores multiple independent connections for the same provider', async () => {
+    database = await createDatabase({ dataDir: 'memory://' });
+    await database.exec(`
+      INSERT INTO app_user (user_id)
+      VALUES ('00000000-0000-4000-8000-000000000001');
+
+      INSERT INTO provider_connection (
+        connection_id, user_id, provider_id, auth_method_id,
+        display_name, status, config_json
+      ) VALUES
+        (
+          '10000000-0000-4000-8000-000000000001',
+          '00000000-0000-4000-8000-000000000001',
+          'openai', 'codex-cli', 'OpenAI personal', 'connected', '{}'::jsonb
+        ),
+        (
+          '10000000-0000-4000-8000-000000000002',
+          '00000000-0000-4000-8000-000000000001',
+          'openai', 'api-key', 'OpenAI work', 'reconnect_required', '{}'::jsonb
+        );
+    `);
+
+    const result = await database.query<{
+      auth_method_id: string;
+      display_name: string;
+      status: string;
+    }>(
+      `SELECT auth_method_id, display_name, status
+       FROM provider_connection
+       ORDER BY display_name`
+    );
+    expect(result.rows).toEqual([
+      {
+        auth_method_id: 'codex-cli',
+        display_name: 'OpenAI personal',
+        status: 'connected'
+      },
+      {
+        auth_method_id: 'api-key',
+        display_name: 'OpenAI work',
+        status: 'reconnect_required'
+      }
+    ]);
   });
 
   it('keeps platform and BYOK usage modes explicit', async () => {

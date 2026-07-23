@@ -1,5 +1,5 @@
 import { isIP } from 'node:net';
-import { getProvider } from '@pomchat/contracts';
+import { getProviderRuntimePreset } from '@pomchat/contracts';
 import { AppError } from '../../lib/errors.js';
 
 function invalid(): never {
@@ -38,7 +38,7 @@ function normalized(value: string): string {
 export function resolveProviderEndpoint(providerId: string, requestedBaseUrl: string): string {
   let preset;
   try {
-    preset = getProvider(providerId);
+    preset = getProviderRuntimePreset(providerId);
   } catch {
     return invalid();
   }
