@@ -283,3 +283,17 @@ CREATE TABLE IF NOT EXISTS analytics_event (
 CREATE INDEX IF NOT EXISTS idx_analytics_event_name_created
   ON analytics_event(event_name, created_at DESC);
 `;
+
+export interface DatabaseMigration {
+  version: number;
+  name: string;
+  sql: string;
+}
+
+export const MIGRATIONS = [
+  {
+    version: 1,
+    name: 'initial_schema',
+    sql: MIGRATION_SQL
+  }
+] satisfies readonly DatabaseMigration[];

@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { PGlite } from '@electric-sql/pglite';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createDatabase, type PomChatDatabase } from './index.js';
+import { createDatabase, MIGRATION_SQL, type PomChatDatabase } from './index.js';
 
 let database: PomChatDatabase | undefined;
 let temporaryDirectory: string | undefined;
@@ -46,6 +47,49 @@ describe('database migration', () => {
         'system_postprocess_job'
       ])
     );
+  });
+
+  it('upgrades an unversioned database without losing data or reapplying migrations', async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), 'pomchat-db-'));
+    const dataDir = join(temporaryDirectory, 'legacy');
+    const legacyDatabase = await PGlite.create(dataDir);
+    await legacyDatabase.exec(MIGRATION_SQL);
+    await legacyDatabase.exec(`
+      INSERT INTO app_user (user_id)
+      VALUES ('00000000-0000-4000-8000-000000000001')
+    `);
+    await legacyDatabase.close();
+
+    database = await createDatabase({ dataDir });
+    expect(
+      (
+        await database.query<{ user_id: string }>(
+          `SELECT user_id FROM app_user
+           WHERE user_id = '00000000-0000-4000-8000-000000000001'`
+        )
+      ).rows
+    ).toHaveLength(1);
+    expect(
+      (
+        await database.query<{ version: number; name: string }>(
+          `SELECT version, name
+           FROM system_schema_migration
+           ORDER BY version`
+        )
+      ).rows
+    ).toEqual([{ version: 1, name: 'initial_schema' }]);
+
+    await database.close();
+    database = await createDatabase({ dataDir });
+    expect(
+      (
+        await database.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count
+           FROM system_schema_migration
+           WHERE version = 1`
+        )
+      ).rows
+    ).toEqual([{ count: 1 }]);
   });
 
   it('does not create server-side credential storage', async () => {
