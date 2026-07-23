@@ -42,6 +42,10 @@ export function App() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggesting, setSuggesting] = useState(false);
   const started = useRef(false);
+  const conversationIdRef = useRef<string | null>(null);
+  const suggestAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
 
   async function openCharacter(character: Character, nextView: View = 'chat') {
     setActive(character);
@@ -102,22 +106,29 @@ export function App() {
   }
 
   async function loadSuggestions(targetConversationId: string) {
+    // Cancel any in-flight suggestion request — only the latest conversation matters.
+    suggestAbortRef.current?.abort();
+    const controller = new AbortController();
+    suggestAbortRef.current = controller;
     setSuggesting(true);
     try {
       const selector = await resolveModelSelector();
       const response = await api<{ suggestions: string[] }>(
         `/v1/conversations/${targetConversationId}/reply-suggestions`,
-        { method: 'POST', body: JSON.stringify(selector) }
+        { method: 'POST', body: JSON.stringify(selector), signal: controller.signal }
       );
-      // Ignore if the user switched conversations while this was in flight.
-      setConversationId((current) => {
-        if (current === targetConversationId) setSuggestions(response.suggestions.slice(0, 3));
-        return current;
-      });
-    } catch {
-      setSuggestions([]);
+      if (conversationIdRef.current === targetConversationId) {
+        setSuggestions(response.suggestions.slice(0, 3));
+      }
+    } catch (reason) {
+      if ((reason as Error)?.name !== 'AbortError' && conversationIdRef.current === targetConversationId) {
+        setSuggestions([]);
+      }
     } finally {
-      setSuggesting(false);
+      if (suggestAbortRef.current === controller) {
+        suggestAbortRef.current = null;
+        setSuggesting(false);
+      }
     }
   }
 
