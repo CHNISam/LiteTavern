@@ -82,7 +82,9 @@ describe('database migration', () => {
       ).rows
     ).toEqual([
       { version: 1, name: 'initial_schema' },
-      { version: 2, name: 'provider_connections' }
+      { version: 2, name: 'provider_connections' },
+      { version: 3, name: 'character_card_model' },
+      { version: 4, name: 'multi_bubble_turns' }
     ]);
 
     await database.close();
@@ -96,6 +98,19 @@ describe('database migration', () => {
         )
       ).rows
     ).toEqual([{ count: 1 }]);
+  });
+
+  it('separates normalized, passthrough, and source metadata for character cards', async () => {
+    database = await createDatabase({ dataDir: 'memory://' });
+    const columns = await database.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'agent_character_card_version'`
+    );
+    expect(columns.rows.map((row) => row.column_name)).toEqual(
+      expect.arrayContaining(['normalized_data', 'passthrough_data', 'source_metadata'])
+    );
   });
 
   it('does not create server-side credential storage', async () => {

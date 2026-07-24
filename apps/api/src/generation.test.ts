@@ -188,6 +188,90 @@ describe('generation credential and billing isolation', () => {
     expect(requests.rows[0]?.count).toBe(1);
   });
 
+  it('edits a user message by superseding its branch and re-answering the new text', async () => {
+    const { app, database, seen, cookie, conversationId } = await setup();
+    await app.inject({
+      method: 'POST',
+      url: `/v1/conversations/${conversationId}/generations`,
+      headers: { cookie, 'idempotency-key': 'edit-turn-1' },
+      payload: { usage_mode: 'PLATFORM', input: { type: 'text', text: '今天比赛结束了。' } }
+    });
+    const before = await app.inject({
+      method: 'GET',
+      url: `/v1/conversations/${conversationId}/messages`,
+      headers: { cookie }
+    });
+    const editedId = (before.json().messages as Array<{ message_id: string; role: string }>)
+      .find((message) => message.role === 'USER')?.message_id;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/conversations/${conversationId}/generations`,
+      headers: { cookie, 'idempotency-key': 'edit-turn-2' },
+      payload: {
+        usage_mode: 'PLATFORM',
+        input: { type: 'text', text: '今天比赛推迟了。' },
+        edit_of_message_id: editedId
+      }
+    });
+    expect(response.statusCode).toBe(200);
+
+    // The active branch keeps the opening line, then the rewritten turn only.
+    const after = await app.inject({
+      method: 'GET',
+      url: `/v1/conversations/${conversationId}/messages`,
+      headers: { cookie }
+    });
+    const active = (after.json().messages as Array<{ role: string; content_text: string }>)
+      .map((message) => `${message.role}:${message.content_text}`);
+    expect(active).toEqual([
+      'ASSISTANT:Hello',
+      'USER:今天比赛推迟了。',
+      'ASSISTANT:收到，我们继续聊。'
+    ]);
+
+    // The superseded turn is retained, never deleted.
+    const superseded = await database.query<{ content_text: string; status: string }>(
+      `SELECT content_text, status FROM chat_message
+       WHERE conversation_id = $1 AND is_active_variant = FALSE ORDER BY sequence_no`,
+      [conversationId]
+    );
+    expect(superseded.rows).toEqual([
+      { content_text: '今天比赛结束了。', status: 'SUPERSEDED' },
+      { content_text: '收到，我们继续聊。', status: 'SUPERSEDED' }
+    ]);
+
+    // The regenerated reply must not see the branch the edit replaced.
+    expect(seen[1]?.messages).toEqual([
+      { role: 'assistant', content: 'Hello' },
+      { role: 'user', content: '今天比赛推迟了。' }
+    ]);
+  });
+
+  it('refuses to edit a message that is not an active user message', async () => {
+    const { app, seen, cookie, conversationId } = await setup();
+    const opening = await app.inject({
+      method: 'GET',
+      url: `/v1/conversations/${conversationId}/messages`,
+      headers: { cookie }
+    });
+    const assistantId = (opening.json().messages as Array<{ message_id: string }>)[0]?.message_id;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/conversations/${conversationId}/generations`,
+      headers: { cookie, 'idempotency-key': 'edit-assistant' },
+      payload: {
+        usage_mode: 'PLATFORM',
+        input: { type: 'text', text: '不该改角色说过的话。' },
+        edit_of_message_id: assistantId
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(seen).toHaveLength(0);
+  });
+
   it('returns model-generated reply suggestions using the platform credential', async () => {
     const { app, seen, cookie, conversationId } = await setup();
     const response = await app.inject({

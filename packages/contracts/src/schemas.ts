@@ -17,10 +17,15 @@ export const textInputSchema = z
   })
   .strict();
 
+// Editing a user message re-sends it: the edited message and everything after it
+// leave the active branch, and this turn continues from the rewritten text.
+const editOfMessageIdSchema = z.uuid().optional();
+
 const platformGenerationSchema = z
   .object({
     usage_mode: z.literal('PLATFORM'),
-    input: textInputSchema
+    input: textInputSchema,
+    edit_of_message_id: editOfMessageIdSchema
   })
   .strict();
 
@@ -29,7 +34,8 @@ const byokGenerationSchema = z
     usage_mode: z.literal('BYOK'),
     model_configuration_id: z.uuid(),
     input: textInputSchema,
-    credential: transientCredentialSchema
+    credential: transientCredentialSchema,
+    edit_of_message_id: editOfMessageIdSchema
   })
   .strict();
 
@@ -38,6 +44,18 @@ export const generationRequestSchema = z.discriminatedUnion('usage_mode', [
   byokGenerationSchema
 ]);
 export type GenerationRequestInput = z.infer<typeof generationRequestSchema>;
+
+// One displayed bubble of an Agent turn, persisted at the moment it is shown. The
+// client-supplied message_id makes the write idempotent under retries; bubble_no is
+// the 1-based ordinal within the turn (capped to MAX_MESSAGES_PER_TURN).
+export const turnBubbleSchema = z
+  .object({
+    message_id: z.uuid(),
+    text: z.string().trim().min(1).max(32_000),
+    bubble_no: z.number().int().min(1).max(4)
+  })
+  .strict();
+export type TurnBubbleInput = z.infer<typeof turnBubbleSchema>;
 
 export const providerConnectionValidationSchema = z
   .object({

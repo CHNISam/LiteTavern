@@ -60,4 +60,56 @@ describe('HSR message shell', () => {
     expect(screen.getAllByText('导入角色卡').length).toBeGreaterThan(0);
     expect(screen.getByText('模型选择')).toBeInTheDocument();
   });
+
+  it('copies a sent message and edits it into a new multi-bubble turn', async () => {
+    const turns: Array<Record<string, unknown>> = [];
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const path = String(input);
+      if (path === '/v1/identities/anonymous') return json({ user_id: 'user-1' });
+      if (path === '/v1/characters') return json({ characters: [{
+        character_id: 'firefly-card', name: '流萤', profile_summary: '星核猎手成员',
+        personality_summary: '温柔而坚定', first_message: '又见面了。', avatar_seed: '流萤',
+        is_owned: true, last_message: null
+      }] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
+      if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [
+        { message_id: 'm-1', role: 'ASSISTANT', content_text: '又见面了。', status: 'COMPLETED' },
+        { message_id: 'm-2', role: 'USER', content_text: '你认为呢', status: 'COMPLETED' },
+        { message_id: 'm-3', role: 'ASSISTANT', content_text: '我认为该出发了。', status: 'COMPLETED' }
+      ] });
+      if (path === '/v1/conversations/conversation-1/reply-suggestions') return json({ suggestions: [] });
+      if (path === '/v1/conversations/conversation-1/turns') {
+        turns.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return json({ turn_id: 'turn-1', messages: ['那就走吧。'] }, 201);
+      }
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('你认为呢')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '复制消息' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('你认为呢'));
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑消息' }));
+    const editor = await screen.findByRole('textbox', { name: '编辑消息内容' });
+    expect(editor).toHaveValue('你认为呢');
+    fireEvent.change(editor, { target: { value: '你先说' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+
+    // The edit generates one turn carrying the rewritten text, and optimistically
+    // drops the old branch (the original message + the reply that followed it).
+    await waitFor(() => expect(turns).toHaveLength(1));
+    expect(turns[0]).toMatchObject({
+      edit_of_message_id: 'm-2',
+      input: { type: 'text', text: '你先说' }
+    });
+    await waitFor(() => expect(screen.getByText('你先说')).toBeInTheDocument());
+    expect(screen.queryByText('你认为呢')).not.toBeInTheDocument();
+    expect(screen.queryByText('我认为该出发了。')).not.toBeInTheDocument();
+  });
 });

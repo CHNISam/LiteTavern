@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS agent_character (
   personality_summary TEXT,
   first_message TEXT,
   avatar_seed VARCHAR(100),
+  avatar_object_key VARCHAR(500),
   active_card_version_id UUID,
   default_model_configuration_id UUID,
   status VARCHAR(20) NOT NULL DEFAULT 'DRAFT'
@@ -47,13 +48,20 @@ CREATE TABLE IF NOT EXISTS agent_character_card_version (
   character_id UUID NOT NULL REFERENCES agent_character(character_id),
   version_no INTEGER NOT NULL,
   source_format VARCHAR(30) NOT NULL
-    CHECK (source_format IN ('CCV2_JSON', 'CCV2_PNG', 'CCV3_JSON', 'CCV3_PNG', 'INTERNAL')),
+    CHECK (source_format IN (
+      'CCV1_JSON', 'CCV1_PNG',
+      'CCV2_JSON', 'CCV2_PNG',
+      'CCV3_JSON', 'CCV3_PNG',
+      'INTERNAL'
+    )),
   source_spec_version VARCHAR(20),
   import_status VARCHAR(20) NOT NULL DEFAULT 'UPLOADED'
     CHECK (import_status IN ('UPLOADED', 'PARSING', 'READY', 'FAILED')),
   raw_object_key VARCHAR(500),
   checksum_sha256 VARCHAR(64),
   normalized_data JSONB,
+  passthrough_data JSONB NOT NULL DEFAULT '{"root":{},"data":{}}'::jsonb,
+  source_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   preserved_data JSONB,
   parser_version VARCHAR(30),
   warning_json JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -344,6 +352,50 @@ CREATE INDEX idx_model_configuration_connection
   WHERE deleted_at IS NULL;
 `;
 
+const CHARACTER_CARD_MODEL_MIGRATION_SQL = String.raw`
+ALTER TABLE agent_character
+  ADD COLUMN IF NOT EXISTS avatar_object_key VARCHAR(500);
+
+ALTER TABLE agent_character_card_version
+  ADD COLUMN IF NOT EXISTS passthrough_data JSONB
+    NOT NULL DEFAULT '{"root":{},"data":{}}'::jsonb;
+ALTER TABLE agent_character_card_version
+  ADD COLUMN IF NOT EXISTS source_metadata JSONB
+    NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE agent_character_card_version
+  DROP CONSTRAINT IF EXISTS agent_character_card_version_source_format_check;
+ALTER TABLE agent_character_card_version
+  ADD CONSTRAINT agent_character_card_version_source_format_check
+  CHECK (source_format IN (
+    'CCV1_JSON', 'CCV1_PNG',
+    'CCV2_JSON', 'CCV2_PNG',
+    'CCV3_JSON', 'CCV3_PNG',
+    'INTERNAL'
+  ));
+`;
+
+// Multi-bubble turns: one model call (one generation_request) now yields 1–4
+// assistant messages, so the 1:1 UNIQUE on generation_request_id is dropped and a
+// per-turn bubble ordinal is added. The partial unique index keeps bubble writes
+// idempotent without affecting legacy single-bubble rows (turn_bubble_no IS NULL).
+const MULTI_BUBBLE_TURN_MIGRATION_SQL = String.raw`
+ALTER TABLE chat_message
+  DROP CONSTRAINT IF EXISTS chat_message_generation_request_id_key;
+CREATE INDEX IF NOT EXISTS idx_message_generation_request
+  ON chat_message(generation_request_id)
+  WHERE generation_request_id IS NOT NULL;
+ALTER TABLE chat_message
+  ADD COLUMN IF NOT EXISTS turn_bubble_no INTEGER;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_message_turn_bubble
+  ON chat_message(generation_request_id, turn_bubble_no)
+  WHERE turn_bubble_no IS NOT NULL;
+-- A turn now holds several active assistant bubbles sharing one turn_no, so the
+-- one-active-assistant-per-turn index no longer holds. Uniqueness moves to the
+-- (generation_request_id, turn_bubble_no) index above.
+DROP INDEX IF EXISTS idx_one_active_assistant_variant;
+`;
+
 export const MIGRATIONS = [
   {
     version: 1,
@@ -354,5 +406,15 @@ export const MIGRATIONS = [
     version: 2,
     name: 'provider_connections',
     sql: PROVIDER_CONNECTION_MIGRATION_SQL
+  },
+  {
+    version: 3,
+    name: 'character_card_model',
+    sql: CHARACTER_CARD_MODEL_MIGRATION_SQL
+  },
+  {
+    version: 4,
+    name: 'multi_bubble_turns',
+    sql: MULTI_BUBBLE_TURN_MIGRATION_SQL
   }
 ] satisfies readonly DatabaseMigration[];

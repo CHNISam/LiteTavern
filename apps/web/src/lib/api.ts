@@ -5,6 +5,7 @@ export interface Character {
   personality_summary: string;
   first_message: string;
   avatar_seed: string;
+  version?: number;
   is_owned?: boolean;
   conversation_id?: string | null;
   last_message?: string | null;
@@ -52,6 +53,33 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const payload = (await response.json()) as T & { error?: { message?: string } };
   if (!response.ok) throw new Error(payload.error?.message ?? '请求失败，请稍后重试。');
   return payload;
+}
+
+export interface TurnPlan {
+  turn_id: string;
+  messages: string[];
+}
+
+// Generate a whole Agent turn (1–4 bubbles) in one model call. The bubbles are not
+// persisted server-side here — the client reveals and saves them one by one.
+export async function generateTurn(conversationId: string, payload: unknown): Promise<TurnPlan> {
+  return api<TurnPlan>(`/v1/conversations/${conversationId}/turns`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': createId() },
+    body: JSON.stringify(payload)
+  });
+}
+
+// Persist one bubble at the instant it is displayed ("show one, write one").
+export async function saveTurnBubble(
+  conversationId: string,
+  turnId: string,
+  bubble: { message_id: string; text: string; bubble_no: number }
+): Promise<void> {
+  await api(`/v1/conversations/${conversationId}/turns/${turnId}/bubbles`, {
+    method: 'POST',
+    body: JSON.stringify(bubble)
+  });
 }
 
 export async function streamGeneration(

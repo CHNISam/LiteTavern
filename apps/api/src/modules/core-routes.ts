@@ -24,7 +24,8 @@ export function registerCoreRoutes(app: FastifyInstance, database: PomChatDataba
     const result = await database.query(
       `SELECT
          c.character_id, c.name, c.profile_summary, c.personality_summary,
-         c.first_message, c.avatar_seed, (c.owner_user_id = $1) AS is_owned,
+         c.first_message, c.avatar_seed, c.version,
+         (c.owner_user_id = $1) AS is_owned,
          conversation.conversation_id,
          conversation.last_message_at,
          latest.content_text AS last_message
@@ -56,8 +57,8 @@ export function registerCoreRoutes(app: FastifyInstance, database: PomChatDataba
     async (request) => {
       const userId = await resolveUserId(request, database);
       const result = await database.query(
-        `SELECT c.character_id, c.name, c.profile_summary, c.personality_summary,
-                c.first_message, c.avatar_seed,
+      `SELECT c.character_id, c.name, c.profile_summary, c.personality_summary,
+                c.first_message, c.avatar_seed, c.version,
                 r.summary_text AS relationship_summary,
                 r.state_json AS relationship_state
          FROM agent_character c
@@ -88,26 +89,33 @@ export function registerCoreRoutes(app: FastifyInstance, database: PomChatDataba
     if (existing.rows[0]) return existing.rows[0];
 
     const conversationId = randomUUID();
-    const opening = await database.query<{ first_message: string; name: string }>(
+    const opening = await database.query<{ first_message: string | null; name: string }>(
       `SELECT first_message, name FROM agent_character WHERE character_id = $1`,
       [characterId]
     );
+    // A character created without an opening line (empty first_message) starts with
+    // an empty conversation — inserting a blank assistant message would render as a
+    // never-ending "typing" bubble.
+    const firstMessage = opening.rows[0]?.first_message?.trim() ?? '';
+    const hasOpening = firstMessage.length > 0;
     await database.exec('BEGIN');
     try {
       await database.query(
         `INSERT INTO chat_conversation (
            conversation_id, user_id, character_id, title,
            next_sequence_no, next_turn_no, last_message_at
-         ) VALUES ($1, $2, $3, $4, 2, 1, CURRENT_TIMESTAMP)`,
-        [conversationId, userId, characterId, `与${opening.rows[0]?.name ?? '角色'}的对话`]
+         ) VALUES ($1, $2, $3, $4, $5, 1, CURRENT_TIMESTAMP)`,
+        [conversationId, userId, characterId, `与${opening.rows[0]?.name ?? '角色'}的对话`, hasOpening ? 2 : 1]
       );
-      await database.query(
-        `INSERT INTO chat_message (
-           message_id, conversation_id, sequence_no, turn_no, variant_no,
-           role, content_text, status, completed_at
-         ) VALUES ($1, $2, 1, 0, 0, 'ASSISTANT', $3, 'COMPLETED', CURRENT_TIMESTAMP)`,
-        [randomUUID(), conversationId, opening.rows[0]?.first_message ?? '你好。']
-      );
+      if (hasOpening) {
+        await database.query(
+          `INSERT INTO chat_message (
+             message_id, conversation_id, sequence_no, turn_no, variant_no,
+             role, content_text, status, completed_at
+           ) VALUES ($1, $2, 1, 0, 0, 'ASSISTANT', $3, 'COMPLETED', CURRENT_TIMESTAMP)`,
+          [randomUUID(), conversationId, firstMessage]
+        );
+      }
       await database.query(
         `INSERT INTO agent_relationship (
            relationship_id, user_id, character_id, summary_text, state_json
