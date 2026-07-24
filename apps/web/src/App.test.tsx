@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 
@@ -92,10 +92,18 @@ describe('HSR message shell', () => {
     render(<App />);
 
     expect(await screen.findByText('你认为呢')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '复制消息' }));
+    // Both user and character bubbles now expose a copy button; scope to each one.
+    const userBubble = screen.getByText('你认为呢').closest('.hsr-message') as HTMLElement;
+    fireEvent.click(within(userBubble).getByRole('button', { name: '复制消息' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('你认为呢'));
 
-    fireEvent.click(screen.getByRole('button', { name: '编辑消息' }));
+    const charBubble = screen.getByText('我认为该出发了。', { selector: '.message-bubble' }).closest('.hsr-message') as HTMLElement;
+    fireEvent.click(within(charBubble).getByRole('button', { name: '复制消息' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('我认为该出发了。'));
+    // The character bubble offers copy only, never edit.
+    expect(within(charBubble).queryByRole('button', { name: '编辑消息' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(userBubble).getByRole('button', { name: '编辑消息' }));
     const editor = await screen.findByRole('textbox', { name: '编辑消息内容' });
     expect(editor).toHaveValue('你认为呢');
     fireEvent.change(editor, { target: { value: '你先说' } });

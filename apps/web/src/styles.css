@@ -493,6 +493,9 @@ button { color: inherit; }
   margin-top: 4px;
 }
 .hsr-message.from-user { margin-bottom: 0; }
+/* Character bubbles sit on the left, so their action row aligns to the left edge. */
+.hsr-message.from-character .message-actions { justify-content: flex-start; }
+.hsr-message.from-character { margin-bottom: 12px; }
 .message-actions button {
   display: grid;
   place-items: center;

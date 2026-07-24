@@ -406,7 +406,7 @@ function autoGrow(element: HTMLTextAreaElement) {
 
 // Copy is always available; editing is held back while a reply streams so an edit
 // can never race the generation it would invalidate.
-function MessageActions({ text, editable, onEdit }: { text: string; editable: boolean; onEdit: () => void }) {
+function MessageActions({ text, editable = false, onEdit }: { text: string; editable?: boolean; onEdit?: () => void }) {
   const [copied, setCopied] = useState(false);
   const revert = useRef<number>(0);
   useEffect(() => () => window.clearTimeout(revert.current), []);
@@ -423,7 +423,7 @@ function MessageActions({ text, editable, onEdit }: { text: string; editable: bo
       <button type="button" onClick={() => void copy()} title={copied ? '已复制' : '复制'} aria-label={copied ? '已复制' : '复制消息'}>
         {copied ? <Check size={16} /> : <Copy size={16} />}
       </button>
-      {editable && (
+      {editable && onEdit && (
         <button type="button" onClick={onEdit} title="编辑消息" aria-label="编辑消息">
           <Pencil size={16} />
         </button>
@@ -542,11 +542,11 @@ function ChatPage({ character, messages, draft, sending, error, usageMode, confi
                 ) : (
                   <>
                     <div className="message-bubble">{message.content_text}</div>
-                    {message.role === 'USER' && message.content_text && (
+                    {message.content_text && (
                       <MessageActions
                         text={message.content_text}
-                        editable={!sending}
-                        onEdit={() => setEditingId(message.message_id)}
+                        editable={message.role === 'USER' && !sending}
+                        {...(message.role === 'USER' ? { onEdit: () => setEditingId(message.message_id) } : {})}
                       />
                     )}
                   </>
