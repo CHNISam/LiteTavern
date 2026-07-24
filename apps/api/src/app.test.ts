@@ -87,6 +87,11 @@ describe('PomChat API', () => {
       baseUrl: 'https://api.openai.com/v1',
       apiKeyRequired: true
     });
+    expect(openai).not.toHaveProperty('authMethods');
+    expect(JSON.stringify(openai)).not.toContain('codex-device-code');
+    expect(response.json().capabilities).toEqual({
+      openai_web_oauth_enabled: false
+    });
     expect(response.json().providers).not.toContainEqual(
       expect.objectContaining({ id: 'demo' })
     );

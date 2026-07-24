@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  OPENAI_WEB_OAUTH_ENABLED,
   PROVIDERS,
   ProviderRegistry,
   getProvider,
@@ -62,6 +63,27 @@ describe('provider registry', () => {
       'openai-codex-app-server',
       'openai-api'
     ]);
+  });
+
+  it('keeps OpenAI Web OAuth disabled and Codex device login scoped to Codex', () => {
+    const openai = getProvider('openai');
+    const codexDeviceCode = openai.authMethods.find(
+      (method) => method.id === 'codex-device-code'
+    );
+
+    expect(OPENAI_WEB_OAUTH_ENABLED).toBe(false);
+    expect(codexDeviceCode).toMatchObject({
+      kind: 'device_code',
+      runtimeAdapterId: 'openai-codex-app-server'
+    });
+    expect(codexDeviceCode?.kind).not.toBe('oauth');
+    expect(openai.authMethods).toContainEqual(
+      expect.objectContaining({
+        id: 'api-key',
+        kind: 'api_key',
+        runtimeAdapterId: 'openai-api'
+      })
+    );
   });
 
   it('does not expose a single protocol or API key requirement on provider definitions', () => {

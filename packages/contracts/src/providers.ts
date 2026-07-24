@@ -1,6 +1,11 @@
 export type ProviderProtocol = 'demo' | 'openai-compatible' | 'anthropic' | 'google';
 export type ProviderRegion = 'CN' | 'GLOBAL' | 'LOCAL' | 'CUSTOM';
 
+// OpenAI has not published a general third-party Web OAuth flow that grants
+// model API access. Keep this static until the official support conditions in
+// the v0.1.0 ADR are met.
+export const OPENAI_WEB_OAUTH_ENABLED = false;
+
 export type AuthMethodKind =
   | 'oauth'
   | 'device_code'
@@ -447,6 +452,8 @@ function localAuthMethod(providerId: string): AuthMethodDefinition {
 
 function authMethodsFor(preset: ProviderRuntimePreset): readonly AuthMethodDefinition[] {
   if (preset.id === 'openai') {
+    // These are Codex-product integrations, not general OpenAI Web OAuth.
+    // The Web provider catalog intentionally exposes only the API-key preset.
     return [
       {
         id: 'codex-device-code',
