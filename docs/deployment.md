@@ -3,8 +3,8 @@
 ## 部署结构
 
 - GitHub：`CHNISam/PomChat`，自动部署分支 `feature/cloudflare-deployment`
-- Cloudflare Pages：`pomchat-v010`，提供静态前端、免费 `pages.dev` 域名和同源 `/v1/*` 代理
-- Cloudflare Worker：`pomchat-gateway`，提供公开 API 网关和受保护的模型出站代理
+- Cloudflare Pages：`pomchat-v010`，生产地址 `https://pomchat-v010.pages.dev`
+- Cloudflare Worker：`pomchat-gateway`，生产地址 `https://pomchat-gateway.1580811831.workers.dev`
 - Render Web Service：`pomchat-api-v010`（Free），运行 Fastify/PGlite API
 
 Render 免费实例会休眠，且本地文件系统在重启、重新部署或休眠恢复后可能重置。该限制仅适用于首次公开测试版。
@@ -22,9 +22,10 @@ Node.js：22.22.0
 
 Worker：
 
-```bash
-npm run build --workspace @pomchat/worker
-npm run deploy:worker
+```text
+根目录：/
+构建命令：npm ci && npm run build --workspace @pomchat/worker
+部署命令：npx wrangler deploy --config wrangler.jsonc
 ```
 
 Render：
@@ -78,7 +79,13 @@ npm run dev
 
 ## 自动部署与回滚
 
-GitHub 分支 `feature/cloudflare-deployment` 的后续推送会触发 Pages 和 Render 自动部署。Worker 使用 Wrangler 手动发布。
+GitHub 分支 `feature/cloudflare-deployment` 的后续推送会触发 Pages、Worker 和 Render 自动部署。
+
+需要从本地手动重新发布 Worker 时：
+
+```bash
+npm run deploy:worker
+```
 
 - Pages：在项目 Deployments 中选择上一条成功部署并执行回滚
 - Worker：在 Workers & Pages 的 Deployments 中选择上一版本并回滚
