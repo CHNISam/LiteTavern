@@ -8,6 +8,7 @@ coverage/
 .dev.vars.*
 .wrangler/
 worker-configuration.d.ts
+_worker.bundle
 *.log
 .pomchat/
 .tmp/
