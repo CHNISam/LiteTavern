@@ -25,7 +25,7 @@ Worker：
 ```text
 根目录：/
 构建命令：npm ci && npm run build --workspace @pomchat/worker
-部署命令：npx wrangler deploy --config wrangler.jsonc
+部署命令：npx wrangler deploy --config apps/worker/wrangler.jsonc
 ```
 
 Render：
