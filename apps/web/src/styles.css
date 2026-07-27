@@ -593,7 +593,17 @@ button { color: inherit; }
 }
 .model-bar button:hover { color: var(--ink-1); }
 .model-bar button.active { color: var(--gold-deep); background: rgba(198, 164, 92, 0.14); }
+.model-bar button:disabled { color: var(--ink-3); cursor: default; opacity: 0.72; }
 .model-bar select { max-width: 240px; margin-left: 4px; padding: 4px 8px; border: 1px solid var(--paper-line); border-radius: 8px; background: rgba(255, 255, 255, 0.5); color: var(--ink-2); font-size: 12px; }
+.platform-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0 0 5px;
+  color: #8b7040;
+  font-size: 12px;
+}
 
 /* Suggested replies — the signature in-game "pick an option" interaction:
    full-width options stacked vertically, reproduced with model candidates. */

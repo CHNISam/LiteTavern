@@ -38,24 +38,27 @@ export interface ModelGateway {
   complete(input: ProviderStreamInput): Promise<string>;
 }
 
-function createModel(input: ProviderGatewayInput) {
+function createModel(input: ProviderGatewayInput, fetchImpl: typeof fetch) {
   const preset = getProviderRuntimePreset(input.provider);
   if (preset.protocol === 'anthropic') {
     return createAnthropic({
       apiKey: input.apiKey,
+      fetch: fetchImpl,
       ...(input.baseUrl ? { baseURL: input.baseUrl } : {})
     })(input.model);
   }
   if (preset.protocol === 'google') {
     return createGoogleGenerativeAI({
       apiKey: input.apiKey,
+      fetch: fetchImpl,
       ...(input.baseUrl ? { baseURL: input.baseUrl } : {})
     })(input.model);
   }
   const compatible = createOpenAICompatible({
     name: input.provider,
     apiKey: input.apiKey || 'local-no-key',
-    baseURL: input.baseUrl
+    baseURL: input.baseUrl,
+    fetch: fetchImpl
   });
   return compatible(input.model);
 }
@@ -67,7 +70,8 @@ async function* demoText(message: string) {
   for (const part of response.match(/.{1,8}/gu) ?? []) yield part;
 }
 
-export function createModelGateway(): ModelGateway {
+export function createModelGateway(options: { fetchImpl?: typeof fetch } = {}): ModelGateway {
+  const fetchImpl = options.fetchImpl ?? fetch;
   return {
     async validate(input) {
       const startedAt = performance.now();
@@ -83,7 +87,7 @@ export function createModelGateway(): ModelGateway {
         });
         if (preset.modelDiscovery === 'manual' || models.length === 0) {
           await generateText({
-            model: createModel(input),
+            model: createModel(input, fetchImpl),
             prompt: 'Reply with OK.',
             maxOutputTokens: 2,
             maxRetries: 0
@@ -112,7 +116,7 @@ export function createModelGateway(): ModelGateway {
           else headers.set('Authorization', `Bearer ${input.apiKey}`);
         }
         const path = preset.protocol === 'google' ? '/v1beta/models' : '/models';
-        const response = await fetch(`${baseUrl}${path}`, {
+        const response = await fetchImpl(`${baseUrl}${path}`, {
           headers,
           signal: AbortSignal.timeout(12_000)
         });
@@ -142,7 +146,7 @@ export function createModelGateway(): ModelGateway {
       }
       try {
         const result = streamText({
-          model: createModel(input),
+          model: createModel(input, fetchImpl),
           system: input.system,
           messages: input.messages,
           maxOutputTokens: input.maxOutputTokens ?? 2048,
@@ -167,7 +171,7 @@ export function createModelGateway(): ModelGateway {
       }
       try {
         const { text } = await generateText({
-          model: createModel(input),
+          model: createModel(input, fetchImpl),
           system: input.system,
           messages: input.messages,
           maxOutputTokens: input.maxOutputTokens ?? 256,

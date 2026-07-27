@@ -33,6 +33,7 @@ async function setup(completeReturn = '{"messages":["第一条","第二条","第
     database,
     gateway,
     platform: {
+      enabled: true,
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
       baseUrl: 'https://api.deepseek.com',

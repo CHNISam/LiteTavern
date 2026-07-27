@@ -15,6 +15,7 @@ import {
   type ModelGateway
 } from './modules/providers/model-gateway.js';
 import { loadPlatformProviderConfig, type PlatformProviderConfig } from './modules/providers/credentials.js';
+import { createModelProxyFetch } from './modules/providers/model-proxy-fetch.js';
 import { seedPlatformData } from './seed.js';
 import {
   createFileCharacterAssetStore,
@@ -35,8 +36,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const database =
     options.database ??
     (await createDatabase({ dataDir: process.env.POMCHAT_DATA_DIR ?? '.pomchat/database' }));
-  const gateway = options.gateway ?? createModelGateway();
   const platform = options.platform ?? loadPlatformProviderConfig();
+  const modelProxyUrl = process.env.POMCHAT_MODEL_PROXY_URL;
+  const modelProxyToken = process.env.POMCHAT_MODEL_PROXY_TOKEN;
+  if (!options.gateway && Boolean(modelProxyUrl) !== Boolean(modelProxyToken)) {
+    throw new Error('POMCHAT_MODEL_PROXY_URL and POMCHAT_MODEL_PROXY_TOKEN must be configured together');
+  }
+  const gateway = options.gateway ?? createModelGateway({
+    ...(modelProxyUrl && modelProxyToken
+      ? {
+          fetchImpl: createModelProxyFetch({
+            proxyUrl: modelProxyUrl,
+            proxyToken: modelProxyToken
+          })
+        }
+      : {})
+  });
   const assetStore = options.assetStore ??
     (process.env.NODE_ENV === 'test'
       ? createMemoryCharacterAssetStore()
@@ -115,7 +130,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.decorate('pomchat', { database, gateway, platform });
 
   app.get('/health', async () => ({ status: 'ok', version: '0.1.0' }));
-  registerIdentityRoutes(app, database);
+  registerIdentityRoutes(app, database, { platformAvailable: platform.enabled });
   registerCoreRoutes(app, database);
   registerModelRoutes(app, database, gateway);
   registerGenerationRoutes(app, { database, gateway, platform });

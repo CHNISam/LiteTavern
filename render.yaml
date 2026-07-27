@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: pomchat-api-v010
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start --workspace @pomchat/api
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: POMCHAT_DATA_DIR
+        value: /tmp/pomchat/database
+      - key: POMCHAT_ASSET_DIR
+        value: /tmp/pomchat/assets
+      - key: POMCHAT_PLATFORM_ENABLED
+        value: "false"
+      - key: POMCHAT_WEB_ORIGIN
+        value: https://pomchat-v010.pages.dev
+      - key: POMCHAT_MODEL_PROXY_URL
+        sync: false
+      - key: POMCHAT_MODEL_PROXY_TOKEN
+        sync: false

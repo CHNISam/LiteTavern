@@ -30,13 +30,18 @@ export async function resolveUserId(
   return userId;
 }
 
-export function registerIdentityRoutes(app: FastifyInstance, database: PomChatDatabase) {
+export function registerIdentityRoutes(
+  app: FastifyInstance,
+  database: PomChatDatabase,
+  options: { platformAvailable: boolean }
+) {
+  const capabilities = { platform_available: options.platformAvailable };
   app.post('/v1/identities/anonymous', async (request, reply) => {
     const existingToken = request.cookies[ANONYMOUS_COOKIE];
     if (existingToken) {
       try {
         const userId = await resolveUserId(request, database);
-        return { user: { user_id: userId, identity_type: 'ANONYMOUS' } };
+        return { user: { user_id: userId, identity_type: 'ANONYMOUS' }, capabilities };
       } catch {
         // Replace invalid or revoked tokens with a fresh identity.
       }
@@ -66,7 +71,7 @@ export function registerIdentityRoutes(app: FastifyInstance, database: PomChatDa
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 365
     });
-    return { user: { user_id: userId, identity_type: 'ANONYMOUS' } };
+    return { user: { user_id: userId, identity_type: 'ANONYMOUS' }, capabilities };
   });
 }
 

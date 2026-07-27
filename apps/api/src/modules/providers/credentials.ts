@@ -1,4 +1,9 @@
+import { AppError } from '../../lib/errors.js';
+
+export const PLATFORM_MANAGED_CREDENTIAL_SENTINEL = '__POMCHAT_PLATFORM_MANAGED__';
+
 export interface PlatformProviderConfig {
+  enabled: boolean;
   provider: string;
   model: string;
   baseUrl: string;
@@ -49,9 +54,16 @@ export function resolveCredential(input: {
 }): Extract<ResolvedCredential, { source: 'BROWSER_LOCAL' }>;
 export function resolveCredential(input: ResolveCredentialInput): ResolvedCredential {
   if (input.usageMode === 'PLATFORM') {
+    if (!input.platform.enabled) {
+      throw new AppError(
+        'PLATFORM_NOT_CONFIGURED',
+        'PomChat 官方额度暂未配置，请使用自带模型。',
+        503
+      );
+    }
     return {
       source: 'PLATFORM_MANAGED',
-      apiKey: input.platform.apiKey,
+      apiKey: input.platform.apiKey || PLATFORM_MANAGED_CREDENTIAL_SENTINEL,
       provider: input.platform.provider,
       model: input.platform.model,
       baseUrl: input.platform.baseUrl
@@ -71,6 +83,7 @@ export function loadPlatformProviderConfig(
 ): PlatformProviderConfig {
   const provider = environment.POMCHAT_PLATFORM_PROVIDER ?? 'demo';
   return {
+    enabled: environment.POMCHAT_PLATFORM_ENABLED === 'true',
     provider,
     model: environment.POMCHAT_PLATFORM_MODEL ?? 'pomchat-demo',
     baseUrl: environment.POMCHAT_PLATFORM_BASE_URL ?? '',

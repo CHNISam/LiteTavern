@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pomchat-gateway",
+  "main": "apps/worker/src/index.ts",
+  "compatibility_date": "2026-07-27",
+  "workers_dev": true,
+  "observability": {
+    "enabled": false
+  },
+  "vars": {
+    "BACKEND_ORIGIN": "https://pomchat-api-v010.onrender.com",
+    "POMCHAT_WEB_ORIGIN": "https://pomchat-v010.pages.dev"
+  }
+}

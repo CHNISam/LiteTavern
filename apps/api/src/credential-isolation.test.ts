@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveCredential, type PlatformProviderConfig } from './modules/providers/credentials.js';
 
 const platform: PlatformProviderConfig = {
+  enabled: true,
   provider: 'deepseek',
   model: 'deepseek-v4-flash',
   baseUrl: 'https://api.deepseek.com',
@@ -20,6 +21,15 @@ describe('credential isolation', () => {
     expect(() =>
       resolveCredential({ usageMode: 'BYOK', platform, browserCredential: undefined })
     ).toThrow('CREDENTIAL_REQUIRED');
+  });
+
+  it('fails closed when the official provider is not configured', () => {
+    expect(() =>
+      resolveCredential({
+        usageMode: 'PLATFORM',
+        platform: { ...platform, enabled: false, apiKey: '' }
+      })
+    ).toThrow('PomChat 官方额度暂未配置');
   });
 
   it('uses only the explicit browser key for BYOK usage', () => {

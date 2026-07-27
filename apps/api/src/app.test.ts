@@ -29,6 +29,30 @@ async function anonymousCookie(app: Awaited<ReturnType<typeof buildApp>>) {
 }
 
 describe('PomChat API', () => {
+  it('exposes that the official provider is unavailable without inventing quota', async () => {
+    const { app } = await setup({
+      platform: {
+        enabled: false,
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: '',
+        dailyTokenQuota: 50_000
+      }
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/identities/anonymous'
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().capabilities).toEqual({
+      platform_available: false
+    });
+    expect(response.body).not.toContain('apiKey');
+  });
+
   it('rejects state-changing browser requests from an untrusted origin', async () => {
     const { app } = await setup();
 

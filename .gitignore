@@ -2,7 +2,12 @@ node_modules/
 dist/
 coverage/
 .env
-.env.local
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+.wrangler/
+worker-configuration.d.ts
 *.log
 .pomchat/
 .tmp/

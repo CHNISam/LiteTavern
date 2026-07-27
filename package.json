@@ -16,7 +16,9 @@
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
-    "check": "npm-run-all typecheck lint test build"
+    "check": "npm-run-all typecheck lint test build",
+    "deploy:worker": "npm run deploy --workspace @pomchat/worker",
+    "verify:deployment": "node scripts/verify-deployment.mjs"
   },
   "engines": {
     "node": ">=22"

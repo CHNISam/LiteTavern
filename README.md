@@ -35,6 +35,15 @@ v0.1.0 正在开发。首个体验角色方向为流萤，具体角色卡由用�
 
 PomChat 官方额度使用服务端独立配置的官方 Provider 凭证。官方凭证、用户凭证与计费逻辑完全隔离。
 
+## 公开测试部署
+
+v0.1.0 使用 Cloudflare Pages（前端与同源函数）、Cloudflare Worker（API
+网关与模型代理）及免费兼容 Node.js 后端。官方 Provider Key 仅允许配置为
+Worker Secret；未配置时界面会明确显示官方额度不可用。
+
+部署维护、变量名称、自动部署与回滚方式见
+[`docs/deployment.md`](docs/deployment.md)。
+
 ## 本地开发
 
 要求 Node.js 22 或更高版本。

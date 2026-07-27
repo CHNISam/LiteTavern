@@ -15,6 +15,38 @@ afterEach(() => {
 });
 
 describe('HSR message shell', () => {
+  it('shows a clear disabled state when official quota is not configured', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      if (path === '/v1/identities/anonymous') {
+        return json({
+          user: { user_id: 'user-1' },
+          capabilities: { platform_available: false }
+        });
+      }
+      if (path === '/v1/characters') return json({ characters: [{
+        character_id: 'firefly-card', name: '流萤', profile_summary: '星核猎手成员',
+        personality_summary: '温柔而坚定', first_message: '又见面了。', avatar_seed: '流萤',
+        is_owned: true, last_message: null
+      }] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
+      if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
+      if (path === '/v1/providers') {
+        return json({ providers: [], capabilities: { openai_web_oauth_enabled: false } });
+      }
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('官方额度暂未配置，请使用自带模型。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '官方额度未配置' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '自带模型' }));
+    expect(await screen.findByRole('dialog', { name: '模型与 API Key' })).toBeInTheDocument();
+  });
+
   it('starts empty and asks for a Firefly character card instead of inventing characters', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);

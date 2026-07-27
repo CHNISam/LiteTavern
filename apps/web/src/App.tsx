@@ -44,6 +44,7 @@ export function App() {
   const [editorCharacterId, setEditorCharacterId] = useState<string | undefined>();
   const [configurations, setConfigurations] = useState<ModelConfiguration[]>([]);
   const [usageMode, setUsageMode] = useState<'PLATFORM' | 'BYOK'>('PLATFORM');
+  const [platformAvailable, setPlatformAvailable] = useState(true);
   const [selectedConfigurationId, setSelectedConfigurationId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -142,7 +143,11 @@ export function App() {
   }
 
   async function bootstrap() {
-    await api('/v1/identities/anonymous', { method: 'POST' });
+    const identity = await api<{
+      capabilities?: { platform_available?: boolean };
+    }>('/v1/identities/anonymous', { method: 'POST' });
+    const officialAvailable = identity.capabilities?.platform_available !== false;
+    setPlatformAvailable(officialAvailable);
     const [characterResponse, configurationResponse] = await Promise.all([
       api<{ characters: Character[] }>('/v1/characters'),
       api<{ configurations: ModelConfiguration[] }>('/v1/model-configurations')
@@ -151,6 +156,7 @@ export function App() {
     setConfigurations(configurationResponse.configurations);
     if (configurationResponse.configurations[0]) {
       setSelectedConfigurationId(configurationResponse.configurations[0].model_configuration_id);
+      if (!officialAvailable) setUsageMode('BYOK');
     }
     if (characterResponse.characters[0]) await openCharacter(characterResponse.characters[0]);
   }
@@ -164,7 +170,12 @@ export function App() {
   // Resolve the model selector (usage mode + BYOK credentials) shared by both
   // message sending and reply-suggestion requests.
   async function resolveModelSelector(): Promise<Record<string, unknown>> {
-    if (usageMode !== 'BYOK') return { usage_mode: 'PLATFORM' };
+    if (usageMode !== 'BYOK') {
+      if (!platformAvailable) {
+        throw new Error('PomChat 官方额度暂未配置，请使用自带模型。');
+      }
+      return { usage_mode: 'PLATFORM' };
+    }
     const configuration = configurations.find((item) => item.model_configuration_id === selectedConfigurationId);
     if (!configuration) throw new Error('请先添加一个用户自带模型。');
     const key = await credentialStore.readSecret(configuration.credential_id);
@@ -284,7 +295,8 @@ export function App() {
         ) : view === 'chat' ? (
           <ChatPage
             character={active} messages={messages} draft={draft} sending={sending} error={error}
-            usageMode={usageMode} configurations={configurations} selectedConfigurationId={selectedConfigurationId}
+            usageMode={usageMode} platformAvailable={platformAvailable}
+            configurations={configurations} selectedConfigurationId={selectedConfigurationId}
             suggestions={suggestions} suggesting={suggesting} typing={typing}
             onProfile={() => setView('profile')} onDraft={setDraft} onSend={send} onPick={(text) => void submit(text)}
             onEditSubmit={(messageId, text) => void submit(text, messageId)}
@@ -297,7 +309,7 @@ export function App() {
           <MemoryPage character={active} onBack={() => setView('profile')} onChat={() => setView('chat')} />
         ) : (
           <CharacterSettingsPage
-            character={active} configurations={configurations}
+            character={active} configurations={configurations} platformAvailable={platformAvailable}
             onBack={() => setView('profile')} onImport={() => setImportOpen(true)}
             onEdit={() => {
               setEditorCharacterId(active.character_id);
@@ -468,9 +480,10 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   );
 }
 
-function ChatPage({ character, messages, draft, sending, error, usageMode, configurations, selectedConfigurationId, suggestions, suggesting, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider }: {
+function ChatPage({ character, messages, draft, sending, error, usageMode, platformAvailable, configurations, selectedConfigurationId, suggestions, suggesting, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider }: {
   character: Character; messages: Message[]; draft: string; sending: boolean; error: string | null;
-  usageMode: 'PLATFORM' | 'BYOK'; configurations: ModelConfiguration[]; selectedConfigurationId: string;
+  usageMode: 'PLATFORM' | 'BYOK'; platformAvailable: boolean;
+  configurations: ModelConfiguration[]; selectedConfigurationId: string;
   suggestions: string[]; suggesting: boolean; typing: boolean;
   onProfile: () => void; onDraft: (value: string) => void; onSend: (event: FormEvent) => void; onPick: (text: string) => void;
   onEditSubmit: (messageId: string, text: string) => void;
@@ -585,8 +598,20 @@ function ChatPage({ character, messages, draft, sending, error, usageMode, confi
             )}
           </div>
         )}
+        {!platformAvailable && usageMode === 'PLATFORM' && (
+          <p className="platform-unavailable" role="status">
+            <CircleAlert size={14} />
+            官方额度暂未配置，请使用自带模型。
+          </p>
+        )}
         <div className="model-bar">
-          <button className={usageMode === 'PLATFORM' ? 'active' : ''} onClick={() => onUsageMode('PLATFORM')}>官方额度</button>
+          <button
+            className={usageMode === 'PLATFORM' ? 'active' : ''}
+            disabled={!platformAvailable}
+            onClick={() => onUsageMode('PLATFORM')}
+          >
+            {platformAvailable ? '官方额度' : '官方额度未配置'}
+          </button>
           <button className={usageMode === 'BYOK' ? 'active' : ''} onClick={() => configurations.length ? onUsageMode('BYOK') : onProvider()}>自带模型</button>
           {usageMode === 'BYOK' && configurations.length > 0 && (
             <select value={selectedConfigurationId} onChange={(event) => onConfiguration(event.target.value)}>
@@ -601,7 +626,12 @@ function ChatPage({ character, messages, draft, sending, error, usageMode, confi
             onChange={(event) => onDraft(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}
           />
-          <button disabled={!draft.trim() || sending} aria-label="发送消息">{sending ? <LoaderCircle className="spin" size={20} /> : '发送'}</button>
+          <button
+            disabled={!draft.trim() || sending || (!platformAvailable && usageMode === 'PLATFORM')}
+            aria-label="发送消息"
+          >
+            {sending ? <LoaderCircle className="spin" size={20} /> : '发送'}
+          </button>
         </form>
       </footer>
     </section>
@@ -731,8 +761,9 @@ function SettingRow({ icon, title, description, value, onClick, href, disabled =
   return <button className="setting-row" onClick={onClick} disabled={disabled}>{content}</button>;
 }
 
-function CharacterSettingsPage({ character, configurations, onBack, onImport, onEdit, onProvider }: {
-  character: Character; configurations: ModelConfiguration[]; onBack: () => void; onImport: () => void; onEdit: () => void; onProvider: () => void;
+function CharacterSettingsPage({ character, configurations, platformAvailable, onBack, onImport, onEdit, onProvider }: {
+  character: Character; configurations: ModelConfiguration[]; platformAvailable: boolean;
+  onBack: () => void; onImport: () => void; onEdit: () => void; onProvider: () => void;
 }) {
   return (
     <section className="main-paper settings-paper">
@@ -755,7 +786,13 @@ function CharacterSettingsPage({ character, configurations, onBack, onImport, on
             </section>
             <label>模型配置</label>
             <section>
-              <SettingRow icon={<KeyRound />} title="模型选择" description="选择该角色使用的对话模型" value={configurations[0]?.display_name || 'PomChat 官方额度'} onClick={onProvider} />
+              <SettingRow
+                icon={<KeyRound />}
+                title="模型选择"
+                description="选择该角色使用的对话模型"
+                value={configurations[0]?.display_name || (platformAvailable ? 'PomChat 官方额度' : '官方额度未配置')}
+                onClick={onProvider}
+              />
             </section>
           </div>
         </div>

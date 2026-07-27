@@ -48,6 +48,7 @@ async function setup() {
     database,
     gateway,
     platform: {
+      enabled: true,
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
       baseUrl: 'https://api.deepseek.com',
