@@ -15,6 +15,17 @@ import {
   resolveCredential,
   type PlatformProviderConfig
 } from './providers/credentials.js';
+import {
+  createOfficialProviderRouter,
+  type OfficialCompletionMetadata
+} from './providers/official-providers.js';
+import {
+  finalizeFreeQuota,
+  getFreeQuota,
+  releaseFreeQuota,
+  reserveFreeQuota
+} from './free-quota.js';
+import { FreeTrafficGuard } from './free-traffic-guard.js';
 
 interface GenerationRouteOptions {
   database: PomChatDatabase;
@@ -90,6 +101,14 @@ export function registerGenerationRoutes(
   app: FastifyInstance,
   { database, gateway, platform }: GenerationRouteOptions
 ) {
+  const officialRouter = createOfficialProviderRouter(gateway, platform);
+  const trafficGuard = new FreeTrafficGuard({
+    userRateLimitPerMinute: platform.userRateLimitPerMinute ?? 12,
+    ipRateLimitPerMinute: platform.ipRateLimitPerMinute ?? 30,
+    globalRateLimitPerMinute: platform.globalRateLimitPerMinute ?? 600,
+    globalConcurrency: platform.globalConcurrency ?? 32
+  });
+
   app.post<{ Params: { conversationId: string } }>(
     '/v1/conversations/:conversationId/generations',
     async (request, reply) => {
@@ -114,6 +133,10 @@ export function registerGenerationRoutes(
         [userId, idempotencyKey]
       );
       if (existing.rows[0]) {
+        const quota =
+          input.usage_mode === 'PLATFORM'
+            ? await getFreeQuota(database, userId)
+            : null;
         reply.type('text/event-stream; charset=utf-8');
         return reply.send(
           Readable.from([
@@ -121,7 +144,8 @@ export function registerGenerationRoutes(
               generation_request_id: existing.rows[0].generation_request_id,
               status: existing.rows[0].status,
               text: existing.rows[0].content_text ?? '',
-              replayed: true
+              replayed: true,
+              ...(quota ? { free_quota_remaining: quota.remaining } : {})
             })
           ])
         );
@@ -136,21 +160,18 @@ export function registerGenerationRoutes(
       let temperature = 0.8;
 
       if (input.usage_mode === 'PLATFORM') {
+        if (platform.freeQuotaEnabled === false) {
+          throw new AppError(
+            'FREE_SERVICE_DISABLED',
+            '官方免费服务当前已关闭。',
+            503
+          );
+        }
         const resolved = resolveCredential({ usageMode: 'PLATFORM', platform });
         provider = resolved.provider;
         model = resolved.model;
         baseUrl = resolved.baseUrl;
         apiKey = resolved.apiKey;
-        const spent = await database.query<{ tokens: number }>(
-          `SELECT COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0)::int AS tokens
-           FROM model_usage_ledger
-           WHERE user_id = $1 AND usage_mode = 'PLATFORM'
-             AND status = 'FINALIZED' AND created_at >= CURRENT_DATE`,
-          [userId]
-        );
-        if ((spent.rows[0]?.tokens ?? 0) >= platform.dailyTokenQuota) {
-          throw new AppError('PLATFORM_QUOTA_EXHAUSTED', '今日 PomChat 官方额度已用完。', 429);
-        }
       } else {
         const configuration = await database.query<{
           model_configuration_id: string;
@@ -214,12 +235,43 @@ export function registerGenerationRoutes(
         supersedeFromSequenceNo = Number(edited.rows[0].sequence_no);
       }
 
+      let releaseTraffic: (() => void) | undefined;
+      let quotaReserved = false;
+      if (input.usage_mode === 'PLATFORM') {
+        releaseTraffic = trafficGuard.enter(userId, request.ip);
+        try {
+          const reservation = await reserveFreeQuota(
+            database,
+            userId,
+            idempotencyKey
+          );
+          if (!reservation.acquired) {
+            throw new AppError(
+              'IDEMPOTENCY_CONFLICT',
+              '相同请求正在处理中，请稍后重试。',
+              409,
+              true
+            );
+          }
+          quotaReserved = true;
+        } catch (error) {
+          releaseTraffic();
+          throw error;
+        }
+      }
+
       const generationRequestId = randomUUID();
       const inputMessageId = randomUUID();
       const assistantMessageId = randomUUID();
       const usageId = randomUUID();
       const sequenceNo = Number(conversation.rows[0].next_sequence_no);
       const turnNo = Number(conversation.rows[0].next_turn_no);
+      const rawSessionId = request.headers['x-pomchat-session-id'];
+      const clientSessionId =
+        typeof rawSessionId === 'string' &&
+        /^[A-Za-z0-9_-]{1,100}$/.test(rawSessionId)
+          ? rawSessionId
+          : null;
 
       await database.exec('BEGIN');
       try {
@@ -243,8 +295,11 @@ export function registerGenerationRoutes(
           `INSERT INTO agent_generation_request (
              generation_request_id, user_id, conversation_id, input_message_id,
              model_configuration_id, usage_mode, idempotency_key, status,
-             prompt_version, started_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'GENERATING', 'pomchat-v0.1.0', CURRENT_TIMESTAMP)`,
+             prompt_version, provider, model_name, client_session_id, started_at
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7, 'GENERATING',
+             'pomchat-v0.1.0', $8, $9, $10, CURRENT_TIMESTAMP
+           )`,
           [
             generationRequestId,
             userId,
@@ -252,7 +307,10 @@ export function registerGenerationRoutes(
             inputMessageId,
             modelConfigurationId,
             input.usage_mode,
-            idempotencyKey
+            idempotencyKey,
+            provider,
+            model,
+            clientSessionId
           ]
         );
         await database.query(
@@ -286,6 +344,16 @@ export function registerGenerationRoutes(
         await database.exec('COMMIT');
       } catch (error) {
         await database.exec('ROLLBACK');
+        if (quotaReserved) {
+          await releaseFreeQuota(database, {
+            userId,
+            requestId: idempotencyKey,
+            provider,
+            model,
+            failureCode: 'REQUEST_SETUP_FAILED'
+          });
+        }
+        releaseTraffic?.();
         throw error;
       }
 
@@ -298,23 +366,44 @@ export function registerGenerationRoutes(
 
       async function* eventStream() {
         let fullText = '';
+        let officialCompletion: Promise<OfficialCompletionMetadata> | null = null;
         try {
-          const result = await gateway.stream({
-            provider,
-            model,
-            baseUrl,
-            apiKey,
-            system: context.system,
-            messages: context.messages,
-            maxOutputTokens,
-            temperature
-          });
+          const result =
+            input.usage_mode === 'PLATFORM'
+              ? await officialRouter.stream({
+                  system: context.system,
+                  messages: context.messages,
+                  maxOutputTokens,
+                  temperature
+                })
+              : await gateway.stream({
+                  provider,
+                  model,
+                  baseUrl,
+                  apiKey,
+                  system: context.system,
+                  messages: context.messages,
+                  maxOutputTokens,
+                  temperature
+                });
+          if (input.usage_mode === 'PLATFORM' && 'completion' in result) {
+            officialCompletion = result.completion;
+          }
           yield sse('start', { generation_request_id: generationRequestId });
           for await (const delta of result.textStream) {
             fullText += delta;
             yield sse('delta', { text: delta });
           }
-          const usage = await result.usage;
+          const completion = officialCompletion
+            ? await officialCompletion
+            : null;
+          const usage =
+            completion?.usage ??
+            ('usage' in result
+              ? await result.usage
+              : { inputTokens: 0, outputTokens: 0 });
+          const actualProvider = completion?.provider ?? provider;
+          const actualModel = completion?.model ?? model;
           await database.exec('BEGIN');
           try {
             await database.query(
@@ -327,16 +416,36 @@ export function registerGenerationRoutes(
             await database.query(
               `UPDATE agent_generation_request
                SET status = 'COMPLETED', input_tokens = $2, output_tokens = $3,
+                   provider = $4, model_name = $5, provider_request_id = $6,
+                   latency_ms = $7, fallback_used = $8,
+                   provider_attempts_json = $9::jsonb,
                    completed_at = CURRENT_TIMESTAMP
                WHERE generation_request_id = $1`,
-              [generationRequestId, usage.inputTokens, usage.outputTokens]
+              [
+                generationRequestId,
+                usage.inputTokens,
+                usage.outputTokens,
+                actualProvider,
+                actualModel,
+                completion?.providerRequestId ?? null,
+                completion?.latencyMs ?? null,
+                completion?.fallbackUsed ?? false,
+                JSON.stringify(completion?.attempts ?? [])
+              ]
             );
             await database.query(
               `UPDATE model_usage_ledger
-               SET status = 'FINALIZED', input_tokens = $2, output_tokens = $3,
+               SET status = 'FINALIZED', provider = $2, model_name = $3,
+                   input_tokens = $4, output_tokens = $5,
                    finalized_at = CURRENT_TIMESTAMP
                WHERE usage_id = $1`,
-              [usageId, usage.inputTokens, usage.outputTokens]
+              [
+                usageId,
+                actualProvider,
+                actualModel,
+                usage.inputTokens,
+                usage.outputTokens
+              ]
             );
             for (const jobType of ['EXTRACT_MEMORY', 'UPDATE_SUMMARY']) {
               await database.query(
@@ -358,38 +467,75 @@ export function registerGenerationRoutes(
             await database.exec('ROLLBACK');
             throw error;
           }
+          const quota =
+            input.usage_mode === 'PLATFORM'
+              ? await finalizeFreeQuota(database, {
+                  userId,
+                  requestId: idempotencyKey,
+                  provider: actualProvider,
+                  model: actualModel
+                })
+              : null;
           yield sse('done', {
             generation_request_id: generationRequestId,
             message_id: assistantMessageId,
             usage_mode: input.usage_mode,
-            usage
+            usage,
+            ...(quota ? { free_quota_remaining: quota.remaining } : {})
           });
-        } catch {
+        } catch (reason) {
+          await officialCompletion?.catch(() => undefined);
+          const error =
+            reason instanceof AppError
+              ? reason
+              : input.usage_mode === 'PLATFORM'
+                ? new AppError(
+                    'FREE_SERVICE_UNAVAILABLE',
+                    '官方免费服务暂时繁忙，请稍后再试。本次不会扣除免费次数。',
+                    503,
+                    true
+                  )
+                : new AppError(
+                    'PROVIDER_UNAVAILABLE',
+                    '模型服务暂时不可用。',
+                    503,
+                    true
+                  );
           await database.query(
-            `UPDATE chat_message SET status = 'FAILED', error_code = 'PROVIDER_UNAVAILABLE',
+            `UPDATE chat_message SET status = 'FAILED', error_code = $2,
                                      updated_at = CURRENT_TIMESTAMP
              WHERE message_id = $1`,
-            [assistantMessageId]
+            [assistantMessageId, error.code]
           );
           await database.query(
             `UPDATE agent_generation_request
-             SET status = 'FAILED', error_code = 'PROVIDER_UNAVAILABLE',
-                 error_message = '模型服务暂时不可用。', completed_at = CURRENT_TIMESTAMP
+             SET status = 'FAILED', error_code = $2,
+                 error_message = $3, completed_at = CURRENT_TIMESTAMP
              WHERE generation_request_id = $1`,
-            [generationRequestId]
+            [generationRequestId, error.code, error.message]
           );
           await database.query(
             `UPDATE model_usage_ledger SET status = 'REVERSED', reversed_at = CURRENT_TIMESTAMP
              WHERE usage_id = $1`,
             [usageId]
           );
+          if (quotaReserved) {
+            await releaseFreeQuota(database, {
+              userId,
+              requestId: idempotencyKey,
+              provider,
+              model,
+              failureCode: error.code
+            });
+          }
           yield sse('error', {
-            code: 'PROVIDER_UNAVAILABLE',
-            message: '模型服务暂时不可用。',
-            retryable: true
+            code: error.code,
+            message: error.message,
+            retryable: error.retryable
           });
         } finally {
           apiKey = '';
+          releaseTraffic?.();
         }
       }
 
@@ -510,17 +656,14 @@ export function registerGenerationRoutes(
     input: GenerationRequestInput
   ): Promise<TurnTarget> {
     if (input.usage_mode === 'PLATFORM') {
-      const resolved = resolveCredential({ usageMode: 'PLATFORM', platform });
-      const spent = await database.query<{ tokens: number }>(
-        `SELECT COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0)::int AS tokens
-         FROM model_usage_ledger
-         WHERE user_id = $1 AND usage_mode = 'PLATFORM'
-           AND status = 'FINALIZED' AND created_at >= CURRENT_DATE`,
-        [userId]
-      );
-      if ((spent.rows[0]?.tokens ?? 0) >= platform.dailyTokenQuota) {
-        throw new AppError('PLATFORM_QUOTA_EXHAUSTED', '今日 PomChat 官方额度已用完。', 429);
+      if (platform.freeQuotaEnabled === false) {
+        throw new AppError(
+          'FREE_SERVICE_DISABLED',
+          '官方免费服务当前已关闭。',
+          503
+        );
       }
+      const resolved = resolveCredential({ usageMode: 'PLATFORM', platform });
       return {
         provider: resolved.provider,
         model: resolved.model,
@@ -601,7 +744,16 @@ export function registerGenerationRoutes(
            ORDER BY turn_bubble_no`,
           [turnId]
         );
-        return { turn_id: turnId, messages: bubbles.rows.map((row) => row.content_text), replayed: true };
+        const quota =
+          input.usage_mode === 'PLATFORM'
+            ? await getFreeQuota(database, userId)
+            : null;
+        return {
+          turn_id: turnId,
+          messages: bubbles.rows.map((row) => row.content_text),
+          replayed: true,
+          ...(quota ? { free_quota_remaining: quota.remaining } : {})
+        };
       }
 
       const target = await resolveTurnTarget(userId, input);
@@ -627,11 +779,42 @@ export function registerGenerationRoutes(
         supersedeFromSequenceNo = Number(edited.rows[0].sequence_no);
       }
 
+      let releaseTraffic: (() => void) | undefined;
+      let quotaReserved = false;
+      if (input.usage_mode === 'PLATFORM') {
+        releaseTraffic = trafficGuard.enter(userId, request.ip);
+        try {
+          const reservation = await reserveFreeQuota(
+            database,
+            userId,
+            idempotencyKey
+          );
+          if (!reservation.acquired) {
+            throw new AppError(
+              'IDEMPOTENCY_CONFLICT',
+              '相同请求正在处理中，请稍后重试。',
+              409,
+              true
+            );
+          }
+          quotaReserved = true;
+        } catch (error) {
+          releaseTraffic();
+          throw error;
+        }
+      }
+
       const generationRequestId = randomUUID();
       const inputMessageId = randomUUID();
       const usageId = randomUUID();
       const sequenceNo = Number(conversation.rows[0].next_sequence_no);
       const turnNo = Number(conversation.rows[0].next_turn_no);
+      const rawSessionId = request.headers['x-pomchat-session-id'];
+      const clientSessionId =
+        typeof rawSessionId === 'string' &&
+        /^[A-Za-z0-9_-]{1,100}$/.test(rawSessionId)
+          ? rawSessionId
+          : null;
 
       await database.exec('BEGIN');
       try {
@@ -654,8 +837,11 @@ export function registerGenerationRoutes(
           `INSERT INTO agent_generation_request (
              generation_request_id, user_id, conversation_id, input_message_id,
              model_configuration_id, usage_mode, idempotency_key, status,
-             prompt_version, started_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'GENERATING', 'pomchat-v0.1.0', CURRENT_TIMESTAMP)`,
+             prompt_version, provider, model_name, client_session_id, started_at
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7, 'GENERATING',
+             'pomchat-v0.1.0', $8, $9, $10, CURRENT_TIMESTAMP
+           )`,
           [
             generationRequestId,
             userId,
@@ -663,7 +849,10 @@ export function registerGenerationRoutes(
             inputMessageId,
             target.modelConfigurationId,
             input.usage_mode,
-            idempotencyKey
+            idempotencyKey,
+            target.provider,
+            target.model,
+            clientSessionId
           ]
         );
         await database.query(
@@ -683,6 +872,16 @@ export function registerGenerationRoutes(
         await database.exec('COMMIT');
       } catch (error) {
         await database.exec('ROLLBACK');
+        if (quotaReserved) {
+          await releaseFreeQuota(database, {
+            userId,
+            requestId: idempotencyKey,
+            provider: target.provider,
+            model: target.model,
+            failureCode: 'REQUEST_SETUP_FAILED'
+          });
+        }
+        releaseTraffic?.();
         throw error;
       }
 
@@ -694,58 +893,146 @@ export function registerGenerationRoutes(
       );
 
       let messages: string[];
+      let completion: OfficialCompletionMetadata | null = null;
       try {
-        const raw = await gateway.complete({
-          provider: target.provider,
-          model: target.model,
-          baseUrl: target.baseUrl,
-          apiKey: target.apiKey,
-          system: context.system + MULTI_BUBBLE_INSTRUCTION,
-          messages: context.messages,
-          maxOutputTokens: target.maxOutputTokens,
-          temperature: target.temperature
-        });
+        let raw: string;
+        if (input.usage_mode === 'PLATFORM') {
+          const result = await officialRouter.complete({
+            system: context.system + MULTI_BUBBLE_INSTRUCTION,
+            messages: context.messages,
+            maxOutputTokens: target.maxOutputTokens,
+            temperature: target.temperature
+          });
+          raw = result.text;
+          completion = result;
+        } else {
+          raw = await gateway.complete({
+            provider: target.provider,
+            model: target.model,
+            baseUrl: target.baseUrl,
+            apiKey: target.apiKey,
+            system: context.system + MULTI_BUBBLE_INSTRUCTION,
+            messages: context.messages,
+            maxOutputTokens: target.maxOutputTokens,
+            temperature: target.temperature
+          });
+        }
         messages = normalizeTurn(parseModelTurn(raw));
         if (messages.length === 0) throw new Error('EMPTY_TURN_PLAN');
-      } catch {
+      } catch (reason) {
+        const error =
+          reason instanceof AppError
+            ? reason
+            : input.usage_mode === 'PLATFORM'
+              ? new AppError(
+                  'FREE_SERVICE_UNAVAILABLE',
+                  '官方免费服务暂时繁忙，请稍后再试。本次不会扣除免费次数。',
+                  503,
+                  true
+                )
+              : new AppError(
+                  'PROVIDER_UNAVAILABLE',
+                  '模型服务暂时不可用。',
+                  503,
+                  true
+                );
         await database.query(
           `UPDATE agent_generation_request
-           SET status = 'FAILED', error_code = 'PROVIDER_UNAVAILABLE',
-               error_message = '模型服务暂时不可用。', completed_at = CURRENT_TIMESTAMP
+           SET status = 'FAILED', error_code = $2,
+               error_message = $3, completed_at = CURRENT_TIMESTAMP
            WHERE generation_request_id = $1`,
-          [generationRequestId]
+          [generationRequestId, error.code, error.message]
         );
         await database.query(
-          `UPDATE model_usage_ledger SET status = 'REVERSED', reversed_at = CURRENT_TIMESTAMP
+          `UPDATE model_usage_ledger
+           SET status = 'REVERSED', reversed_at = CURRENT_TIMESTAMP
            WHERE usage_id = $1`,
           [usageId]
         );
-        throw new AppError('PROVIDER_UNAVAILABLE', '模型服务暂时不可用。', 503);
-      } finally {
+        if (quotaReserved) {
+          await releaseFreeQuota(database, {
+            userId,
+            requestId: idempotencyKey,
+            provider: target.provider,
+            model: target.model,
+            failureCode: error.code
+          });
+        }
+        releaseTraffic?.();
         target.apiKey = '';
+        throw error;
       }
 
-      // The single model call has happened, so its cost is finalized regardless of how
-      // many bubbles the client ends up displaying. complete() carries no token usage,
-      // so estimate output tokens from the produced characters.
-      const estimatedOutputTokens = messages.reduce((sum, text) => sum + text.length, 0);
-      await database.query(
-        `UPDATE agent_generation_request
-         SET status = 'COMPLETED', input_tokens = 0, output_tokens = $2,
-             completed_at = CURRENT_TIMESTAMP
-         WHERE generation_request_id = $1`,
-        [generationRequestId, estimatedOutputTokens]
+      const estimatedOutputTokens = messages.reduce(
+        (sum, text) => sum + text.length,
+        0
       );
-      await database.query(
-        `UPDATE model_usage_ledger
-         SET status = 'FINALIZED', input_tokens = 0, output_tokens = $2,
-             finalized_at = CURRENT_TIMESTAMP
-         WHERE usage_id = $1`,
-        [usageId, estimatedOutputTokens]
-      );
+      const inputTokens = completion?.usage.inputTokens ?? 0;
+      const outputTokens =
+        completion?.usage.outputTokens || estimatedOutputTokens;
+      const actualProvider = completion?.provider ?? target.provider;
+      const actualModel = completion?.model ?? target.model;
+      try {
+        await database.query(
+          `UPDATE agent_generation_request
+           SET status = 'COMPLETED', input_tokens = $2, output_tokens = $3,
+               provider = $4, model_name = $5, provider_request_id = $6,
+               latency_ms = $7, fallback_used = $8,
+               provider_attempts_json = $9::jsonb,
+               completed_at = CURRENT_TIMESTAMP
+           WHERE generation_request_id = $1`,
+          [
+            generationRequestId,
+            inputTokens,
+            outputTokens,
+            actualProvider,
+            actualModel,
+            completion?.providerRequestId ?? null,
+            completion?.latencyMs ?? null,
+            completion?.fallbackUsed ?? false,
+            JSON.stringify(completion?.attempts ?? [])
+          ]
+        );
+        await database.query(
+          `UPDATE model_usage_ledger
+           SET status = 'FINALIZED', provider = $2, model_name = $3,
+               input_tokens = $4, output_tokens = $5,
+               finalized_at = CURRENT_TIMESTAMP
+           WHERE usage_id = $1`,
+          [usageId, actualProvider, actualModel, inputTokens, outputTokens]
+        );
+        const quota =
+          input.usage_mode === 'PLATFORM'
+            ? await finalizeFreeQuota(database, {
+                userId,
+                requestId: idempotencyKey,
+                provider: actualProvider,
+                model: actualModel
+              })
+            : null;
 
-      reply.code(201);
-      return { turn_id: generationRequestId, usage_mode: input.usage_mode, messages };
+        reply.code(201);
+        return {
+          turn_id: generationRequestId,
+          usage_mode: input.usage_mode,
+          messages,
+          ...(quota ? { free_quota_remaining: quota.remaining } : {})
+        };
+      } catch (error) {
+        if (quotaReserved) {
+          await releaseFreeQuota(database, {
+            userId,
+            requestId: idempotencyKey,
+            provider: actualProvider,
+            model: actualModel,
+            failureCode: 'FINALIZATION_FAILED'
+          });
+        }
+        throw error;
+      } finally {
+        releaseTraffic?.();
+        target.apiKey = '';
+      }
     }
   );
 
@@ -768,7 +1055,7 @@ export function registerGenerationRoutes(
       if (!turn.rows[0]) throw new AppError('RESOURCE_NOT_FOUND', '回合不存在。', 404);
       const turnNo = Number(turn.rows[0].turn_no);
 
-      let sequenceNo: number | null = null;
+      let sequenceNo: number | null;
       let created = false;
       await database.exec('BEGIN');
       try {

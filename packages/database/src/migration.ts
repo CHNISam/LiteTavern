@@ -396,6 +396,160 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_message_turn_bubble
 DROP INDEX IF EXISTS idx_one_active_assistant_variant;
 `;
 
+const FREE_QUOTA_ANALYTICS_MIGRATION_SQL = String.raw`
+ALTER TABLE app_user
+  ADD COLUMN IF NOT EXISTS free_quota_total INTEGER NOT NULL DEFAULT 30
+    CHECK (free_quota_total >= 0),
+  ADD COLUMN IF NOT EXISTS free_quota_remaining INTEGER NOT NULL DEFAULT 30
+    CHECK (free_quota_remaining >= 0),
+  ADD COLUMN IF NOT EXISTS free_quota_reserved INTEGER NOT NULL DEFAULT 0
+    CHECK (free_quota_reserved >= 0),
+  ADD COLUMN IF NOT EXISTS free_quota_granted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS first_source_channel VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS first_campaign_id VARCHAR(200),
+  ADD COLUMN IF NOT EXISTS attribution_set_at TIMESTAMPTZ;
+
+ALTER TABLE app_user
+  ADD CONSTRAINT app_user_free_quota_bounds
+  CHECK (
+    free_quota_remaining <= free_quota_total
+    AND free_quota_reserved <= free_quota_remaining
+  );
+
+CREATE TABLE IF NOT EXISTS free_quota_ledger (
+  quota_ledger_id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES app_user(user_id),
+  request_id VARCHAR(100),
+  action_type VARCHAR(20) NOT NULL
+    CHECK (action_type IN ('GRANT', 'RESERVE', 'CONSUME', 'ROLLBACK', 'FAILURE')),
+  delta INTEGER NOT NULL,
+  balance_before INTEGER NOT NULL CHECK (balance_before >= 0),
+  balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+  provider VARCHAR(50),
+  model VARCHAR(200),
+  status VARCHAR(20) NOT NULL
+    CHECK (status IN ('GRANTED', 'RESERVED', 'FINALIZED', 'RELEASED', 'FAILED', 'ROLLED_BACK')),
+  failure_code VARCHAR(80),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_free_quota_user_created
+  ON free_quota_ledger(user_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_free_quota_single_grant
+  ON free_quota_ledger(user_id)
+  WHERE action_type = 'GRANT';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_free_quota_request_action
+  ON free_quota_ledger(user_id, request_id, action_type)
+  WHERE request_id IS NOT NULL;
+
+INSERT INTO free_quota_ledger (
+  quota_ledger_id, user_id, action_type, delta,
+  balance_before, balance_after, status, created_at
+)
+SELECT
+  user_id, user_id, 'GRANT', free_quota_total,
+  0, free_quota_remaining, 'GRANTED', free_quota_granted_at
+FROM app_user
+ON CONFLICT (quota_ledger_id) DO NOTHING;
+
+ALTER TABLE agent_generation_request
+  ADD COLUMN IF NOT EXISTS provider VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS model_name VARCHAR(200),
+  ADD COLUMN IF NOT EXISTS latency_ms INTEGER,
+  ADD COLUMN IF NOT EXISTS fallback_used BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS provider_attempts_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS client_session_id VARCHAR(100);
+CREATE INDEX IF NOT EXISTS idx_generation_user_status_completed
+  ON agent_generation_request(user_id, status, completed_at);
+CREATE INDEX IF NOT EXISTS idx_generation_session_created
+  ON agent_generation_request(client_session_id, created_at)
+  WHERE client_session_id IS NOT NULL;
+
+ALTER TABLE analytics_event
+  ADD COLUMN IF NOT EXISTS anonymous_id UUID,
+  ADD COLUMN IF NOT EXISTS occurred_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS page_name VARCHAR(80),
+  ADD COLUMN IF NOT EXISTS page_path VARCHAR(500),
+  ADD COLUMN IF NOT EXISTS character_id UUID,
+  ADD COLUMN IF NOT EXISTS conversation_id UUID,
+  ADD COLUMN IF NOT EXISTS campaign_id VARCHAR(200),
+  ADD COLUMN IF NOT EXISTS schema_version INTEGER NOT NULL DEFAULT 1;
+
+UPDATE analytics_event
+SET occurred_at = created_at, received_at = created_at
+WHERE occurred_at IS NULL OR received_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_analytics_anonymous_occurred
+  ON analytics_event(anonymous_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_user_occurred
+  ON analytics_event(user_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_session_occurred
+  ON analytics_event(session_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_analytics_source_occurred
+  ON analytics_event(source_channel, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_event_occurred
+  ON analytics_event(event_name, occurred_at DESC);
+`;
+
+// Email verification-code auth: registration and login share one primitive
+// (email + 6-digit code). A verified email either upgrades the current anonymous
+// user in place (new EMAIL identity, user_id preserved) or logs into an existing
+// account and merges the anonymous data. Verification codes are stored hashed with
+// an expiry, attempt cap and single-use flag; a merge audit row makes merges
+// idempotent and traceable.
+const EMAIL_AUTH_MIGRATION_SQL = String.raw`
+ALTER TABLE app_user_identity
+  DROP CONSTRAINT IF EXISTS app_user_identity_identity_type_check;
+ALTER TABLE app_user_identity
+  ADD CONSTRAINT app_user_identity_identity_type_check
+  CHECK (identity_type IN ('ANONYMOUS', 'ACCOUNT', 'OAUTH', 'EMAIL'));
+ALTER TABLE app_user_identity
+  ADD COLUMN IF NOT EXISTS email_normalized VARCHAR(320);
+
+ALTER TABLE app_user
+  DROP CONSTRAINT IF EXISTS app_user_status_check;
+ALTER TABLE app_user
+  ADD CONSTRAINT app_user_status_check
+  CHECK (status IN ('ACTIVE', 'DISABLED', 'DELETED', 'MERGED'));
+ALTER TABLE app_user
+  ADD COLUMN IF NOT EXISTS email VARCHAR(320),
+  ADD COLUMN IF NOT EXISTS merged_into_user_id UUID REFERENCES app_user(user_id);
+
+CREATE TABLE IF NOT EXISTS auth_email_verification_code (
+  code_id UUID PRIMARY KEY,
+  email_normalized VARCHAR(320) NOT NULL,
+  code_hash VARCHAR(64) NOT NULL,
+  purpose VARCHAR(30) NOT NULL DEFAULT 'LOGIN'
+    CHECK (purpose IN ('LOGIN')),
+  session_identity_id UUID,
+  request_ip VARCHAR(64),
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_email_code_email_created
+  ON auth_email_verification_code(email_normalized, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_email_code_ip_created
+  ON auth_email_verification_code(request_ip, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_code_active
+  ON auth_email_verification_code(email_normalized)
+  WHERE consumed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS auth_account_merge (
+  merge_id UUID PRIMARY KEY,
+  source_user_id UUID NOT NULL REFERENCES app_user(user_id),
+  target_user_id UUID NOT NULL REFERENCES app_user(user_id),
+  merge_status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+    CHECK (merge_status IN ('PENDING', 'COMPLETED', 'FAILED')),
+  error_summary TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at TIMESTAMPTZ,
+  UNIQUE(source_user_id)
+);
+`;
+
 export const MIGRATIONS = [
   {
     version: 1,
@@ -416,5 +570,15 @@ export const MIGRATIONS = [
     version: 4,
     name: 'multi_bubble_turns',
     sql: MULTI_BUBBLE_TURN_MIGRATION_SQL
+  },
+  {
+    version: 5,
+    name: 'free_quota_analytics',
+    sql: FREE_QUOTA_ANALYTICS_MIGRATION_SQL
+  },
+  {
+    version: 6,
+    name: 'email_auth',
+    sql: EMAIL_AUTH_MIGRATION_SQL
   }
 ] satisfies readonly DatabaseMigration[];

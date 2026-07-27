@@ -301,6 +301,155 @@ describe('character card routes', () => {
     expect(detail.json().normalized_data.description).toBe('不能丢失');
   });
 
+  it('soft-deletes an owned character so it drops out of the list', async () => {
+    const database = await createDatabase({ dataDir: 'memory://' });
+    const app = await buildApp({ database });
+    resources.push({ app, database });
+    const identity = await app.inject({ method: 'POST', url: '/v1/identities/anonymous' });
+    const cookie = String(identity.headers['set-cookie']).split(';')[0];
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/characters',
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: {
+        name: '待删除',
+        description: '',
+        personality: '',
+        scenario: '',
+        first_message: '',
+        alternate_greetings: [],
+        example_messages: '',
+        system_prompt: '',
+        post_history_instructions: '',
+        tags: [],
+        creator: { name: '', notes: '', character_version: '' }
+      }
+    });
+    const characterId = created.json().character_id as string;
+
+    const deleted = await app.inject({
+      method: 'DELETE',
+      url: `/v1/characters/${characterId}`,
+      headers: { cookie }
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json().deleted).toBe(true);
+
+    const list = await app.inject({ method: 'GET', url: '/v1/characters', headers: { cookie } });
+    expect(list.json().characters.map((c: { character_id: string }) => c.character_id)).not.toContain(characterId);
+
+    const detail = await app.inject({ method: 'GET', url: `/v1/characters/${characterId}`, headers: { cookie } });
+    expect(detail.statusCode).toBe(404);
+
+    const again = await app.inject({ method: 'DELETE', url: `/v1/characters/${characterId}`, headers: { cookie } });
+    expect(again.statusCode).toBe(404);
+  });
+
+  it('hides the character conversation from every normal entry point after deletion', async () => {
+    const database = await createDatabase({ dataDir: 'memory://' });
+    const app = await buildApp({ database });
+    resources.push({ app, database });
+    const identity = await app.inject({ method: 'POST', url: '/v1/identities/anonymous' });
+    const cookie = String(identity.headers['set-cookie']).split(';')[0];
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/characters',
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: {
+        name: '有对话的角色',
+        description: '',
+        personality: '',
+        scenario: '',
+        first_message: '你好呀。',
+        alternate_greetings: [],
+        example_messages: '',
+        system_prompt: '',
+        post_history_instructions: '',
+        tags: [],
+        creator: { name: '', notes: '', character_version: '' }
+      }
+    });
+    const characterId = created.json().character_id as string;
+
+    // Open a conversation so there is real history to orphan.
+    const conversation = await app.inject({
+      method: 'POST',
+      url: '/v1/conversations',
+      headers: { cookie, 'content-type': 'application/json' },
+      payload: { character_id: characterId }
+    });
+    const conversationId = conversation.json().conversation_id as string;
+
+    // Sanity: before deletion the conversation and its messages are reachable, and the
+    // character surfaces in the contact / recent-conversation list.
+    const beforeList = await app.inject({ method: 'GET', url: '/v1/characters', headers: { cookie } });
+    expect(beforeList.json().characters.map((c: { character_id: string }) => c.character_id)).toContain(characterId);
+    const beforeConversation = await app.inject({ method: 'GET', url: `/v1/conversations/${conversationId}`, headers: { cookie } });
+    expect(beforeConversation.statusCode).toBe(200);
+    const beforeMessages = await app.inject({ method: 'GET', url: `/v1/conversations/${conversationId}/messages`, headers: { cookie } });
+    expect(beforeMessages.statusCode).toBe(200);
+
+    const deleted = await app.inject({ method: 'DELETE', url: `/v1/characters/${characterId}`, headers: { cookie } });
+    expect(deleted.statusCode).toBe(200);
+
+    // Contact list / recent conversations no longer surface the character.
+    const afterList = await app.inject({ method: 'GET', url: '/v1/characters', headers: { cookie } });
+    expect(afterList.json().characters.map((c: { character_id: string }) => c.character_id)).not.toContain(characterId);
+
+    // The historical conversation must not be enterable through any read entry point.
+    const afterConversation = await app.inject({ method: 'GET', url: `/v1/conversations/${conversationId}`, headers: { cookie } });
+    expect(afterConversation.statusCode).toBe(404);
+    const afterMessages = await app.inject({ method: 'GET', url: `/v1/conversations/${conversationId}/messages`, headers: { cookie } });
+    expect(afterMessages.statusCode).toBe(404);
+
+    // The character profile itself is likewise gone.
+    const afterCharacter = await app.inject({ method: 'GET', url: `/v1/characters/${characterId}`, headers: { cookie } });
+    expect(afterCharacter.statusCode).toBe(404);
+  });
+
+  it('does not let another user delete a character they do not own', async () => {
+    const database = await createDatabase({ dataDir: 'memory://' });
+    const app = await buildApp({ database });
+    resources.push({ app, database });
+    const owner = await app.inject({ method: 'POST', url: '/v1/identities/anonymous' });
+    const ownerCookie = String(owner.headers['set-cookie']).split(';')[0];
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/characters',
+      headers: { cookie: ownerCookie, 'content-type': 'application/json' },
+      payload: {
+        name: '别人的角色',
+        description: '',
+        personality: '',
+        scenario: '',
+        first_message: '',
+        alternate_greetings: [],
+        example_messages: '',
+        system_prompt: '',
+        post_history_instructions: '',
+        tags: [],
+        creator: { name: '', notes: '', character_version: '' }
+      }
+    });
+    const characterId = created.json().character_id as string;
+
+    const stranger = await app.inject({ method: 'POST', url: '/v1/identities/anonymous' });
+    const strangerCookie = String(stranger.headers['set-cookie']).split(';')[0];
+    const forbidden = await app.inject({
+      method: 'DELETE',
+      url: `/v1/characters/${characterId}`,
+      headers: { cookie: strangerCookie }
+    });
+    expect(forbidden.statusCode).toBe(404);
+
+    const stillThere = await app.inject({
+      method: 'GET',
+      url: `/v1/characters/${characterId}`,
+      headers: { cookie: ownerCookie }
+    });
+    expect(stillThere.statusCode).toBe(200);
+  });
+
   it('imports card data even when the PNG avatar pixels are damaged', async () => {
     const database = await createDatabase({ dataDir: 'memory://' });
     const app = await buildApp({ database });

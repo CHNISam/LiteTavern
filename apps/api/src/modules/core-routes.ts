@@ -74,6 +74,29 @@ export function registerCoreRoutes(app: FastifyInstance, database: PomChatDataba
     }
   );
 
+  // Soft-delete a character the caller owns. Platform characters and characters
+  // owned by other users are never affected — they simply won't match the WHERE
+  // clause and surface as "not found".
+  app.delete<{ Params: { characterId: string } }>(
+    '/v1/characters/:characterId',
+    async (request) => {
+      const userId = await resolveUserId(request, database);
+      const result = await database.query<{ character_id: string }>(
+        `UPDATE agent_character
+         SET status = 'DELETED', deleted_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP, version = version + 1
+         WHERE character_id = $1 AND owner_user_id = $2
+           AND status = 'ACTIVE' AND deleted_at IS NULL
+         RETURNING character_id`,
+        [request.params.characterId, userId]
+      );
+      if (!result.rows[0]) {
+        throw new AppError('RESOURCE_NOT_FOUND', '角色不存在或无权删除。', 404);
+      }
+      return { deleted: true };
+    }
+  );
+
   app.post<{ Body: { character_id?: string } }>('/v1/conversations', async (request, reply) => {
     const userId = await resolveUserId(request, database);
     const characterId = request.body?.character_id;
@@ -143,7 +166,7 @@ export function registerCoreRoutes(app: FastifyInstance, database: PomChatDataba
          FROM chat_conversation cv
          JOIN agent_character c ON c.character_id = cv.character_id
          WHERE cv.conversation_id = $1 AND cv.user_id = $2
-           AND cv.status <> 'DELETED'`,
+           AND cv.status <> 'DELETED' AND c.status = 'ACTIVE'`,
         [request.params.conversationId, userId]
       );
       const conversation = result.rows[0];
@@ -157,7 +180,9 @@ export function registerCoreRoutes(app: FastifyInstance, database: PomChatDataba
     async (request) => {
       const userId = await resolveUserId(request, database);
       const access = await database.query(
-        `SELECT 1 FROM chat_conversation WHERE conversation_id = $1 AND user_id = $2`,
+        `SELECT 1 FROM chat_conversation cv
+         JOIN agent_character c ON c.character_id = cv.character_id
+         WHERE cv.conversation_id = $1 AND cv.user_id = $2 AND c.status = 'ACTIVE'`,
         [request.params.conversationId, userId]
       );
       if (!access.rows[0]) throw new AppError('RESOURCE_NOT_FOUND', '会话不存在。', 404);

@@ -81,3 +81,11 @@ docs/
 本仓库的 GPL-3.0 许可证仅适用于项目原创代码、原创设计和原创素材。用户本地导入的角色卡、图片及其他内容不属于本仓库发布内容。
 
 详见 [LICENSE](./LICENSE)。
+
+## 官方免费回复与产品分析
+
+复制 [`.env.example`](./.env.example) 为本地环境文件，并在服务端配置 Groq 和
+Cloudflare Workers AI 凭证；浏览器不会接收这些 Secret。
+
+- [官方免费额度实现与本地配置](./docs/v0.1.0/architecture/official-free-quota.md)
+- [埋点字典与指标定义](./docs/v0.1.0/architecture/analytics-event-dictionary.md)

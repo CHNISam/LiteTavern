@@ -594,6 +594,30 @@ button { color: inherit; }
 .model-bar button:hover { color: var(--ink-1); }
 .model-bar button.active { color: var(--gold-deep); background: rgba(198, 164, 92, 0.14); }
 .model-bar select { max-width: 240px; margin-left: 4px; padding: 4px 8px; border: 1px solid var(--paper-line); border-radius: 8px; background: rgba(255, 255, 255, 0.5); color: var(--ink-2); font-size: 12px; }
+.quota-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 9px 11px;
+  border: 1px solid rgba(168, 120, 54, 0.22);
+  border-radius: 9px;
+  background: rgba(198, 164, 92, 0.1);
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.quota-notice span { display: flex; align-items: center; gap: 7px; }
+.quota-notice button, .quota-config-link {
+  border: 0;
+  background: transparent;
+  color: var(--gold-deep);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.quota-notice button:active, .quota-config-link:active { transform: scale(0.97); }
+.quota-config-link { align-self: flex-end; margin: 0 0 6px; padding: 3px 0; font-size: 12px; }
 
 /* Suggested replies — the signature in-game "pick an option" interaction:
    full-width options stacked vertically, reproduced with model candidates. */
@@ -865,6 +889,32 @@ button { color: inherit; }
 .setting-row > svg:last-child { color: var(--ink-3); }
 .setting-row:disabled { opacity: 0.5; cursor: default; }
 .settings-note { display: flex; gap: 8px; align-items: center; margin: 22px 8px 0; color: var(--ink-3); font-size: 13px; }
+.setting-row-danger strong { color: #c0473f; }
+.setting-row-danger:hover:not(:disabled) { background: rgba(192, 71, 63, 0.07); }
+
+.confirm-dialog {
+  width: min(420px, 100%); padding: 26px 26px 22px;
+  color: #eceef3;
+  background: linear-gradient(165deg, #1e232e, #171b23);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  box-shadow: 0 32px 100px rgba(0, 0, 0, 0.6);
+  animation: panel-in 260ms var(--ease-out) both;
+}
+.confirm-dialog h2 { margin: 0 0 12px; font-size: 20px; font-weight: 600; }
+.confirm-dialog p { margin: 0; color: #b5bac5; font-size: 14px; line-height: 1.6; }
+.confirm-error { margin-top: 12px !important; color: #e4a6a6 !important; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.confirm-actions button {
+  padding: 10px 18px; border-radius: 10px; font-size: 14px; cursor: pointer;
+  transition: background 160ms var(--ease-out), transform 140ms var(--ease-out);
+}
+.confirm-actions button:active:not(:disabled) { transform: scale(0.96); }
+.confirm-actions button:disabled { opacity: 0.6; cursor: default; }
+.confirm-cancel { border: 1px solid rgba(255, 255, 255, 0.16); background: transparent; color: #c6cad2; }
+.confirm-cancel:hover:not(:disabled) { background: rgba(255, 255, 255, 0.07); }
+.confirm-delete { border: 0; background: #c0473f; color: #fff; }
+.confirm-delete:hover:not(:disabled) { background: #d1544b; }
 
 /* ============================================================================
    Modals — provider settings & character import
@@ -1123,3 +1173,71 @@ button { color: inherit; }
   .modal-backdrop { padding: 0; }
   .settings-panel { width: 100%; height: 100dvh; border-radius: 0; }
 }
+
+/* Account entry in the top chrome + email login/sync modal. */
+.chrome-actions { display: flex; align-items: center; gap: 10px; }
+.chrome-login {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 42px; padding: 0 15px;
+  border: 1px solid rgba(216, 186, 120, 0.4);
+  border-radius: 21px;
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--gold-hi);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background 180ms var(--ease-out), transform 140ms var(--ease-out);
+}
+.chrome-login:hover { background: rgba(0, 0, 0, 0.42); }
+.chrome-login:active { transform: scale(0.96); }
+.account-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 42px; max-width: 260px; padding: 0 6px 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 21px;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.86); font-size: 12px;
+}
+.account-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-logout {
+  border: 0; border-radius: 15px; padding: 6px 11px;
+  background: rgba(255, 255, 255, 0.1); color: #eceef3;
+  font-size: 12px; cursor: pointer; transition: background 160ms var(--ease-out);
+}
+.account-logout:hover { background: rgba(255, 255, 255, 0.18); }
+
+.login-panel {
+  width: min(430px, 100%);
+  display: flex; flex-direction: column; overflow: hidden;
+  color: #eceef3;
+  background: linear-gradient(165deg, #1e232e, #171b23);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  box-shadow: 0 32px 100px rgba(0, 0, 0, 0.6);
+  animation: panel-in 260ms var(--ease-out) both;
+}
+.login-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 22px 24px 6px; }
+.login-header h2 { margin: 5px 0 0; font-size: 20px; font-weight: 600; }
+.login-body { display: flex; flex-direction: column; gap: 15px; padding: 12px 24px 26px; }
+.login-lead { margin: 0; color: #a7adba; font-size: 13px; line-height: 1.7; }
+.login-field { display: flex; flex-direction: column; gap: 8px; color: #b5bac5; font-size: 12px; }
+.login-input {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 13px; height: 46px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 11px; background: rgba(255, 255, 255, 0.04);
+  transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+}
+.login-input:focus-within { border-color: rgba(198, 164, 92, 0.6); box-shadow: 0 0 0 3px rgba(198, 164, 92, 0.14); }
+.login-input > svg { color: #7d8493; flex-shrink: 0; }
+.login-input input {
+  flex: 1; min-width: 0; border: 0; background: transparent; color: #eceef3;
+  font-size: 15px; outline: none;
+}
+.login-input input::placeholder { color: #5f6675; letter-spacing: 0.14em; }
+.login-error { margin: 0; color: #e79a9a; font-size: 12px; line-height: 1.6; }
+.login-submit { justify-content: center; height: 46px; margin-top: 2px; }
+.login-secondary { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; }
+.login-link {
+  border: 0; background: transparent; color: var(--gold-hi);
+  font-size: 12px; cursor: pointer; padding: 4px 2px;
+}
+.login-link:disabled { color: #6a7180; cursor: default; }

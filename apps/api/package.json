@@ -8,8 +8,8 @@
     "start": "node dist/server.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run src",
-    "test:coverage": "vitest run src --coverage"
+    "test": "vitest run src --no-file-parallelism",
+    "test:coverage": "vitest run src --coverage --no-file-parallelism"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "latest",

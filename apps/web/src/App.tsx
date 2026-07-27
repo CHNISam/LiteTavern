@@ -7,7 +7,12 @@ import {
 import { ProviderSettings } from './components/ProviderSettings';
 import { CharacterImport } from './components/CharacterImport';
 import { CharacterEditor } from './components/CharacterEditor';
-import { api, generateTurn, saveTurnBubble, type Character, type Message, type ModelConfiguration } from './lib/api';
+import { LoginSync } from './components/LoginSync';
+import {
+  ApiError, api, deleteCharacter, generateTurn, logout, saveTurnBubble,
+  type AnonymousIdentity, type Character, type Message, type ModelConfiguration
+} from './lib/api';
+import { analytics, type AnalyticsPageName } from './lib/analytics';
 import { credentialStore } from './lib/credential-store';
 import { copyText } from './lib/clipboard';
 import { createId } from './lib/id';
@@ -15,6 +20,20 @@ import { TurnPlaybackController } from './lib/turn-playback';
 import { playClick, isMuted, setMuted } from './lib/sound';
 
 type View = 'chat' | 'profile' | 'memories' | 'settings';
+
+function analyticsErrorCode(code: string): string {
+  if (code === 'FREE_QUOTA_EXHAUSTED') return 'quota_exhausted';
+  if (code === 'PROVIDER_TIMEOUT') return 'generation_timeout';
+  if (
+    code === 'FREE_SERVICE_UNAVAILABLE' ||
+    code === 'FREE_SERVICE_DISABLED' ||
+    code === 'PROVIDER_UNAVAILABLE' ||
+    code === 'PROVIDER_RATE_LIMITED'
+  ) {
+    return 'provider_unavailable';
+  }
+  return 'generation_failed';
+}
 
 function avatarUrl(character: Character) {
   const version = character.version ? `?v=${character.version}` : '';
@@ -46,6 +65,12 @@ export function App() {
   const [usageMode, setUsageMode] = useState<'PLATFORM' | 'BYOK'>('PLATFORM');
   const [selectedConfigurationId, setSelectedConfigurationId] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [freeQuotaRemaining, setFreeQuotaRemaining] = useState<number | null>(null);
+  const [freeQuotaEnabled, setFreeQuotaEnabled] = useState(true);
+  const [account, setAccount] = useState<AnonymousIdentity | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [analyticsReady, setAnalyticsReady] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggesting, setSuggesting] = useState(false);
   const [typing, setTyping] = useState(false);
@@ -59,6 +84,7 @@ export function App() {
     if (!next) playClick();
   }
   const conversationIdRef = useRef<string | null>(null);
+  const activeRef = useRef<Character | null>(null);
   const suggestAbortRef = useRef<AbortController | null>(null);
   // Multi-bubble turn playback. The controller is a stable singleton so a new turn
   // (or a tab-visibility change) can interrupt/pause the one in flight.
@@ -67,6 +93,7 @@ export function App() {
   const loadSuggestionsRef = useRef<(id: string) => void>(() => {});
 
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
+  useEffect(() => { activeRef.current = active; }, [active]);
 
   useEffect(() => {
     const controller = new TurnPlaybackController({
@@ -93,7 +120,25 @@ export function App() {
       },
       onError: (reason) => {
         setTyping(false);
-        setError(reason instanceof Error ? reason.message : '发送失败，请稍后重试。');
+        const message = reason instanceof Error ? reason.message : '发送失败，请稍后重试。';
+        const apiError = reason instanceof ApiError ? reason : null;
+        setError(message);
+        setErrorCode(apiError?.code ?? 'GENERATION_FAILED');
+        analytics.blockingError(
+          analyticsErrorCode(apiError?.code ?? 'GENERATION_FAILED'),
+          'chat',
+          {
+            errorStage: 'generation',
+            retryable: apiError?.retryable ?? false,
+            ...(apiError?.requestId ? { requestId: apiError.requestId } : {}),
+            ...(activeRef.current
+              ? { characterId: activeRef.current.character_id }
+              : {}),
+            ...(conversationIdRef.current
+              ? { conversationId: conversationIdRef.current }
+              : {})
+          }
+        );
       }
     });
     playbackRef.current = controller;
@@ -108,18 +153,30 @@ export function App() {
     };
   }, []);
 
-  async function openCharacter(character: Character, nextView: View = 'chat') {
+  async function openCharacter(
+    character: Character,
+    nextView: View = 'chat',
+    trackSelection = false
+  ) {
     // Abandon any in-flight turn so its bubbles never land in the new conversation.
     playbackRef.current?.interrupt();
     setTyping(false);
     setActive(character);
     setView(nextView);
     setError(null);
+    setErrorCode(null);
     setSuggestions([]);
     const created = await api<{ conversation_id: string }>('/v1/conversations', {
       method: 'POST', body: JSON.stringify({ character_id: character.character_id })
     });
     setConversationId(created.conversation_id);
+    if (trackSelection) {
+      analytics.criticalAction('character_selected', 'home', {
+        characterId: character.character_id,
+        conversationId: created.conversation_id,
+        result: 'success'
+      });
+    }
     const loaded = await fetchMessages(created.conversation_id);
     setMessages(loaded);
     if (loaded.length > 0) void loadSuggestions(created.conversation_id);
@@ -141,8 +198,40 @@ export function App() {
     }
   }
 
+  async function deleteActiveCharacter() {
+    if (!active) return;
+    await deleteCharacter(active.character_id);
+    const response = await api<{ characters: Character[] }>('/v1/characters');
+    setCharacters(response.characters);
+    const next = response.characters[0];
+    if (next) {
+      await openCharacter(next);
+    } else {
+      setActive(null);
+      setConversationId(null);
+      setMessages([]);
+      setView('chat');
+    }
+  }
+
   async function bootstrap() {
-    await api('/v1/identities/anonymous', { method: 'POST' });
+    const identityResponse = await api<{ user?: AnonymousIdentity }>(
+      '/v1/identities/anonymous',
+      { method: 'POST' }
+    );
+    if (identityResponse.user?.anonymous_id) {
+      setAccount(identityResponse.user);
+      setFreeQuotaRemaining(identityResponse.user.free_quota_remaining);
+      setFreeQuotaEnabled(identityResponse.user.free_quota_enabled);
+      await analytics.initialize({
+        userId: identityResponse.user.user_id,
+        anonymousId: identityResponse.user.anonymous_id,
+        url: window.location.href,
+        referrer: document.referrer,
+        appVersion: '0.1.0'
+      });
+      setAnalyticsReady(true);
+    }
     const [characterResponse, configurationResponse] = await Promise.all([
       api<{ characters: Character[] }>('/v1/characters'),
       api<{ configurations: ModelConfiguration[] }>('/v1/model-configurations')
@@ -160,6 +249,68 @@ export function App() {
     started.current = true;
     void bootstrap().catch((reason: Error) => setError(reason.message));
   }, []);
+
+  // After registration / login / merge the session cookie has rotated. Adopt the new
+  // account state and pull the (possibly merged) character list without disturbing the
+  // conversation the user is currently reading.
+  async function onAuthenticated(user: AnonymousIdentity) {
+    setAccount(user);
+    setFreeQuotaRemaining(user.free_quota_remaining);
+    setFreeQuotaEnabled(user.free_quota_enabled);
+    setLoginOpen(false);
+    const response = await api<{ characters: Character[] }>('/v1/characters');
+    setCharacters(response.characters);
+  }
+
+  // Sign out: revoke this device's session, then start a brand-new anonymous identity
+  // rather than reusing the account just left.
+  async function onLogout() {
+    await logout();
+    playbackRef.current?.interrupt();
+    const identityResponse = await api<{ user?: AnonymousIdentity }>(
+      '/v1/identities/anonymous',
+      { method: 'POST' }
+    );
+    if (identityResponse.user) {
+      setAccount(identityResponse.user);
+      setFreeQuotaRemaining(identityResponse.user.free_quota_remaining);
+      setFreeQuotaEnabled(identityResponse.user.free_quota_enabled);
+    }
+    setActive(null);
+    setConversationId(null);
+    setMessages([]);
+    setView('chat');
+    const response = await api<{ characters: Character[] }>('/v1/characters');
+    setCharacters(response.characters);
+    if (response.characters[0]) await openCharacter(response.characters[0]);
+  }
+
+  const analyticsPage: AnalyticsPageName = providerOpen
+    ? 'model_config'
+    : importOpen
+      ? 'character_import'
+      : editorOpen
+        ? editorCharacterId
+          ? 'character_settings'
+          : 'character_create'
+        : !active
+          ? 'home'
+          : view === 'chat'
+            ? 'chat'
+            : view === 'profile'
+              ? 'character_detail'
+              : view === 'memories'
+                ? 'character_memories'
+                : 'character_settings';
+
+  useEffect(() => {
+    if (!analyticsReady) return;
+    analytics.pageView(analyticsPage, `/${analyticsPage}`, {
+      entryMethod: 'navigation',
+      ...(active ? { characterId: active.character_id } : {}),
+      ...(conversationId ? { conversationId } : {})
+    });
+  }, [active, analyticsPage, analyticsReady, conversationId]);
 
   // Resolve the model selector (usage mode + BYOK credentials) shared by both
   // message sending and reply-suggestion requests.
@@ -218,11 +369,43 @@ export function App() {
     // Ignore repeat sends only while awaiting the model; during playback a new send
     // is allowed and interrupts the remaining bubbles.
     if (controller.getState() === 'GENERATING') return;
+    if (
+      usageMode === 'PLATFORM' &&
+      (!freeQuotaEnabled || freeQuotaRemaining === 0)
+    ) {
+      const code = freeQuotaEnabled
+        ? 'FREE_QUOTA_EXHAUSTED'
+        : 'FREE_SERVICE_DISABLED';
+      setErrorCode(code);
+      setError(
+        freeQuotaEnabled
+          ? '你的官方免费回复次数已用完。你可以配置自己的模型服务继续聊天。'
+          : '官方免费服务当前已关闭。你可以配置自己的模型服务继续聊天。'
+      );
+      analytics.blockingError(analyticsErrorCode(code), 'chat', {
+        errorStage: 'quota_check',
+        retryable: false,
+        ...(active ? { characterId: active.character_id } : {}),
+        ...(conversationId ? { conversationId } : {})
+      });
+      return;
+    }
     playClick();
     const targetConversationId = conversationId;
     if (!editOfMessageId) setDraft('');
     setSuggestions([]);
     setError(null);
+    setErrorCode(null);
+    if (
+      !editOfMessageId &&
+      !messages.some((message) => message.role === 'USER')
+    ) {
+      analytics.criticalAction('first_message_submit_attempted', 'chat', {
+        ...(active ? { characterId: active.character_id } : {}),
+        ...(conversationId ? { conversationId } : {}),
+        result: 'attempted'
+      });
+    }
     const userMessage: Message = { message_id: createId(), role: 'USER', content_text: text, status: 'COMPLETED' };
     setMessages((current) => {
       const index = editOfMessageId ? current.findIndex((message) => message.message_id === editOfMessageId) : -1;
@@ -242,6 +425,9 @@ export function App() {
       };
       const plan = await generateTurn(targetConversationId, payload);
       turnIdRef.current = plan.turn_id;
+      if (plan.free_quota_remaining !== undefined) {
+        setFreeQuotaRemaining(plan.free_quota_remaining);
+      }
       return plan.messages;
     });
   }
@@ -251,17 +437,49 @@ export function App() {
     void submit(draft);
   }
 
+  function openProviderSettings() {
+    analytics.criticalAction('provider_config_started', analyticsPage, {
+      ...(active ? { characterId: active.character_id } : {}),
+      ...(conversationId ? { conversationId } : {}),
+      result: 'attempted'
+    });
+    setProviderOpen(true);
+  }
+
+  function openCharacterImport() {
+    analytics.criticalAction('character_import_started', analyticsPage, {
+      ...(active ? { characterId: active.character_id } : {}),
+      ...(conversationId ? { conversationId } : {}),
+      result: 'attempted'
+    });
+    setImportOpen(true);
+  }
+
+  function openCharacterCreate() {
+    analytics.criticalAction('character_create_started', analyticsPage, {
+      result: 'attempted'
+    });
+    setEditorCharacterId(undefined);
+    setEditorOpen(true);
+  }
+
+  function openLogin() {
+    analytics.criticalAction('login_started', analyticsPage, {
+      ...(active ? { characterId: active.character_id } : {}),
+      ...(conversationId ? { conversationId } : {}),
+      result: 'attempted'
+    });
+    setLoginOpen(true);
+  }
+
   const contactRail = (
     <ContactRail
       characters={characters}
       active={active}
       tone={view === 'chat' ? 'dark' : 'light'}
-      onSelect={(character) => void openCharacter(character)}
-      onImport={() => setImportOpen(true)}
-      onCreate={() => {
-        setEditorCharacterId(undefined);
-        setEditorOpen(true);
-      }}
+      onSelect={(character) => void openCharacter(character, 'chat', true)}
+      onImport={openCharacterImport}
+      onCreate={openCharacterCreate}
     />
   );
 
@@ -269,41 +487,59 @@ export function App() {
     <main className={`hsr-app view-${view}`}>
       <div className="scene-glow scene-glow-one" />
       <div className="scene-glow scene-glow-two" />
-      <TopChrome muted={muted} onToggleMute={toggleMute} {...(view === 'memories' && active ? { title: `与${active.name}的回忆` } : view === 'settings' ? { title: 'PomChat' } : {})} />
+      <TopChrome
+        muted={muted}
+        onToggleMute={toggleMute}
+        account={account}
+        onLogin={openLogin}
+        onLogout={() => void onLogout()}
+        {...(view === 'memories' && active ? { title: `与${active.name}的回忆` } : view === 'settings' ? { title: 'PomChat' } : {})}
+      />
 
       <section className="hsr-stage">
         {view === 'chat' && contactRail}
         {!active ? (
           <EmptyCharacter
-            onImport={() => setImportOpen(true)}
-            onCreate={() => {
-              setEditorCharacterId(undefined);
-              setEditorOpen(true);
-            }}
+            onImport={openCharacterImport}
+            onCreate={openCharacterCreate}
           />
         ) : view === 'chat' ? (
           <ChatPage
             character={active} messages={messages} draft={draft} sending={sending} error={error}
+            errorCode={errorCode} freeQuotaRemaining={freeQuotaRemaining} freeQuotaEnabled={freeQuotaEnabled}
             usageMode={usageMode} configurations={configurations} selectedConfigurationId={selectedConfigurationId}
             suggestions={suggestions} suggesting={suggesting} typing={typing}
             onProfile={() => setView('profile')} onDraft={setDraft} onSend={send} onPick={(text) => void submit(text)}
             onEditSubmit={(messageId, text) => void submit(text, messageId)}
             onUsageMode={setUsageMode} onConfiguration={setSelectedConfigurationId}
-            onProvider={() => setProviderOpen(true)}
+            onProvider={openProviderSettings}
           />
         ) : view === 'profile' ? (
-          <ProfilePage character={active} onChat={() => setView('chat')} onMemories={() => setView('memories')} onSettings={() => setView('settings')} />
+          <ProfilePage
+            character={active}
+            onChat={() => {
+              analytics.criticalAction('chat_start_clicked', 'character_detail', {
+                characterId: active.character_id,
+                ...(conversationId ? { conversationId } : {}),
+                result: 'attempted'
+              });
+              setView('chat');
+            }}
+            onMemories={() => setView('memories')}
+            onSettings={() => setView('settings')}
+          />
         ) : view === 'memories' ? (
           <MemoryPage character={active} onBack={() => setView('profile')} onChat={() => setView('chat')} />
         ) : (
           <CharacterSettingsPage
             character={active} configurations={configurations}
-            onBack={() => setView('profile')} onImport={() => setImportOpen(true)}
+            onBack={() => setView('profile')} onImport={openCharacterImport}
             onEdit={() => {
               setEditorCharacterId(active.character_id);
               setEditorOpen(true);
             }}
-            onProvider={() => setProviderOpen(true)}
+            onProvider={openProviderSettings}
+            onDelete={deleteActiveCharacter}
           />
         )}
       </section>
@@ -328,6 +564,11 @@ export function App() {
         onClose={() => setEditorOpen(false)}
         onSaved={() => refreshCharacters(true)}
       />
+      <LoginSync
+        open={loginOpen}
+        onClose={() => setLoginOpen(false)}
+        onAuthenticated={(user) => void onAuthenticated(user)}
+      />
     </main>
   );
 }
@@ -348,15 +589,34 @@ function SmsIcon({ size = 30 }: { size?: number }) {
   );
 }
 
-function TopChrome({ title, muted, onToggleMute }: { title?: string; muted?: boolean; onToggleMute?: () => void }) {
+function TopChrome({ title, muted, onToggleMute, account, onLogin, onLogout }: {
+  title?: string; muted?: boolean; onToggleMute?: () => void;
+  account?: AnonymousIdentity | null; onLogin?: () => void; onLogout?: () => void;
+}) {
+  const registered = account?.registered ?? account?.identity_type === 'EMAIL';
   return (
     <header className="top-chrome">
       <div className="sms-title"><SmsIcon size={30} /><span><strong>短信</strong>{title && <small>{title}</small>}</span></div>
-      {onToggleMute && (
-        <button className="chrome-mute" onClick={onToggleMute} aria-label={muted ? '开启音效' : '关闭音效'} aria-pressed={muted}>
-          {muted ? <VolumeX size={22} /> : <Volume2 size={22} />}
-        </button>
-      )}
+      <div className="chrome-actions">
+        {account && (
+          registered ? (
+            <div className="account-chip" title={account.email ?? undefined}>
+              <UserRound size={15} />
+              <span className="account-email">{account.email}</span>
+              <button type="button" className="account-logout" onClick={onLogout}>退出</button>
+            </div>
+          ) : (
+            <button type="button" className="chrome-login" onClick={onLogin} aria-label="登录并同步">
+              <UserRound size={16} /> 登录并同步
+            </button>
+          )
+        )}
+        {onToggleMute && (
+          <button className="chrome-mute" onClick={onToggleMute} aria-label={muted ? '开启音效' : '关闭音效'} aria-pressed={muted}>
+            {muted ? <VolumeX size={22} /> : <Volume2 size={22} />}
+          </button>
+        )}
+      </div>
     </header>
   );
 }
@@ -468,8 +728,9 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   );
 }
 
-function ChatPage({ character, messages, draft, sending, error, usageMode, configurations, selectedConfigurationId, suggestions, suggesting, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider }: {
+function ChatPage({ character, messages, draft, sending, error, errorCode, freeQuotaRemaining, freeQuotaEnabled, usageMode, configurations, selectedConfigurationId, suggestions, suggesting, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider }: {
   character: Character; messages: Message[]; draft: string; sending: boolean; error: string | null;
+  errorCode: string | null; freeQuotaRemaining: number | null; freeQuotaEnabled: boolean;
   usageMode: 'PLATFORM' | 'BYOK'; configurations: ModelConfiguration[]; selectedConfigurationId: string;
   suggestions: string[]; suggesting: boolean; typing: boolean;
   onProfile: () => void; onDraft: (value: string) => void; onSend: (event: FormEvent) => void; onPick: (text: string) => void;
@@ -478,6 +739,16 @@ function ChatPage({ character, messages, draft, sending, error, usageMode, confi
 }) {
   const lastLine = [...messages].reverse().find((message) => message.role === 'ASSISTANT' && message.content_text.trim())?.content_text
     || character.first_message || character.profile_summary || '角色档案';
+
+  const officialBlocked =
+    usageMode === 'PLATFORM' &&
+    (!freeQuotaEnabled || freeQuotaRemaining === 0);
+  const quotaMessage =
+    usageMode === 'PLATFORM' && freeQuotaRemaining === 0
+      ? '你的官方免费回复次数已用完。你可以配置自己的模型服务继续聊天。'
+      : usageMode === 'PLATFORM' && !freeQuotaEnabled
+        ? '官方免费服务当前已关闭。你可以配置自己的模型服务继续聊天。'
+        : null;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -574,6 +845,17 @@ function ChatPage({ character, messages, draft, sending, error, usageMode, confi
         )}
       </div>
       <footer className="reply-area">
+        {quotaMessage && error !== quotaMessage && (
+          <div className="quota-notice" role="status">
+            <span><CircleAlert size={16} />{quotaMessage}</span>
+            <button type="button" onClick={onProvider}>配置自己的模型服务</button>
+          </div>
+        )}
+        {(errorCode === 'FREE_QUOTA_EXHAUSTED' || errorCode === 'FREE_SERVICE_DISABLED') && (
+          <button className="quota-config-link" type="button" onClick={onProvider}>
+            配置自己的模型服务
+          </button>
+        )}
         {(suggestions.length > 0 || suggesting) && (
           <div className="reply-suggestions" role="group" aria-label="快捷回复">
             {suggesting && suggestions.length === 0 ? (
@@ -586,7 +868,9 @@ function ChatPage({ character, messages, draft, sending, error, usageMode, confi
           </div>
         )}
         <div className="model-bar">
-          <button className={usageMode === 'PLATFORM' ? 'active' : ''} onClick={() => onUsageMode('PLATFORM')}>官方额度</button>
+          <button className={usageMode === 'PLATFORM' ? 'active' : ''} onClick={() => onUsageMode('PLATFORM')}>
+            {freeQuotaRemaining === null ? '官方免费' : `官方免费 ${freeQuotaRemaining} 次`}
+          </button>
           <button className={usageMode === 'BYOK' ? 'active' : ''} onClick={() => configurations.length ? onUsageMode('BYOK') : onProvider()}>自带模型</button>
           {usageMode === 'BYOK' && configurations.length > 0 && (
             <select value={selectedConfigurationId} onChange={(event) => onConfiguration(event.target.value)}>
@@ -601,7 +885,7 @@ function ChatPage({ character, messages, draft, sending, error, usageMode, confi
             onChange={(event) => onDraft(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}
           />
-          <button disabled={!draft.trim() || sending} aria-label="发送消息">{sending ? <LoaderCircle className="spin" size={20} /> : '发送'}</button>
+          <button disabled={!draft.trim() || sending || officialBlocked} aria-label="发送消息">{sending ? <LoaderCircle className="spin" size={20} /> : '发送'}</button>
         </form>
       </footer>
     </section>
@@ -731,9 +1015,24 @@ function SettingRow({ icon, title, description, value, onClick, href, disabled =
   return <button className="setting-row" onClick={onClick} disabled={disabled}>{content}</button>;
 }
 
-function CharacterSettingsPage({ character, configurations, onBack, onImport, onEdit, onProvider }: {
-  character: Character; configurations: ModelConfiguration[]; onBack: () => void; onImport: () => void; onEdit: () => void; onProvider: () => void;
+function CharacterSettingsPage({ character, configurations, onBack, onImport, onEdit, onProvider, onDelete }: {
+  character: Character; configurations: ModelConfiguration[]; onBack: () => void; onImport: () => void; onEdit: () => void; onProvider: () => void; onDelete: () => Promise<void>;
 }) {
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function confirmDelete() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDelete();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : '删除失败，请稍后重试。');
+      setDeleting(false);
+    }
+  }
+
   return (
     <section className="main-paper settings-paper">
       <div className="detail-topbar">
@@ -757,9 +1056,34 @@ function CharacterSettingsPage({ character, configurations, onBack, onImport, on
             <section>
               <SettingRow icon={<KeyRound />} title="模型选择" description="选择该角色使用的对话模型" value={configurations[0]?.display_name || 'PomChat 官方额度'} onClick={onProvider} />
             </section>
+            {character.is_owned && (
+              <>
+                <label>危险操作</label>
+                <section>
+                  <button className="setting-row setting-row-danger" onClick={() => setConfirming(true)}>
+                    <Trash2 className="danger-icon" /><span><strong>删除角色</strong><small>移除该角色及其对话记录，此操作无法撤销</small></span><ChevronRight />
+                  </button>
+                </section>
+              </>
+            )}
           </div>
         </div>
       </div>
+      {confirming && (
+        <div className="modal-backdrop" onClick={() => !deleting && setConfirming(false)}>
+          <div className="confirm-dialog" onClick={(event) => event.stopPropagation()}>
+            <h2>删除「{character.name}」？</h2>
+            <p>删除后将无法在联系人中找到该角色，聊天记录也会一并移除，此操作无法撤销。</p>
+            {deleteError && <p className="confirm-error">{deleteError}</p>}
+            <div className="confirm-actions">
+              <button className="confirm-cancel" onClick={() => setConfirming(false)} disabled={deleting}>取消</button>
+              <button className="confirm-delete" onClick={() => void confirmDelete()} disabled={deleting}>
+                {deleting ? '删除中…' : '删除角色'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
