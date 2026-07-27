@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowLeft, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download,
-  KeyRound, LoaderCircle, MessageCircle, Pencil, Plus, Send, Settings,
+  HeartHandshake, KeyRound, LoaderCircle, MessageCircle, Pencil, Plus, Send, Settings,
   Trash2, Upload, UserRound, Volume2, VolumeX
 } from 'lucide-react';
 import { ProviderSettings } from './components/ProviderSettings';
 import { CharacterImport } from './components/CharacterImport';
 import { CharacterEditor } from './components/CharacterEditor';
+import { RelationshipImport } from './components/RelationshipImport';
 import { LoginSync } from './components/LoginSync';
 import {
   ApiError, api, deleteCharacter, generateTurn, logout, saveTurnBubble,
@@ -61,6 +62,8 @@ export function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorCharacterId, setEditorCharacterId] = useState<string | undefined>();
+  const [migrationOpen, setMigrationOpen] = useState(false);
+  const [migrationCharacterId, setMigrationCharacterId] = useState<string | undefined>();
   const [configurations, setConfigurations] = useState<ModelConfiguration[]>([]);
   const [usageMode, setUsageMode] = useState<'PLATFORM' | 'BYOK'>('PLATFORM');
   const [selectedConfigurationId, setSelectedConfigurationId] = useState('');
@@ -287,7 +290,9 @@ export function App() {
 
   const analyticsPage: AnalyticsPageName = providerOpen
     ? 'model_config'
-    : importOpen
+    : migrationOpen
+      ? 'relationship_import'
+      : importOpen
       ? 'character_import'
       : editorOpen
         ? editorCharacterId
@@ -455,6 +460,33 @@ export function App() {
     setImportOpen(true);
   }
 
+  function openRelationshipImport(characterId?: string) {
+    analytics.criticalAction('relationship_import_started', analyticsPage, {
+      ...(characterId ? { characterId } : {}),
+      result: 'attempted'
+    });
+    setMigrationCharacterId(characterId);
+    setMigrationOpen(true);
+  }
+
+  // After a migration the imported character and the freshly created conversation
+  // become the active ones, so the user lands straight in the new chat.
+  async function onRelationshipImported(result: { character_id: string; conversation_id: string }) {
+    const response = await api<{ characters: Character[] }>('/v1/characters');
+    setCharacters(response.characters);
+    const imported = response.characters.find((item) => item.character_id === result.character_id);
+    if (!imported) return;
+    playbackRef.current?.interrupt();
+    setTyping(false);
+    setActive(imported);
+    setView('chat');
+    setError(null);
+    setErrorCode(null);
+    setSuggestions([]);
+    setConversationId(result.conversation_id);
+    setMessages(await fetchMessages(result.conversation_id));
+  }
+
   function openCharacterCreate() {
     analytics.criticalAction('character_create_started', analyticsPage, {
       result: 'attempted'
@@ -480,6 +512,7 @@ export function App() {
       onSelect={(character) => void openCharacter(character, 'chat', true)}
       onImport={openCharacterImport}
       onCreate={openCharacterCreate}
+      onMigrate={() => openRelationshipImport()}
     />
   );
 
@@ -502,6 +535,7 @@ export function App() {
           <EmptyCharacter
             onImport={openCharacterImport}
             onCreate={openCharacterCreate}
+            onMigrate={() => openRelationshipImport()}
           />
         ) : view === 'chat' ? (
           <ChatPage
@@ -534,6 +568,7 @@ export function App() {
           <CharacterSettingsPage
             character={active} configurations={configurations}
             onBack={() => setView('profile')} onImport={openCharacterImport}
+            onMigrate={() => openRelationshipImport(active.character_id)}
             onEdit={() => {
               setEditorCharacterId(active.character_id);
               setEditorOpen(true);
@@ -563,6 +598,13 @@ export function App() {
         {...(editorCharacterId ? { characterId: editorCharacterId } : {})}
         onClose={() => setEditorOpen(false)}
         onSaved={() => refreshCharacters(true)}
+      />
+      <RelationshipImport
+        open={migrationOpen}
+        characters={characters}
+        {...(migrationCharacterId ? { defaultCharacterId: migrationCharacterId } : {})}
+        onClose={() => setMigrationOpen(false)}
+        onImported={onRelationshipImported}
       />
       <LoginSync
         open={loginOpen}
@@ -621,9 +663,10 @@ function TopChrome({ title, muted, onToggleMute, account, onLogin, onLogout }: {
   );
 }
 
-function ContactRail({ characters, active, tone, onSelect, onImport, onCreate }: {
+function ContactRail({ characters, active, tone, onSelect, onImport, onCreate, onMigrate }: {
   characters: Character[]; active: Character | null; tone: 'dark' | 'light';
   onSelect: (character: Character) => void; onImport: () => void; onCreate: () => void;
+  onMigrate: () => void;
 }) {
   return (
     <aside className={`contact-rail rail-${tone}`}>
@@ -640,12 +683,13 @@ function ContactRail({ characters, active, tone, onSelect, onImport, onCreate }:
       <div className="rail-actions">
         <button className="rail-action" onClick={onCreate}><Plus size={21} /> 新建角色</button>
         <button className="rail-action" onClick={onImport}><Upload size={21} /> 导入角色卡</button>
+        <button className="rail-action" onClick={onMigrate}><HeartHandshake size={21} /> 迁移角色关系</button>
       </div>
     </aside>
   );
 }
 
-function EmptyCharacter({ onImport, onCreate }: { onImport: () => void; onCreate: () => void }) {
+function EmptyCharacter({ onImport, onCreate, onMigrate }: { onImport: () => void; onCreate: () => void; onMigrate: () => void }) {
   return (
     <section className="main-paper empty-paper">
       <MessageCircle size={42} />
@@ -654,6 +698,7 @@ function EmptyCharacter({ onImport, onCreate }: { onImport: () => void; onCreate
       <div className="empty-actions">
         <button className="gold-button" onClick={onCreate}><Plus size={19} /> 创建角色</button>
         <button className="secondary-button" aria-label="导入流萤角色卡" onClick={onImport}><Upload size={19} /> 导入角色卡</button>
+        <button className="secondary-button" onClick={onMigrate}><HeartHandshake size={19} /> 迁移角色关系</button>
       </div>
     </section>
   );
@@ -799,7 +844,9 @@ function ChatPage({ character, messages, draft, sending, error, errorCode, freeQ
       </button>
       <div className="chat-scroll-wrap">
         <div className="chat-messages" ref={scrollRef} onScroll={handleScroll}>
-          {messages.map((message) => (
+          {messages.map((message) => (message.role === 'EVENT' ? (
+            <p key={message.message_id} className="chat-event" role="note">{message.content_text}</p>
+          ) : (
             <div key={message.message_id} className={`hsr-message ${message.role === 'USER' ? 'from-user' : 'from-character'} ${editingId === message.message_id ? 'is-editing' : ''}`}>
               {message.role === 'ASSISTANT' && <Avatar character={character} />}
               <div className="message-body">
@@ -825,7 +872,7 @@ function ChatPage({ character, messages, draft, sending, error, errorCode, freeQ
               </div>
               {message.role === 'USER' && <span className="user-avatar"><UserRound size={26} /></span>}
             </div>
-          ))}
+          )))}
           {typing && (
             <div className="hsr-message from-character">
               <Avatar character={character} />
@@ -1015,8 +1062,8 @@ function SettingRow({ icon, title, description, value, onClick, href, disabled =
   return <button className="setting-row" onClick={onClick} disabled={disabled}>{content}</button>;
 }
 
-function CharacterSettingsPage({ character, configurations, onBack, onImport, onEdit, onProvider, onDelete }: {
-  character: Character; configurations: ModelConfiguration[]; onBack: () => void; onImport: () => void; onEdit: () => void; onProvider: () => void; onDelete: () => Promise<void>;
+function CharacterSettingsPage({ character, configurations, onBack, onImport, onMigrate, onEdit, onProvider, onDelete }: {
+  character: Character; configurations: ModelConfiguration[]; onBack: () => void; onImport: () => void; onMigrate: () => void; onEdit: () => void; onProvider: () => void; onDelete: () => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -1051,6 +1098,7 @@ function CharacterSettingsPage({ character, configurations, onBack, onImport, on
               <SettingRow icon={<Pencil />} title="编辑角色设定" description="修改名称、头像、描述与高级角色字段" onClick={onEdit} />
               <SettingRow icon={<Upload />} title="导入角色卡" description="从本地文件更新角色设定与对话数据" onClick={onImport} />
               <SettingRow icon={<Download />} title="导出角色卡" description="将当前角色卡按原始格式导出" href={`/v1/characters/${character.character_id}/export`} />
+              <SettingRow icon={<HeartHandshake />} title="迁移角色关系" description="把其他平台整理好的关系、资料与记忆导入这个角色" onClick={onMigrate} />
             </section>
             <label>模型配置</label>
             <section>

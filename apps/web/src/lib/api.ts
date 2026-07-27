@@ -16,7 +16,9 @@ export interface Character {
 
 export interface Message {
   message_id: string;
-  role: 'USER' | 'ASSISTANT';
+  // EVENT is a system note in the transcript (e.g. a relationship migration). It is
+  // never attributed to the character and never sent to the model.
+  role: 'USER' | 'ASSISTANT' | 'EVENT';
   content_text: string;
   status: string;
 }

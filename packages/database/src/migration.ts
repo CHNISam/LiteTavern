@@ -550,6 +550,43 @@ CREATE TABLE IF NOT EXISTS auth_account_merge (
 );
 `;
 
+// Relationship migration from other AI platforms. The user's own external model
+// produces a standard JSON payload; PomChat only validates, previews and writes it
+// into the existing character / relationship / memory models. `relationship_import`
+// is deliberately thin: it is the audit + idempotency record (one commit per row)
+// and the only place the raw payload — which may contain private chat details —
+// is retained. `agent_memory.relationship_import_id` lets a user who deletes a
+// migration record optionally take the memories it wrote with it.
+const RELATIONSHIP_IMPORT_MIGRATION_SQL = String.raw`
+CREATE TABLE IF NOT EXISTS relationship_import (
+  import_id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES app_user(user_id),
+  target_character_id UUID REFERENCES agent_character(character_id),
+  conversation_id UUID REFERENCES chat_conversation(conversation_id),
+  schema_version VARCHAR(60) NOT NULL,
+  source_platform VARCHAR(80),
+  raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  normalized_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  memory_count INTEGER NOT NULL DEFAULT 0 CHECK (memory_count >= 0),
+  created_character BOOLEAN NOT NULL DEFAULT FALSE,
+  status VARCHAR(20) NOT NULL DEFAULT 'VALIDATED'
+    CHECK (status IN ('VALIDATED', 'COMMITTED', 'DISCARDED')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  committed_at TIMESTAMPTZ,
+  deleted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_relationship_import_user
+  ON relationship_import(user_id, created_at DESC)
+  WHERE deleted_at IS NULL;
+
+ALTER TABLE agent_memory
+  ADD COLUMN IF NOT EXISTS relationship_import_id UUID
+    REFERENCES relationship_import(import_id);
+CREATE INDEX IF NOT EXISTS idx_memory_relationship_import
+  ON agent_memory(relationship_import_id)
+  WHERE relationship_import_id IS NOT NULL;
+`;
+
 export const MIGRATIONS = [
   {
     version: 1,
@@ -580,5 +617,10 @@ export const MIGRATIONS = [
     version: 6,
     name: 'email_auth',
     sql: EMAIL_AUTH_MIGRATION_SQL
+  },
+  {
+    version: 7,
+    name: 'relationship_import',
+    sql: RELATIONSHIP_IMPORT_MIGRATION_SQL
   }
 ] satisfies readonly DatabaseMigration[];

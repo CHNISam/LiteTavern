@@ -14,6 +14,7 @@ export type AnalyticsPageName =
   | 'character_settings'
   | 'character_create'
   | 'character_import'
+  | 'relationship_import'
   | 'model_config';
 
 export type AnalyticsSourceChannel =
@@ -308,6 +309,11 @@ export class AnalyticsClient {
     });
   }
 
+  /**
+   * `properties` carries extra non-sensitive dimensions (counts, buckets, chosen
+   * branch). Never pass user or character content through it — the server rejects
+   * content-bearing property names outright.
+   */
   criticalAction(
     actionName: string,
     pageName: AnalyticsPageName,
@@ -315,6 +321,7 @@ export class AnalyticsClient {
       characterId?: string;
       conversationId?: string;
       result?: string;
+      properties?: Record<string, PropertyValue>;
     } = {}
   ) {
     if (!this.session || !this.initialized) return;
@@ -331,6 +338,7 @@ export class AnalyticsClient {
         ? { conversation_id: options.conversationId }
         : {}),
       properties: {
+        ...options.properties,
         action_name: actionName,
         interaction_index: this.session.interactionIndex,
         click_depth: this.session.interactionIndex,

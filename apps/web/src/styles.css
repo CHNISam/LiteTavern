@@ -1241,3 +1241,27 @@ button { color: inherit; }
   font-size: 12px; cursor: pointer; padding: 4px 2px;
 }
 .login-link:disabled { color: #6a7180; cursor: default; }
+
+/* Relationship migration from other AI platforms */
+.migration-panel { width: min(880px, 100%); height: min(880px, 94vh); }
+.migration-content { overflow-y: auto; display: flex; flex-direction: column; gap: 18px; padding: 22px 26px 28px; }
+.migration-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 9px; color: #c2c7d1; font-size: 12px; line-height: 1.65; }
+.migration-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.migration-summary { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px; color: #d7dae1; font-size: 12.5px; line-height: 1.6; }
+.import-issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.import-issues li { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 10px; font-size: 12px; line-height: 1.55; background: rgba(255, 255, 255, 0.04); color: #c8ccd4; }
+.import-issues li strong { margin-right: 6px; }
+.import-issues li code { margin-right: 6px; padding: 1px 5px; border-radius: 5px; background: rgba(255, 255, 255, 0.07); font-size: 11px; }
+.import-issues .issue-fatal { color: #f0b6b6; background: rgba(198, 92, 92, 0.14); }
+.import-issues .issue-warning { color: #ead5a8; background: rgba(210, 178, 105, 0.13); }
+.migration-memory { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 11px; background: rgba(255, 255, 255, 0.03); }
+.migration-memory.is-skipped { opacity: 0.5; }
+.migration-memory small { color: #8f96a5; font-size: 10.5px; }
+.migration-memory textarea { width: 100%; }
+.memory-toolbar { display: flex; align-items: center; gap: 14px; }
+.memory-toolbar button { margin-left: auto; display: grid; place-items: center; padding: 5px; border: none; border-radius: 8px; background: transparent; color: #a9707a; cursor: pointer; }
+.memory-toolbar button:hover { background: rgba(198, 92, 92, 0.14); }
+.memory-toggle { display: flex; align-items: center; gap: 7px; color: #c8ccd4; font-size: 12px; }
+.memory-importance { display: flex; align-items: center; gap: 8px; color: #9aa1af; font-size: 11px; }
+.memory-importance input { width: 110px; }
+.chat-event { align-self: center; max-width: 78%; margin: 6px auto; padding: 7px 14px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); color: #a7adba; font-size: 11px; line-height: 1.55; text-align: center; }

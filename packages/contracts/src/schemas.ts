@@ -149,6 +149,7 @@ export const analyticsPageNameSchema = z.enum([
   'character_settings',
   'character_create',
   'character_import',
+  'relationship_import',
   'model_config'
 ]);
 

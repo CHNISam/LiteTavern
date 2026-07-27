@@ -11,6 +11,7 @@ import { registerModelRoutes } from './modules/model-routes.js';
 import { registerGenerationRoutes } from './modules/generation-routes.js';
 import { registerCharacterCardRoutes } from './modules/character-card-routes.js';
 import { registerAnalyticsRoutes } from './modules/analytics-routes.js';
+import { registerRelationshipImportRoutes } from './modules/relationship-import/routes.js';
 import { registerAuthRoutes } from './modules/auth/auth-routes.js';
 import { loadEmailProvider, type EmailProvider } from './modules/auth/email-provider.js';
 import {
@@ -133,6 +134,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   registerModelRoutes(app, database, gateway);
   registerGenerationRoutes(app, { database, gateway, platform });
   registerCharacterCardRoutes(app, database, assetStore);
+  registerRelationshipImportRoutes(app, database);
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {

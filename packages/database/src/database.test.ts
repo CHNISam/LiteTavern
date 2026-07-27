@@ -88,7 +88,8 @@ describe('database migration', () => {
       { version: 3, name: 'character_card_model' },
       { version: 4, name: 'multi_bubble_turns' },
       { version: 5, name: 'free_quota_analytics' },
-      { version: 6, name: 'email_auth' }
+      { version: 6, name: 'email_auth' },
+      { version: 7, name: 'relationship_import' }
     ]);
 
     await database.close();
