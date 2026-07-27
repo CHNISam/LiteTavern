@@ -44,6 +44,8 @@ describe('database migration', () => {
         'agent_memory',
         'model_configuration',
         'model_usage_ledger',
+        'free_quota_ledger',
+        'analytics_event',
         'provider_connection',
         'provider_credential_metadata',
         'provider_model_catalog',
@@ -82,7 +84,11 @@ describe('database migration', () => {
       ).rows
     ).toEqual([
       { version: 1, name: 'initial_schema' },
-      { version: 2, name: 'provider_connections' }
+      { version: 2, name: 'provider_connections' },
+      { version: 3, name: 'character_card_model' },
+      { version: 4, name: 'multi_bubble_turns' },
+      { version: 5, name: 'free_quota_analytics' },
+      { version: 6, name: 'email_auth' }
     ]);
 
     await database.close();
@@ -96,6 +102,19 @@ describe('database migration', () => {
         )
       ).rows
     ).toEqual([{ count: 1 }]);
+  });
+
+  it('separates normalized, passthrough, and source metadata for character cards', async () => {
+    database = await createDatabase({ dataDir: 'memory://' });
+    const columns = await database.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'agent_character_card_version'`
+    );
+    expect(columns.rows.map((row) => row.column_name)).toEqual(
+      expect.arrayContaining(['normalized_data', 'passthrough_data', 'source_metadata'])
+    );
   });
 
   it('does not create server-side credential storage', async () => {
@@ -188,5 +207,43 @@ describe('database migration', () => {
         )
       `)
     ).rejects.toThrow();
+  });
+
+  it('adds bounded free quota state and indexed analytics dimensions', async () => {
+    database = await createDatabase({ dataDir: 'memory://' });
+    const userColumns = await database.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'app_user'`
+    );
+    expect(userColumns.rows.map((row) => row.column_name)).toEqual(
+      expect.arrayContaining([
+        'free_quota_total',
+        'free_quota_remaining',
+        'free_quota_reserved',
+        'free_quota_granted_at',
+        'first_source_channel',
+        'first_campaign_id'
+      ])
+    );
+
+    const analyticsColumns = await database.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'analytics_event'`
+    );
+    expect(analyticsColumns.rows.map((row) => row.column_name)).toEqual(
+      expect.arrayContaining([
+        'anonymous_id',
+        'occurred_at',
+        'received_at',
+        'page_name',
+        'page_path',
+        'character_id',
+        'conversation_id',
+        'campaign_id',
+        'schema_version'
+      ])
+    );
   });
 });

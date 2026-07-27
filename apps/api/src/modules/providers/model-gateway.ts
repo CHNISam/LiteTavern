@@ -29,6 +29,13 @@ export interface ProviderStreamInput extends ProviderGatewayInput {
 export interface ProviderStreamResult {
   textStream: AsyncIterable<string>;
   usage: Promise<{ inputTokens: number; outputTokens: number }>;
+  response?: Promise<{ headers?: Record<string, string> }>;
+}
+
+export interface ProviderCompletionResult {
+  text: string;
+  usage: { inputTokens: number; outputTokens: number };
+  response?: { headers?: Record<string, string> };
 }
 
 export interface ModelGateway {
@@ -36,17 +43,23 @@ export interface ModelGateway {
   listModels(input: Omit<ProviderGatewayInput, 'model'>): Promise<string[]>;
   stream(input: ProviderStreamInput): Promise<ProviderStreamResult>;
   complete(input: ProviderStreamInput): Promise<string>;
+  completeDetailed?(input: ProviderStreamInput): Promise<ProviderCompletionResult>;
+}
+
+function providerProtocol(input: ProviderGatewayInput) {
+  if (input.provider === 'cloudflare') return 'openai-compatible' as const;
+  return getProviderRuntimePreset(input.provider).protocol;
 }
 
 function createModel(input: ProviderGatewayInput) {
-  const preset = getProviderRuntimePreset(input.provider);
-  if (preset.protocol === 'anthropic') {
+  const protocol = providerProtocol(input);
+  if (protocol === 'anthropic') {
     return createAnthropic({
       apiKey: input.apiKey,
       ...(input.baseUrl ? { baseURL: input.baseUrl } : {})
     })(input.model);
   }
-  if (preset.protocol === 'google') {
+  if (protocol === 'google') {
     return createGoogleGenerativeAI({
       apiKey: input.apiKey,
       ...(input.baseUrl ? { baseURL: input.baseUrl } : {})
@@ -67,7 +80,47 @@ async function* demoText(message: string) {
   for (const part of response.match(/.{1,8}/gu) ?? []) yield part;
 }
 
+function headersOf(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const headers = value as Record<string, string>;
+  return headers;
+}
+
 export function createModelGateway(): ModelGateway {
+  async function completeDetailed(
+    input: ProviderStreamInput
+  ): Promise<ProviderCompletionResult> {
+    if (input.provider === 'demo') {
+      const text = JSON.stringify(['嗯，好啊。', '让我想想…', '这个嘛，改天再聊？']);
+      return {
+        text,
+        usage: { inputTokens: 0, outputTokens: Math.ceil(text.length / 4) }
+      };
+    }
+    try {
+      const result = await generateText({
+        model: createModel(input),
+        system: input.system,
+        messages: input.messages,
+        maxOutputTokens: input.maxOutputTokens ?? 256,
+        temperature: input.temperature ?? 0.9,
+        maxRetries: 0,
+        ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
+      });
+      const responseHeaders = headersOf(result.response.headers);
+      return {
+        text: result.text,
+        usage: {
+          inputTokens: result.usage.inputTokens ?? 0,
+          outputTokens: result.usage.outputTokens ?? 0
+        },
+        ...(responseHeaders ? { response: { headers: responseHeaders } } : {})
+      };
+    } catch (error) {
+      throw normalizeProviderError(error);
+    }
+  }
+
   return {
     async validate(input) {
       const startedAt = performance.now();
@@ -75,13 +128,15 @@ export function createModelGateway(): ModelGateway {
         return { ok: true, latencyMs: 0, models: ['pomchat-demo'] };
       }
       try {
-        const preset = getProviderRuntimePreset(input.provider);
         const models = await this.listModels({
           provider: input.provider,
           baseUrl: input.baseUrl,
           apiKey: input.apiKey
         });
-        if (preset.modelDiscovery === 'manual' || models.length === 0) {
+        const manual =
+          input.provider === 'cloudflare' ||
+          getProviderRuntimePreset(input.provider).modelDiscovery === 'manual';
+        if (manual || models.length === 0) {
           await generateText({
             model: createModel(input),
             prompt: 'Reply with OK.',
@@ -101,6 +156,7 @@ export function createModelGateway(): ModelGateway {
 
     async listModels(input) {
       if (input.provider === 'demo') return ['pomchat-demo'];
+      if (input.provider === 'cloudflare') return [];
       const preset = getProviderRuntimePreset(input.provider);
       if (preset.modelDiscovery === 'manual') return [...preset.placeholderModels];
       try {
@@ -116,7 +172,13 @@ export function createModelGateway(): ModelGateway {
           headers,
           signal: AbortSignal.timeout(12_000)
         });
-        if (!response.ok) throw new Error(`Provider returned ${response.status}`);
+        if (!response.ok) {
+          const error = new Error(`Provider returned ${response.status}`) as Error & {
+            statusCode?: number;
+          };
+          error.statusCode = response.status;
+          throw error;
+        }
         const payload = (await response.json()) as {
           data?: Array<{ id?: string }>;
           models?: Array<{ name?: string }>;
@@ -137,7 +199,10 @@ export function createModelGateway(): ModelGateway {
         const text = typeof last?.content === 'string' ? last.content : '';
         return {
           textStream: demoText(text),
-          usage: Promise.resolve({ inputTokens: Math.ceil(text.length / 4), outputTokens: 32 })
+          usage: Promise.resolve({
+            inputTokens: Math.ceil(text.length / 4),
+            outputTokens: 32
+          })
         };
       }
       try {
@@ -147,7 +212,7 @@ export function createModelGateway(): ModelGateway {
           messages: input.messages,
           maxOutputTokens: input.maxOutputTokens ?? 2048,
           temperature: input.temperature ?? 0.8,
-          maxRetries: 1,
+          maxRetries: 0,
           ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
         });
         return {
@@ -155,44 +220,102 @@ export function createModelGateway(): ModelGateway {
           usage: Promise.resolve(result.usage).then((usage) => ({
             inputTokens: usage.inputTokens ?? 0,
             outputTokens: usage.outputTokens ?? 0
-          }))
+          })),
+          response: Promise.resolve(result.response).then((response) => {
+            const headers = headersOf(response.headers);
+            return headers ? { headers } : {};
+          })
         };
       } catch (error) {
         throw normalizeProviderError(error);
       }
     },
+
     async complete(input) {
-      if (input.provider === 'demo') {
-        return JSON.stringify(['嗯，好啊。', '让我想想…', '这个嘛，改天再聊？']);
-      }
-      try {
-        const { text } = await generateText({
-          model: createModel(input),
-          system: input.system,
-          messages: input.messages,
-          maxOutputTokens: input.maxOutputTokens ?? 256,
-          temperature: input.temperature ?? 0.9,
-          maxRetries: 1,
-          ...(input.abortSignal ? { abortSignal: input.abortSignal } : {})
-        });
-        return text;
-      } catch (error) {
-        throw normalizeProviderError(error);
-      }
-    }
+      return (await completeDetailed(input)).text;
+    },
+
+    completeDetailed
   };
 }
 
-function normalizeProviderError(error: unknown): AppError {
+function numericStatus(error: unknown, seen = new Set<unknown>()): number | undefined {
+  if (!error || typeof error !== 'object' || seen.has(error)) return undefined;
+  seen.add(error);
+  const candidate = error as {
+    status?: unknown;
+    statusCode?: unknown;
+    response?: { status?: unknown };
+    cause?: unknown;
+  };
+  for (const value of [
+    candidate.status,
+    candidate.statusCode,
+    candidate.response?.status
+  ]) {
+    if (typeof value === 'number') return value;
+  }
+  return numericStatus(candidate.cause, seen);
+}
+
+export function normalizeProviderError(error: unknown): AppError {
+  if (error instanceof AppError) return error;
   const message = error instanceof Error ? error.message.toLowerCase() : '';
-  if (message.includes('401') || message.includes('403') || message.includes('api key')) {
-    return new AppError('CREDENTIAL_INVALID', '凭证验证失败，请检查 API Key。', 400);
+  const status = numericStatus(error);
+  if (
+    status === 401 ||
+    status === 403 ||
+    message.includes('api key') ||
+    message.includes('unauthorized')
+  ) {
+    return new AppError('CREDENTIAL_INVALID', 'Provider 服务端凭证配置无效。', 503);
   }
-  if (message.includes('429') || message.includes('rate')) {
-    return new AppError('PROVIDER_RATE_LIMITED', '模型服务当前请求过多，请稍后重试。', 429, true);
+  if (
+    message.includes('safety') ||
+    message.includes('moderation') ||
+    message.includes('content policy')
+  ) {
+    return new AppError(
+      'PROVIDER_SAFETY_REJECTED',
+      '请求被内容安全策略拒绝。',
+      400
+    );
   }
-  if (message.includes('timeout') || message.includes('aborted')) {
+  if (status === 429 || message.includes('429') || message.includes('rate limit')) {
+    return new AppError(
+      'PROVIDER_RATE_LIMITED',
+      '模型服务当前请求过多，请稍后重试。',
+      429,
+      true
+    );
+  }
+  if (
+    message.includes('timeout') ||
+    message.includes('aborted') ||
+    message.includes('aborterror')
+  ) {
     return new AppError('PROVIDER_TIMEOUT', '模型服务响应超时。', 504, true);
+  }
+  if (status !== undefined && status >= 400 && status < 500) {
+    return new AppError(
+      'PROVIDER_REQUEST_INVALID',
+      '模型服务拒绝了请求参数。',
+      400
+    );
+  }
+  if (
+    (status !== undefined && status >= 500) ||
+    message.includes('fetch failed') ||
+    message.includes('econn') ||
+    message.includes('network') ||
+    message.includes('socket')
+  ) {
+    return new AppError(
+      'PROVIDER_UNAVAILABLE',
+      '暂时无法连接模型服务。',
+      502,
+      true
+    );
   }
   return new AppError('PROVIDER_UNAVAILABLE', '暂时无法连接模型服务。', 502, true);
 }

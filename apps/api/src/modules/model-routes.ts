@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { PomChatDatabase } from '@pomchat/database';
 import {
+  OPENAI_WEB_OAUTH_ENABLED,
   PROVIDER_RUNTIME_PRESETS,
   modelConfigurationInputSchema,
   providerConnectionValidationSchema
@@ -18,6 +19,9 @@ export function registerModelRoutes(
   app.get('/v1/providers', async (request) => {
     await resolveUserId(request, database);
     return {
+      capabilities: {
+        openai_web_oauth_enabled: OPENAI_WEB_OAUTH_ENABLED
+      },
       providers: PROVIDER_RUNTIME_PRESETS.filter((provider) => provider.id !== 'demo')
     };
   });

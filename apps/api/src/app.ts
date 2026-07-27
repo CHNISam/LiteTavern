@@ -10,6 +10,9 @@ import { registerCoreRoutes } from './modules/core-routes.js';
 import { registerModelRoutes } from './modules/model-routes.js';
 import { registerGenerationRoutes } from './modules/generation-routes.js';
 import { registerCharacterCardRoutes } from './modules/character-card-routes.js';
+import { registerAnalyticsRoutes } from './modules/analytics-routes.js';
+import { registerAuthRoutes } from './modules/auth/auth-routes.js';
+import { loadEmailProvider, type EmailProvider } from './modules/auth/email-provider.js';
 import {
   createModelGateway,
   type ModelGateway
@@ -28,6 +31,7 @@ export interface BuildAppOptions {
   platform?: PlatformProviderConfig;
   logger?: boolean;
   assetStore?: CharacterAssetStore;
+  emailProvider?: EmailProvider;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -37,6 +41,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     (await createDatabase({ dataDir: process.env.POMCHAT_DATA_DIR ?? '.pomchat/database' }));
   const gateway = options.gateway ?? createModelGateway();
   const platform = options.platform ?? loadPlatformProviderConfig();
+  const emailProvider = options.emailProvider ?? loadEmailProvider().provider;
   const assetStore = options.assetStore ??
     (process.env.NODE_ENV === 'test'
       ? createMemoryCharacterAssetStore()
@@ -115,7 +120,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.decorate('pomchat', { database, gateway, platform });
 
   app.get('/health', async () => ({ status: 'ok', version: '0.1.0' }));
-  registerIdentityRoutes(app, database);
+  registerIdentityRoutes(app, database, {
+    initialQuota: platform.initialQuota ?? 30,
+    freeQuotaEnabled: platform.freeQuotaEnabled ?? true
+  });
+  registerAuthRoutes(app, database, {
+    emailProvider,
+    freeQuotaEnabled: platform.freeQuotaEnabled ?? true
+  });
+  registerAnalyticsRoutes(app, database);
   registerCoreRoutes(app, database);
   registerModelRoutes(app, database, gateway);
   registerGenerationRoutes(app, { database, gateway, platform });

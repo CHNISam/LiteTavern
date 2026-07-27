@@ -315,6 +315,8 @@ button { color: inherit; }
 .rail-light .rail-action:hover { background: rgba(255, 255, 255, 0.55); }
 .rail-footer { padding: 0 12px; color: var(--ink-2); }
 .rail-dark .rail-footer { color: rgba(255, 255, 255, 0.6); }
+.rail-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 2px; }
+.rail-actions .rail-action { min-height: 46px; margin-inline: 0; font-size: 13px; }
 
 .empty-contacts { padding: 52px 20px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; color: var(--ink-3); }
 .rail-dark .empty-contacts { color: rgba(255, 255, 255, 0.5); }
@@ -378,6 +380,17 @@ button { color: inherit; }
 }
 .gold-button:hover { filter: brightness(1.04); box-shadow: 0 6px 20px rgba(120, 92, 30, 0.36); }
 .gold-button:active { transform: scale(0.97); }
+.empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.secondary-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 44px; padding: 10px 18px;
+  border: 1px solid rgba(20, 22, 28, 0.18); border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.45); color: var(--ink-1);
+  cursor: pointer;
+  transition: background-color 160ms ease, transform 140ms var(--ease-out);
+}
+.secondary-button:hover { background: rgba(255, 255, 255, 0.72); }
+.secondary-button:active { transform: scale(0.97); }
 
 /* ============================================================================
    Chat page
@@ -470,6 +483,79 @@ button { color: inherit; }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* Message actions — copy / edit under a sent message. The row always occupies its
+   space (so nothing shifts on hover) and only fades in on precise pointers, which
+   keeps a long transcript quiet while reading. */
+.message-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 4px;
+}
+.hsr-message.from-user { margin-bottom: 0; }
+/* Character bubbles sit on the left, so their action row aligns to the left edge. */
+.hsr-message.from-character .message-actions { justify-content: flex-start; }
+.hsr-message.from-character { margin-bottom: 12px; }
+.message-actions button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color 140ms ease, background-color 140ms ease, transform 140ms var(--ease-out);
+}
+.message-actions button:hover { background: rgba(20, 22, 28, 0.07); color: var(--ink-1); }
+.message-actions button:active { transform: scale(0.94); }
+
+@media (hover: hover) and (pointer: fine) {
+  .message-actions {
+    opacity: 0;
+    transition: opacity 140ms var(--ease-out);
+  }
+  .hsr-message:hover .message-actions,
+  .message-actions:focus-within { opacity: 1; }
+}
+
+/* Inline edit — the bubble becomes the input, so the message stays where it is. */
+.hsr-message.is-editing { max-width: 88%; }
+.message-editor { display: flex; flex-direction: column; gap: 8px; width: min(660px, 100%); }
+.message-editor textarea {
+  width: 100%;
+  max-height: 40vh;
+  padding: 11px 17px 9px;
+  border: 0;
+  border-radius: 13px 2px 13px 13px;
+  background: var(--gold-bubble-hi);
+  box-shadow: 1px 3px 0 rgba(150, 150, 150, 0.55), inset 0 0 0 2px var(--gold);
+  color: #282828;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.6;
+  resize: none;
+  overflow-y: auto;
+}
+.message-editor textarea:focus { outline: none; }
+.editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.editor-actions button {
+  padding: 6px 16px;
+  border: 0;
+  border-radius: var(--r-pill);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, transform 140ms var(--ease-out);
+}
+.editor-actions button:active { transform: scale(0.97); }
+.editor-cancel { background: rgba(20, 22, 28, 0.06); color: var(--ink-2); }
+.editor-cancel:hover { background: rgba(20, 22, 28, 0.1); color: var(--ink-1); }
+.editor-save { background: var(--gold); color: #241d0c; }
+.editor-save:hover { background: var(--gold-hi); }
+.editor-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .chat-placeholder { margin: 80px auto; text-align: center; color: var(--ink-3); }
 .inline-error {
   max-width: 640px; margin: 12px auto;
@@ -508,6 +594,30 @@ button { color: inherit; }
 .model-bar button:hover { color: var(--ink-1); }
 .model-bar button.active { color: var(--gold-deep); background: rgba(198, 164, 92, 0.14); }
 .model-bar select { max-width: 240px; margin-left: 4px; padding: 4px 8px; border: 1px solid var(--paper-line); border-radius: 8px; background: rgba(255, 255, 255, 0.5); color: var(--ink-2); font-size: 12px; }
+.quota-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 9px 11px;
+  border: 1px solid rgba(168, 120, 54, 0.22);
+  border-radius: 9px;
+  background: rgba(198, 164, 92, 0.1);
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.quota-notice span { display: flex; align-items: center; gap: 7px; }
+.quota-notice button, .quota-config-link {
+  border: 0;
+  background: transparent;
+  color: var(--gold-deep);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.quota-notice button:active, .quota-config-link:active { transform: scale(0.97); }
+.quota-config-link { align-self: flex-end; margin: 0 0 6px; padding: 3px 0; font-size: 12px; }
 
 /* Suggested replies — the signature in-game "pick an option" interaction:
    full-width options stacked vertically, reproduced with model candidates. */
@@ -779,6 +889,32 @@ button { color: inherit; }
 .setting-row > svg:last-child { color: var(--ink-3); }
 .setting-row:disabled { opacity: 0.5; cursor: default; }
 .settings-note { display: flex; gap: 8px; align-items: center; margin: 22px 8px 0; color: var(--ink-3); font-size: 13px; }
+.setting-row-danger strong { color: #c0473f; }
+.setting-row-danger:hover:not(:disabled) { background: rgba(192, 71, 63, 0.07); }
+
+.confirm-dialog {
+  width: min(420px, 100%); padding: 26px 26px 22px;
+  color: #eceef3;
+  background: linear-gradient(165deg, #1e232e, #171b23);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  box-shadow: 0 32px 100px rgba(0, 0, 0, 0.6);
+  animation: panel-in 260ms var(--ease-out) both;
+}
+.confirm-dialog h2 { margin: 0 0 12px; font-size: 20px; font-weight: 600; }
+.confirm-dialog p { margin: 0; color: #b5bac5; font-size: 14px; line-height: 1.6; }
+.confirm-error { margin-top: 12px !important; color: #e4a6a6 !important; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.confirm-actions button {
+  padding: 10px 18px; border-radius: 10px; font-size: 14px; cursor: pointer;
+  transition: background 160ms var(--ease-out), transform 140ms var(--ease-out);
+}
+.confirm-actions button:active:not(:disabled) { transform: scale(0.96); }
+.confirm-actions button:disabled { opacity: 0.6; cursor: default; }
+.confirm-cancel { border: 1px solid rgba(255, 255, 255, 0.16); background: transparent; color: #c6cad2; }
+.confirm-cancel:hover:not(:disabled) { background: rgba(255, 255, 255, 0.07); }
+.confirm-delete { border: 0; background: #c0473f; color: #fff; }
+.confirm-delete:hover:not(:disabled) { background: #d1544b; }
 
 /* ============================================================================
    Modals — provider settings & character import
@@ -895,6 +1031,7 @@ button { color: inherit; }
 .import-state { display: flex; align-items: center; justify-content: center; gap: 8px; color: #b9bec8; font-size: 12px; }
 .card-preview { display: grid; grid-template-columns: 68px 1fr; gap: 16px; padding: 20px; border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 12px; background: rgba(255, 255, 255, 0.035); }
 .preview-avatar { width: 68px; height: 68px; display: grid; place-items: center; border-radius: 50%; background: #555d6b; font-size: 23px; }
+.preview-avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
 .card-preview small { display: flex; align-items: center; gap: 5px; color: var(--gold-hi); font-size: 9px; }
 .card-preview h3 { margin: 4px 0; }
 .card-preview p { margin: 0; color: #b4b9c4; font-size: 12px; line-height: 1.55; }
@@ -903,6 +1040,82 @@ button { color: inherit; }
 .card-preview dd { margin: 0; color: #c9ccd3; }
 .card-preview > .provider-notice { grid-column: 1 / -1; }
 .privacy-footnote { margin: 0; color: #767d8c; font-size: 10px; line-height: 1.6; }
+
+/* Character editor and shared avatar cropper */
+.character-editor-panel { width: min(820px, 100%); height: min(860px, 94vh); }
+.character-editor-content { overflow-y: auto; display: flex; flex-direction: column; gap: 18px; padding: 22px 26px 28px; }
+.compatibility-summary {
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 11px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.compatibility-summary > div { display: flex; align-items: center; gap: 9px; }
+.compatibility-summary small { color: #8f96a5; }
+.compatibility-summary details { margin-top: 10px; color: #c6cad3; font-size: 12px; }
+.compatibility-summary ul { margin: 8px 0 0; padding-left: 20px; color: #9da3af; }
+.compatibility-summary p { margin: 9px 0 0; color: #d4bc88; font-size: 11px; line-height: 1.55; }
+.compatibility-badge { padding: 4px 8px; border-radius: 999px; color: #cfe9dd; background: rgba(126, 188, 162, 0.14); font-size: 10px; }
+.compatibility-badge.level-compatible { color: #ead5a8; background: rgba(210, 178, 105, 0.14); }
+.compatibility-badge.level-preserved { color: #c5c8cf; background: rgba(255, 255, 255, 0.08); }
+
+.editor-section { display: grid; gap: 15px; }
+.editor-section h3 { margin: 0; color: #d6d9df; font-size: 14px; }
+.editor-section > label, .creator-fields label {
+  display: flex; flex-direction: column; gap: 7px;
+  color: #b5bac5; font-size: 12px;
+}
+.editor-section input, .editor-section textarea {
+  width: 100%; padding: 11px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 9px; outline: 0;
+  color: #f2f3f6; background: #252a36; font: inherit; resize: vertical;
+  transition: border-color 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
+}
+.editor-section input:focus, .editor-section textarea:focus {
+  border-color: rgba(198, 164, 92, 0.6);
+  box-shadow: 0 0 0 3px rgba(198, 164, 92, 0.14);
+}
+.advanced-editor { border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 14px; }
+.advanced-editor > summary { color: var(--gold-hi); cursor: pointer; font-size: 13px; }
+.advanced-editor[open] > summary { margin-bottom: 16px; }
+.creator-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.editor-save-button { position: sticky; bottom: 0; margin-top: 2px; }
+
+.avatar-cropper {
+  padding: 14px; border: 1px dashed rgba(216, 186, 120, 0.3); border-radius: 12px;
+  background: rgba(216, 186, 120, 0.035); outline: 0;
+}
+.avatar-cropper:focus-within { border-color: rgba(216, 186, 120, 0.62); }
+.avatar-workbench { display: flex; align-items: center; gap: 16px; }
+.avatar-final-preview {
+  flex: 0 0 auto; width: 92px; height: 92px; overflow: hidden;
+  display: grid; place-items: center; border-radius: 50%;
+  background: #303641; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.avatar-final-preview img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-final-preview span { display: grid; justify-items: center; gap: 5px; color: #8e95a4; }
+.avatar-final-preview small { font-size: 9px; }
+.avatar-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.avatar-controls > small { flex-basis: 100%; color: #818897; font-size: 10px; }
+.avatar-file-button, .avatar-remove, .crop-sliders button {
+  display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.11); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05); color: #d7dae0; cursor: pointer;
+  transition: background-color 150ms ease, transform 140ms var(--ease-out);
+}
+.avatar-file-button:active, .avatar-remove:active, .crop-sliders button:active { transform: scale(0.97); }
+.avatar-file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.avatar-remove { color: #e6b2b2; }
+.crop-editor { display: grid; grid-template-columns: 220px 1fr; gap: 18px; margin-top: 15px; }
+.crop-square {
+  width: 220px; aspect-ratio: 1; overflow: hidden; display: grid; place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px; background: #11151c;
+}
+.crop-square img { width: 100%; height: 100%; object-fit: cover; transform-origin: center; }
+.crop-sliders { display: grid; align-content: center; gap: 10px; }
+.crop-sliders label { display: grid; grid-template-columns: 52px 1fr; align-items: center; color: #9ea4b1; font-size: 10px; }
+.crop-sliders input { padding: 0; background: transparent; box-shadow: none; }
+.crop-sliders button { justify-self: start; }
+.avatar-hint { margin: 10px 0 0; color: #777f8f; font-size: 10px; }
 
 /* ============================================================================
    Motion preferences
@@ -953,6 +1166,78 @@ button { color: inherit; }
   .settings-character h2 { font-size: 26px; }
   .settings-character > span { display: none; }
   .provider-grid { grid-template-columns: 1fr; }
+  .rail-actions { grid-template-columns: 1fr; }
+  .crop-editor { grid-template-columns: 1fr; }
+  .crop-square { width: min(220px, 100%); }
+  .creator-fields { grid-template-columns: 1fr; }
   .modal-backdrop { padding: 0; }
   .settings-panel { width: 100%; height: 100dvh; border-radius: 0; }
 }
+
+/* Account entry in the top chrome + email login/sync modal. */
+.chrome-actions { display: flex; align-items: center; gap: 10px; }
+.chrome-login {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 42px; padding: 0 15px;
+  border: 1px solid rgba(216, 186, 120, 0.4);
+  border-radius: 21px;
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--gold-hi);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background 180ms var(--ease-out), transform 140ms var(--ease-out);
+}
+.chrome-login:hover { background: rgba(0, 0, 0, 0.42); }
+.chrome-login:active { transform: scale(0.96); }
+.account-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 42px; max-width: 260px; padding: 0 6px 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 21px;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.86); font-size: 12px;
+}
+.account-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-logout {
+  border: 0; border-radius: 15px; padding: 6px 11px;
+  background: rgba(255, 255, 255, 0.1); color: #eceef3;
+  font-size: 12px; cursor: pointer; transition: background 160ms var(--ease-out);
+}
+.account-logout:hover { background: rgba(255, 255, 255, 0.18); }
+
+.login-panel {
+  width: min(430px, 100%);
+  display: flex; flex-direction: column; overflow: hidden;
+  color: #eceef3;
+  background: linear-gradient(165deg, #1e232e, #171b23);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  box-shadow: 0 32px 100px rgba(0, 0, 0, 0.6);
+  animation: panel-in 260ms var(--ease-out) both;
+}
+.login-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 22px 24px 6px; }
+.login-header h2 { margin: 5px 0 0; font-size: 20px; font-weight: 600; }
+.login-body { display: flex; flex-direction: column; gap: 15px; padding: 12px 24px 26px; }
+.login-lead { margin: 0; color: #a7adba; font-size: 13px; line-height: 1.7; }
+.login-field { display: flex; flex-direction: column; gap: 8px; color: #b5bac5; font-size: 12px; }
+.login-input {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 13px; height: 46px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 11px; background: rgba(255, 255, 255, 0.04);
+  transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+}
+.login-input:focus-within { border-color: rgba(198, 164, 92, 0.6); box-shadow: 0 0 0 3px rgba(198, 164, 92, 0.14); }
+.login-input > svg { color: #7d8493; flex-shrink: 0; }
+.login-input input {
+  flex: 1; min-width: 0; border: 0; background: transparent; color: #eceef3;
+  font-size: 15px; outline: none;
+}
+.login-input input::placeholder { color: #5f6675; letter-spacing: 0.14em; }
+.login-error { margin: 0; color: #e79a9a; font-size: 12px; line-height: 1.6; }
+.login-submit { justify-content: center; height: 46px; margin-top: 2px; }
+.login-secondary { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; }
+.login-link {
+  border: 0; background: transparent; color: var(--gold-hi);
+  font-size: 12px; cursor: pointer; padding: 4px 2px;
+}
+.login-link:disabled { color: #6a7180; cursor: default; }
