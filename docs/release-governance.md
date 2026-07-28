@@ -6,6 +6,8 @@
 
 - `main` 视为生产分支，但在首个合规稳定 Release 前不代表已有可发布产品。
 - 现有 `litetavern.pages.dev` 手工上传内容属于历史临时预览，不据此补打标签、创建 Release 或宣称生产已发布。
+- 历史 Git 集成 Pages 项目已删除，后续 Git push 不再旁路触发 Cloudflare 自动部署。
+- 独立 `litetavern-internal` Pages 项目已创建但保持空白；Access 生效前不上传应用。
 - 生产部署保持冻结：`PRODUCTION_RELEASE_ENABLED=false`。
 - 在生产后端、持久化和密钥边界确认前，不得解除冻结。
 
