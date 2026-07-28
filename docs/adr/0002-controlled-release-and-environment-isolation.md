@@ -11,7 +11,7 @@
 
 ## 决策
 
-1. 采用 `feature/* → develop → release/* → main` 的受控 GitFlow；Hotfix 单独回合 `main` 与 `develop`。
+1. 采用 `feature/* → develop → release/* → main` 的受控 GitFlow；单人开发在本地全量检查后可直接推进 `develop`，不强制 PR 或自我审批；Hotfix 单独回合 `main` 与 `develop`。
 2. `main` 只承载稳定生产版本，稳定版本必须同时拥有 `vX.Y.Z` 标签和已发布 GitHub Release。
 3. RC 使用 `vX.Y.Z-rc.N`，并创建 Draft + Prerelease。
 4. staging 与 production 使用两个独立 Cloudflare Pages 项目。
@@ -27,6 +27,7 @@
 - 每次生产变更都有 commit、tag、Release、产物哈希、审批与部署记录。
 - staging 泄露风险由真实身份访问控制降低，而不是依赖隐蔽 URL。
 - 回滚可以恢复一个已知稳定产物，不需要现场重建。
+- 单人开发不需要为形式合规创建 PR，但免 PR 不会放宽 `main`、Release 或生产部署门禁。
 
 成本：
 

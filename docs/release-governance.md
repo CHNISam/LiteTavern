@@ -14,23 +14,25 @@
 ## 分支模型
 
 ```text
-feature/* ──PR──> develop ──cut──> release/*
-                                     │
-                                     ├── protected staging
-                                     ├── RC tag + Draft Release
-                                     └──PR──> main ──stable tag/Release──> production
+feature/* ──local merge──> develop ──cut──> release/*
+                                          │
+                                          ├── protected staging
+                                          ├── RC tag + Draft Release
+                                          └──manual approval + merge──> main
+                                                                         │
+                                                                         └──stable tag/Release──> production
 
 stable tag ──fix──> hotfix/* ──> protected staging ──> main + develop
 ```
 
-受保护分支规则：
+分支规则：
 
-| 目标      | 允许来源                             | 必需检查                    |
-| --------- | ------------------------------------ | --------------------------- |
-| `develop` | `feature/*`、`release/*`、`hotfix/*` | `validate`                  |
-| `main`    | `release/*`、`hotfix/*`              | `validate`、Code Owner 审查 |
+| 目标      | 允许来源                          | 必需条件                                   |
+| --------- | --------------------------------- | ------------------------------------------ |
+| `develop` | 本地验证后的开发提交、`feature/*` | 推送前运行 `npm run check`，推送后 CI 复验 |
+| `main`    | `release/*`、`hotfix/*`           | staging、RC 和用户明确确认均已完成         |
 
-`main` 和 `develop` 禁止直接 push、force-push 和删除。Release/Hotfix 合入后保留可审计的 PR 与 CI 记录。
+单人开发不强制创建 PR 或自己审批自己。`develop` 允许在本地全量检查后直接 push；`main` 禁止日常开发直推，只允许已验收的 Release/Hotfix 合入。两个长期分支都禁止 force-push 和删除。PR 仅作为未来多人协作、外部贡献或异步审查时的可选路径。
 
 ## 环境隔离
 
@@ -52,14 +54,14 @@ Production 使用独立 Pages 项目，默认名为 `litetavern`。不得用 sta
 
 ## 发布流程
 
-1. 功能通过 PR 合入 `develop`，CI 全绿。
+1. 功能在本地通过 `npm run check` 后合入并推送 `develop`，远端 CI 再次复验。
 2. 从 `develop` 创建 `release/X.Y.Z`。
 3. 自动化检查、生产依赖审计通过后，部署到受 Access 保护的 staging。
 4. 人工完成核心路径验收；确认后运行 “Create release candidate”：
    - 创建 `vX.Y.Z-rc.N` annotated tag；
    - 创建 Draft + Prerelease GitHub Release；
    - 附加 Web 构建产物和 SHA-256。
-5. RC 验收通过后，将 release PR 合入 `main`。
+5. RC 验收通过并获得用户明确确认后，将 release 分支合入 `main`。
 6. 人工运行 “Publish stable release”：
    - 验证 RC 已进入 `main`；
    - 重新执行完整检查与安全审计；
@@ -98,9 +100,9 @@ PRODUCTION_RELEASE_ENABLED=false
 工作流合入 `develop` 后，由仓库管理员完成：
 
 - 将默认开发目标设为 `develop`（`main` 仍是生产分支）。
-- 为 `develop` 和 `main` 启用 Ruleset/Branch protection。
-- 要求 PR、至少 1 位审核者、Code Owner 审查和 `validate` 状态检查。
-- 禁止 force-push、分支删除和绕过规则。
+- 为 `develop` 和 `main` 启用与单人流程兼容的 Ruleset/Branch protection。
+- 不强制 PR 或审批；禁止 force-push 和分支删除。
+- `develop` 在每次 push 后运行 `validate`；`main` 的任何推进仍必须遵守 staging、RC、稳定 Release 与生产审批门禁。
 - 配置 Environment secrets：
   `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_API_TOKEN`；
   staging 另配 `CF_ACCESS_CLIENT_ID`、`CF_ACCESS_CLIENT_SECRET`。
@@ -110,6 +112,7 @@ PRODUCTION_RELEASE_ENABLED=false
 ## 禁止事项
 
 - 不得从本地直接上传生产。
+- 不得把“单人开发免 PR”解释为允许在 `main` 上日常开发或跳过发布验收。
 - 不得把当前手工部署反向认定为稳定 Release。
 - 不得为未合入 `main` 的提交创建稳定 tag。
 - 不得跳过、弱化或删除失败的测试和安全审计。
