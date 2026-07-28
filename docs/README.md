@@ -8,9 +8,8 @@
 
 ## 当前架构
 
-- [`architecture/litetavern-cloud.md`](./architecture/litetavern-cloud.md)：LiteTavern 客户端与
-  LiteTavern Cloud 的边界、匿名与注册身份、Trial、Alpha 候补与批次、额度与成本账本、
-  BYOK 边界、同步降级、导出与备份恢复。
+- LiteTavern Cloud 的架构文档（身份、Trial、Alpha 候补与批次、额度与成本账本、
+  同步降级、导出与备份恢复）随服务端一起迁出到 LiteTavern Cloud 私有仓库。
 
 ## v0.1.0
 

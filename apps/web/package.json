@@ -11,7 +11,6 @@
     "test:coverage": "vitest run src --coverage"
   },
   "dependencies": {
-    "@pomchat/contracts": "0.1.0",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",

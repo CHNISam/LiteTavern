@@ -67,8 +67,6 @@ LiteTavern Cloud  官方闭源账号、平台模型额度、Model Gateway、云�
 注册后进入 Alpha 候补名单；只有被按批次放行后才获得 Alpha 平台额度。Alpha、Beta 表示测试阶段，
 不是并列的价格套餐，本阶段不提供 Free / Pro 商业套餐。
 
-详见 [LiteTavern Cloud 架构文档](./docs/architecture/litetavern-cloud.md)。
-
 ## 支持 LiteTavern
 
 LiteTavern 的开源部分可以免费使用。
@@ -90,10 +88,12 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-默认地址：
+默认地址：`http://127.0.0.1:5173`
 
-- Web：`http://127.0.0.1:5173`
-- API：`http://127.0.0.1:3000`
+本仓库只包含开源客户端。托管服务已迁出到 LiteTavern Cloud 私有仓库，客户端通过
+`VITE_CLOUD_BASE_URL` 以 HTTP 访问它，不共享任何构建依赖。开发时若需要本地后端，
+请在 LiteTavern Cloud 仓库中运行 `npm run dev`（`http://127.0.0.1:3000`），
+Vite 的 `/v1` 代理会自动转发过去。客户端也可以完全脱离 Cloud 单独运行。
 
 运行完整检查：
 
@@ -105,11 +105,7 @@ npm.cmd run check
 
 ```text
 apps/
-  api/          Fastify 业务 API、Agent Runtime 与 Provider Gateway
-  web/          React / Vite 响应式 Web 与 PWA
-packages/
-  contracts/    跨端契约、Provider 注册表与校验规则
-  database/     PGlite 数据库、迁移和持久化边界
+  web/          React / Vite 响应式 Web 与 PWA（本仓库的全部代码）
 docs/
   project/      项目定位、宣传主文档与对外关系说明
   v0.1.0/       当前版本产品、原型和架构文档
@@ -118,7 +114,6 @@ docs/
 ## 文档
 
 - [文档索引](./docs/README.md)
-- [LiteTavern Cloud：身份、Trial、Alpha 与额度](./docs/architecture/litetavern-cloud.md)
 - [项目定位与宣传主文档](./docs/project/崩坏：星穹铁道短信AI项目.docx)
 - [v0.1.0 产品流程](./docs/v0.1.0/product/交互流程图和页面流程图/readme.md)
 - [v0.1.0 系统设计](./docs/v0.1.0/architecture/readme.md)
@@ -129,10 +124,8 @@ docs/
 
 详见 [LICENSE](./LICENSE)。
 
-## 官方免费回复与产品分析
+## 服务端配置
 
-复制 [`.env.example`](./.env.example) 为本地环境文件，并在服务端配置 Groq 和
-Cloudflare Workers AI 凭证；浏览器不会接收这些 Secret。
-
-- [官方免费额度实现与本地配置](./docs/v0.1.0/architecture/official-free-quota.md)
-- [埋点字典与指标定义](./docs/v0.1.0/architecture/analytics-event-dictionary.md)
+平台额度、官方 Provider 凭证、埋点与成本账本都属于托管服务，已随 `apps/api`
+迁出到 LiteTavern Cloud 私有仓库，相应的架构文档也在那里。本仓库的
+[`.env.example`](./.env.example) 只包含构建时注入客户端的公开变量。
