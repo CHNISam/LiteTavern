@@ -48,3 +48,25 @@ model_config
 
 分析 schema 禁止 `api_key`、Authorization/token、密码、`content_text`、消息正文、
 请求正文和完整角色卡字段。
+
+## 因果世界商业验证扩展
+
+继续使用 `critical_action`，通过 `action_name` 区分：
+
+```text
+world_fact_committed
+causal_consequence_presented
+causal_consequence_revisited
+repair_path_started
+repair_path_completed
+world_continuation_paywall_viewed
+world_continuation_purchase_started
+world_continuation_purchase_completed
+```
+
+不得上报事实摘要、角色认知、关系原因或演出正文。允许上报事实数/复现次数的区间桶、
+匿名世界 ID，以及付费动机枚举：`MODEL_USAGE`、`CHARACTER_OR_IP`、
+`WORLD_CONTINUATION`、`NEW_WORLD_SPACE`、`LIFE_STAGE_OR_EVENT_SPACE`。
+
+核心对照指标是首次明确因果后果后的 D1/D7 回访、同一世界线继续率、补救率和
+`WORLD_CONTINUATION` 付费意愿，不以购买更多消息次数替代因果世界价值验证。

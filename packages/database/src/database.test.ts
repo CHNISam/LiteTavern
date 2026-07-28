@@ -42,6 +42,13 @@ describe('database migration', () => {
         'chat_message',
         'agent_generation_request',
         'agent_memory',
+        'world_instance',
+        'world_fact',
+        'character_knowledge',
+        'character_world_state',
+        'relationship_change',
+        'character_decision',
+        'character_decision_fact',
         'model_configuration',
         'model_usage_ledger',
         'free_quota_ledger',
@@ -89,7 +96,8 @@ describe('database migration', () => {
       { version: 4, name: 'multi_bubble_turns' },
       { version: 5, name: 'free_quota_analytics' },
       { version: 6, name: 'email_auth' },
-      { version: 7, name: 'relationship_import' }
+      { version: 7, name: 'relationship_import' },
+      { version: 8, name: 'causal_world_foundation' },
     ]);
 
     await database.close();

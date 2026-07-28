@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { PomChatDatabase } from '@pomchat/database';
 import { AppError } from '../lib/errors.js';
 import { resolveUserId } from './identity.js';
+import { ensureCharacterWorld } from './world-runtime.js';
 
 async function assertCharacterAccess(
   database: PomChatDatabase,
@@ -109,7 +110,14 @@ export function registerCoreRoutes(app: FastifyInstance, database: PomChatDataba
        ORDER BY last_message_at DESC NULLS LAST, created_at DESC LIMIT 1`,
       [userId, characterId]
     );
-    if (existing.rows[0]) return existing.rows[0];
+    if (existing.rows[0]) {
+      await ensureCharacterWorld(database, {
+        userId,
+        characterId,
+        conversationId: existing.rows[0].conversation_id
+      });
+      return existing.rows[0];
+    }
 
     const conversationId = randomUUID();
     const opening = await database.query<{ first_message: string | null; name: string }>(
@@ -146,6 +154,11 @@ export function registerCoreRoutes(app: FastifyInstance, database: PomChatDataba
          ON CONFLICT (user_id, character_id) DO NOTHING`,
         [randomUUID(), userId, characterId, '你们刚刚开始认识，正在建立共同的故事。']
       );
+      await ensureCharacterWorld(database, {
+        userId,
+        characterId,
+        conversationId
+      });
       await database.exec('COMMIT');
     } catch (error) {
       await database.exec('ROLLBACK');

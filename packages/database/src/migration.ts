@@ -375,7 +375,7 @@ ALTER TABLE agent_character_card_version
   ));
 `;
 
-// Multi-bubble turns: one model call (one generation_request) now yields 1–4
+// Multi-bubble turns: one model call (one generation_request) now yields 1-4
 // assistant messages, so the 1:1 UNIQUE on generation_request_id is dropped and a
 // per-turn bubble ordinal is added. The partial unique index keeps bubble writes
 // idempotent without affecting legacy single-bubble rows (turn_bubble_no IS NULL).
@@ -554,7 +554,7 @@ CREATE TABLE IF NOT EXISTS auth_account_merge (
 // produces a standard JSON payload; PomChat only validates, previews and writes it
 // into the existing character / relationship / memory models. `relationship_import`
 // is deliberately thin: it is the audit + idempotency record (one commit per row)
-// and the only place the raw payload — which may contain private chat details —
+// and the only place the raw payload - which may contain private chat details -
 // is retained. `agent_memory.relationship_import_id` lets a user who deletes a
 // migration record optionally take the memories it wrote with it.
 const RELATIONSHIP_IMPORT_MIGRATION_SQL = String.raw`
@@ -585,6 +585,123 @@ ALTER TABLE agent_memory
 CREATE INDEX IF NOT EXISTS idx_memory_relationship_import
   ON agent_memory(relationship_import_id)
   WHERE relationship_import_id IS NOT NULL;
+`;
+
+// Minimal causal-world foundation. Canonical facts are append-only; later repair or
+// correction is represented by another fact instead of rewriting history. Mutable
+// character state is intentionally separate from facts, beliefs and relationship
+// reasons so prompt assembly can label each category with the right authority.
+const CAUSAL_WORLD_FOUNDATION_MIGRATION_SQL = String.raw`
+CREATE TABLE IF NOT EXISTS world_instance (
+  world_id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES app_user(user_id),
+  character_id UUID NOT NULL REFERENCES agent_character(character_id),
+  title VARCHAR(200),
+  status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
+    CHECK (status IN ('ACTIVE', 'ARCHIVED')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, character_id)
+);
+CREATE INDEX IF NOT EXISTS idx_world_user_updated
+  ON world_instance(user_id, updated_at DESC);
+
+ALTER TABLE chat_conversation
+  ADD COLUMN IF NOT EXISTS world_id UUID REFERENCES world_instance(world_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_world
+  ON chat_conversation(world_id)
+  WHERE world_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS world_fact (
+  fact_id UUID PRIMARY KEY,
+  world_id UUID NOT NULL REFERENCES world_instance(world_id),
+  fact_type VARCHAR(50) NOT NULL,
+  actor_key VARCHAR(120) NOT NULL,
+  target_key VARCHAR(120),
+  scene_key VARCHAR(120),
+  summary TEXT NOT NULL,
+  detail_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  occurred_at TIMESTAMPTZ NOT NULL,
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  source_message_id UUID REFERENCES chat_message(message_id),
+  reversibility VARCHAR(20) NOT NULL
+    CHECK (reversibility IN ('IRREVERSIBLE', 'COMPENSATABLE')),
+  supersedes_fact_id UUID REFERENCES world_fact(fact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_world_fact_timeline
+  ON world_fact(world_id, occurred_at, recorded_at);
+
+CREATE TABLE IF NOT EXISTS character_knowledge (
+  knowledge_id UUID PRIMARY KEY,
+  world_id UUID NOT NULL REFERENCES world_instance(world_id),
+  character_id UUID NOT NULL REFERENCES agent_character(character_id),
+  fact_id UUID NOT NULL REFERENCES world_fact(fact_id),
+  certainty VARCHAR(20) NOT NULL
+    CHECK (certainty IN ('KNOWN', 'SUSPECTED', 'MISUNDERSTOOD')),
+  interpretation TEXT NOT NULL,
+  learned_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(world_id, character_id, fact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_character_knowledge_world
+  ON character_knowledge(world_id, character_id, learned_at);
+
+CREATE TABLE IF NOT EXISTS character_world_state (
+  world_id UUID NOT NULL REFERENCES world_instance(world_id),
+  character_id UUID NOT NULL REFERENCES agent_character(character_id),
+  current_goal TEXT,
+  current_plan TEXT,
+  emotion_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  relationship_dimensions_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (world_id, character_id)
+);
+
+CREATE TABLE IF NOT EXISTS relationship_change (
+  relationship_change_id UUID PRIMARY KEY,
+  world_id UUID NOT NULL REFERENCES world_instance(world_id),
+  character_id UUID NOT NULL REFERENCES agent_character(character_id),
+  reason_fact_id UUID NOT NULL REFERENCES world_fact(fact_id),
+  dimension_delta_json JSONB NOT NULL,
+  reason TEXT NOT NULL,
+  unresolved BOOLEAN NOT NULL DEFAULT FALSE,
+  repairs_change_id UUID REFERENCES relationship_change(relationship_change_id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_relationship_change_world
+  ON relationship_change(world_id, character_id, created_at);
+
+CREATE TABLE IF NOT EXISTS character_decision (
+  decision_id UUID PRIMARY KEY,
+  world_id UUID NOT NULL REFERENCES world_instance(world_id),
+  character_id UUID NOT NULL REFERENCES agent_character(character_id),
+  decision_key VARCHAR(120) NOT NULL,
+  outcome_key VARCHAR(120) NOT NULL,
+  rationale TEXT NOT NULL,
+  state_version INTEGER NOT NULL,
+  presentation_message_id UUID REFERENCES chat_message(message_id),
+  decided_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_character_decision_world
+  ON character_decision(world_id, character_id, decided_at);
+
+CREATE TABLE IF NOT EXISTS character_decision_fact (
+  decision_id UUID NOT NULL REFERENCES character_decision(decision_id),
+  fact_id UUID NOT NULL REFERENCES world_fact(fact_id),
+  PRIMARY KEY (decision_id, fact_id)
+);
+
+CREATE OR REPLACE FUNCTION reject_world_fact_mutation()
+RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'world_fact is append-only; record a new fact instead';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_world_fact_append_only ON world_fact;
+CREATE TRIGGER trg_world_fact_append_only
+BEFORE UPDATE OR DELETE ON world_fact
+FOR EACH ROW EXECUTE FUNCTION reject_world_fact_mutation();
 `;
 
 export const MIGRATIONS = [
@@ -622,5 +739,10 @@ export const MIGRATIONS = [
     version: 7,
     name: 'relationship_import',
     sql: RELATIONSHIP_IMPORT_MIGRATION_SQL
+  },
+  {
+    version: 8,
+    name: 'causal_world_foundation',
+    sql: CAUSAL_WORLD_FOUNDATION_MIGRATION_SQL
   }
 ] satisfies readonly DatabaseMigration[];
