@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 function workflow(name) {
-  return readFileSync(`.github/workflows/${name}.yml`, "utf8");
+  return readFileSync(`.github/workflows/${name}.yml`, "utf8").replace(
+    /\r\n/g,
+    "\n",
+  );
 }
 
 test("solo development validates direct pushes to develop without pushing main", () => {
