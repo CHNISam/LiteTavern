@@ -493,7 +493,7 @@ export function App() {
         account={account}
         onLogin={openLogin}
         onLogout={() => void onLogout()}
-        {...(view === 'memories' && active ? { title: `与${active.name}的回忆` } : view === 'settings' ? { title: 'PomChat' } : {})}
+        {...(view === 'memories' && active ? { title: `与${active.name}的回忆` } : view === 'settings' ? { title: 'LiteTavern' } : {})}
       />
 
       <section className="hsr-stage">
@@ -1054,7 +1054,7 @@ function CharacterSettingsPage({ character, configurations, onBack, onImport, on
             </section>
             <label>模型配置</label>
             <section>
-              <SettingRow icon={<KeyRound />} title="模型选择" description="选择该角色使用的对话模型" value={configurations[0]?.display_name || 'PomChat 官方额度'} onClick={onProvider} />
+              <SettingRow icon={<KeyRound />} title="模型选择" description="选择该角色使用的对话模型" value={configurations[0]?.display_name || 'LiteTavern 官方额度'} onClick={onProvider} />
             </section>
             {character.is_owned && (
               <>

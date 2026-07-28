@@ -1,4 +1,4 @@
-# PomChat v0.1.0 埋点字典
+# LiteTavern v0.1.0 埋点字典
 
 所有时间保存为 `TIMESTAMPTZ`，指标按 UTC 自然日计算。客户端事件写入失败不影响聊天；
 服务端通过匿名 HttpOnly Cookie 解析 `anonymous_id` 和 `user_id`，不信任客户端自报身份。

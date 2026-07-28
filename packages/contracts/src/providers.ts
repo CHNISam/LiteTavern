@@ -22,7 +22,7 @@ export type ConnectionStatus =
   | 'unavailable'
   | 'reconnect_required';
 
-export type CredentialOwner = 'pomchat' | 'external' | 'none';
+export type CredentialOwner = 'litetavern' | 'external' | 'none';
 export type AuthMethodGroup = 'recommended' | 'other';
 export type AdditionalBilling = 'none' | 'provider_quota' | 'usage_based' | 'unknown';
 export type ProviderCategory = 'global' | 'cn' | 'local' | 'custom';
@@ -385,7 +385,7 @@ export const PROVIDER_RUNTIME_PRESETS = [
   },
   {
     id: 'demo',
-    name: 'PomChat Demo',
+    name: 'LiteTavern Demo',
     shortName: 'Demo',
     region: 'LOCAL',
     protocol: 'demo',
@@ -394,7 +394,7 @@ export const PROVIDER_RUNTIME_PRESETS = [
     apiKeyRequired: false,
     modelDiscovery: 'manual',
     helpUrl: '',
-    placeholderModels: ['pomchat-demo']
+    placeholderModels: ['litetavern-demo']
   }
 ] as const satisfies readonly ProviderRuntimePreset[];
 
@@ -418,14 +418,14 @@ function apiKeyAuthMethod(providerId: string): AuthMethodDefinition {
     id: 'api-key',
     kind: 'api_key',
     runtimeAdapterId,
-    credentialOwner: 'pomchat',
+    credentialOwner: 'litetavern',
     display: {
       title: '使用 API Key',
       description: '使用服务商开发者平台的按量调用通道。',
       group: 'other',
       usesExistingSubscription: false,
       additionalBilling: 'usage_based',
-      credentialLocation: 'PomChat 本机安全存储',
+      credentialLocation: 'LiteTavern 本机安全存储',
       modelScope: '由 API 账号权限和服务商模型目录决定'
     }
   };
@@ -499,14 +499,14 @@ function authMethodsFor(preset: ProviderRuntimePreset): readonly AuthMethodDefin
         id: 'openai-compatible',
         kind: 'custom',
         runtimeAdapterId: 'openai-compatible',
-        credentialOwner: 'pomchat',
+        credentialOwner: 'litetavern',
         display: {
           title: '自定义兼容接口',
           description: '连接兼容 OpenAI 协议的自定义服务。',
           group: 'other',
           usesExistingSubscription: false,
           additionalBilling: 'unknown',
-          credentialLocation: '可选凭证保存在 PomChat 本机安全存储',
+          credentialLocation: '可选凭证保存在 LiteTavern 本机安全存储',
           modelScope: '由目标接口决定'
         }
       }
@@ -520,13 +520,13 @@ function authMethodsFor(preset: ProviderRuntimePreset): readonly AuthMethodDefin
         runtimeAdapterId: 'demo',
         credentialOwner: 'none',
         display: {
-          title: 'PomChat Demo',
+          title: 'LiteTavern Demo',
           description: '不连接外部服务的本机演示通道。',
           group: 'recommended',
           usesExistingSubscription: false,
           additionalBilling: 'none',
           credentialLocation: '无需凭证',
-          modelScope: 'PomChat Demo'
+          modelScope: 'LiteTavern Demo'
         }
       }
     ];

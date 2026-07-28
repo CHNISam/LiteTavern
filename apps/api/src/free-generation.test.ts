@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDatabase, type PomChatDatabase } from '@pomchat/database';
+import { createDatabase, type LiteTavernDatabase } from '@litetavern/database';
 import { buildApp } from './app.js';
 import { AppError } from './lib/errors.js';
 import type { ModelGateway, ProviderStreamInput } from './modules/providers/model-gateway.js';
 import { insertTestCharacter } from './test-fixtures.js';
 
 const openApps: Array<Awaited<ReturnType<typeof buildApp>>> = [];
-const openDatabases: PomChatDatabase[] = [];
+const openDatabases: LiteTavernDatabase[] = [];
 
 afterEach(async () => {
   await Promise.all(openApps.splice(0).map((app) => app.close()));
@@ -87,7 +87,7 @@ async function generate(
     headers: {
       cookie,
       'idempotency-key': idempotencyKey,
-      'x-pomchat-session-id': 'session-free-quota'
+      'x-litetavern-session-id': 'session-free-quota'
     },
     payload: {
       usage_mode: 'PLATFORM',

@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import type { PomChatDatabase } from '@pomchat/database';
+import type { LiteTavernDatabase } from '@litetavern/database';
 import {
   generationRequestSchema,
   turnBubbleSchema,
   type GenerationRequestInput
-} from '@pomchat/contracts';
+} from '@litetavern/contracts';
 import { AppError } from '../lib/errors.js';
 import { resolveUserId } from './identity.js';
 import { assembleContext } from './context-assembler.js';
@@ -28,7 +28,7 @@ import {
 import { FreeTrafficGuard } from './free-traffic-guard.js';
 
 interface GenerationRouteOptions {
-  database: PomChatDatabase;
+  database: LiteTavernDatabase;
   gateway: ModelGateway;
   platform: PlatformProviderConfig;
 }
@@ -266,7 +266,7 @@ export function registerGenerationRoutes(
       const usageId = randomUUID();
       const sequenceNo = Number(conversation.rows[0].next_sequence_no);
       const turnNo = Number(conversation.rows[0].next_turn_no);
-      const rawSessionId = request.headers['x-pomchat-session-id'];
+      const rawSessionId = request.headers['x-litetavern-session-id'];
       const clientSessionId =
         typeof rawSessionId === 'string' &&
         /^[A-Za-z0-9_-]{1,100}$/.test(rawSessionId)
@@ -298,7 +298,7 @@ export function registerGenerationRoutes(
              prompt_version, provider, model_name, client_session_id, started_at
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7, 'GENERATING',
-             'pomchat-v0.1.0', $8, $9, $10, CURRENT_TIMESTAMP
+             'litetavern-v0.1.0', $8, $9, $10, CURRENT_TIMESTAMP
            )`,
           [
             generationRequestId,
@@ -809,7 +809,7 @@ export function registerGenerationRoutes(
       const usageId = randomUUID();
       const sequenceNo = Number(conversation.rows[0].next_sequence_no);
       const turnNo = Number(conversation.rows[0].next_turn_no);
-      const rawSessionId = request.headers['x-pomchat-session-id'];
+      const rawSessionId = request.headers['x-litetavern-session-id'];
       const clientSessionId =
         typeof rawSessionId === 'string' &&
         /^[A-Za-z0-9_-]{1,100}$/.test(rawSessionId)
@@ -840,7 +840,7 @@ export function registerGenerationRoutes(
              prompt_version, provider, model_name, client_session_id, started_at
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7, 'GENERATING',
-             'pomchat-v0.1.0', $8, $9, $10, CURRENT_TIMESTAMP
+             'litetavern-v0.1.0', $8, $9, $10, CURRENT_TIMESTAMP
            )`,
           [
             generationRequestId,

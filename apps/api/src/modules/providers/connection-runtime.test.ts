@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDatabase, type PomChatDatabase } from '@pomchat/database';
-import { providerRegistry } from '@pomchat/contracts';
+import { createDatabase, type LiteTavernDatabase } from '@litetavern/database';
+import { providerRegistry } from '@litetavern/contracts';
 import { ConnectionRepository } from './connection-repository.js';
 import { ConnectionRuntime } from './connection-runtime.js';
 import { MemoryCredentialStore } from './credential-store.js';
@@ -12,7 +12,7 @@ import {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-let database: PomChatDatabase | undefined;
+let database: LiteTavernDatabase | undefined;
 
 afterEach(async () => {
   await database?.close();

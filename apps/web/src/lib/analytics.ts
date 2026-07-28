@@ -73,8 +73,8 @@ interface InitializeInput {
   appVersion: string;
 }
 
-const SESSION_KEY = 'pomchat.analytics.session.v1';
-const ATTRIBUTION_KEY = 'pomchat.analytics.attribution.v1';
+const SESSION_KEY = 'litetavern.analytics.session.v1';
+const ATTRIBUTION_KEY = 'litetavern.analytics.attribution.v1';
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
 function readJson<T>(storage: Storage, key: string): T | null {
@@ -258,7 +258,7 @@ export class AnalyticsClient {
 
   getSessionHeaders(): Record<string, string> {
     const sessionId = this.getSessionId();
-    return sessionId ? { 'X-PomChat-Session-Id': sessionId } : {};
+    return sessionId ? { 'X-LiteTavern-Session-Id': sessionId } : {};
   }
 
   pageView(

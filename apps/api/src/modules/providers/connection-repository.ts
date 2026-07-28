@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type { PomChatDatabase } from '@pomchat/database';
+import type { LiteTavernDatabase } from '@litetavern/database';
 import type {
   AuthMethodKind,
   AvailableModel,
   ConnectionStatus,
   CredentialMetadata,
   ProviderConnection
-} from '@pomchat/contracts';
+} from '@litetavern/contracts';
 
 interface ConnectionRow {
   connection_id: string;
@@ -66,7 +66,7 @@ function toConnection(row: ConnectionRow): ProviderConnection {
 }
 
 export class ConnectionRepository {
-  constructor(private readonly database: PomChatDatabase) {}
+  constructor(private readonly database: LiteTavernDatabase) {}
 
   async create(input: CreateConnectionInput): Promise<ProviderConnection> {
     const connectionId = input.id ?? randomUUID();

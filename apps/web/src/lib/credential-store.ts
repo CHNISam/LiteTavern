@@ -44,7 +44,7 @@ function maskKey(apiKey: string): string {
 }
 
 export class BrowserCredentialStore {
-  constructor(private readonly databaseName = 'pomchat-credentials') {}
+  constructor(private readonly databaseName = 'litetavern-credentials') {}
 
   private open(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {

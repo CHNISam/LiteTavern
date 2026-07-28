@@ -6,20 +6,27 @@
 
 1. 所有涉及 Git 的操作必须严格遵循 `git-workflow` skill，不得凭经验跳过或自行简化其规范。
 2. 在执行分支创建、提交、推送、拉取、合并、变基、PR、发布、CI/CD 或 Git hooks 等操作前，必须先完整读取 `git-workflow/SKILL.md`。
-3. 当 `git-workflow` skill 指定了与当前任务匹配的参考文件时，必须在操作前完整读取对应文件：
-   - 分支策略：`references/branching-strategies.md`
-   - Commit 与语义化版本：`references/commit-conventions.md`
-   - PR、审查、合并、冲突与 CI 检查：`references/pull-request-workflow.md`
-   - CI/CD：`references/ci-cd-integration.md`
-   - Rebase、Cherry-pick、Bisect 等高级操作：`references/advanced-git.md`
-   - Release：`references/github-releases.md`
-   - Git hooks：`references/git-hooks-setup.md`
-4. 默认采用 GitHub Flow；分支命名、Commit 格式和 PR 流程必须符合该 skill 的要求。
-5. Commit 必须使用 Conventional Commits：`<type>[scope]: <description>`。
-6. 执行任何可能改写历史、覆盖文件、删除分支或标签的操作前，必须先检查当前分支、工作区状态、远端和目标范围；未获用户明确授权时不得执行破坏性操作。
-7. 不得覆盖或丢弃用户已有的未提交改动。发现脏工作区或与任务无关的改动时，必须保留并绕开。
-8. 在声称 Git 操作完成前，必须以最新命令输出验证分支、跟踪关系、工作区状态及相关远端结果。
-9. 远端连接优先使用 HTTPS；除非用户明确要求，不得擅自改用 SSH。
+3. 本项目固定采用受控 GitFlow：
+   - `feature/*` 只能通过 PR 合入 `develop`；
+   - `release/*` 从 `develop` 创建，经内测后通过 PR 合入 `main`；
+   - `hotfix/*` 从稳定版本创建，修复后同时回合 `main` 与 `develop`；
+   - `main` 只保存可发布、可追溯的生产版本。
+4. `main` 是生产分支。禁止在 `main` 上直接开发、直接提交、直接部署或把未经发布验收的提交当作生产版本。
+5. `main` 上的生产版本必须有语义化稳定标签 `vX.Y.Z` 和已发布的 GitHub Release；RC 使用 `vX.Y.Z-rc.N`，并保持 Draft/Prerelease 状态。
+6. 发布必须经过以下顺序，任何 Agent 不得跳步：
+   - `release/*` 或 `hotfix/*` 部署到受 Cloudflare Access 保护的 staging；
+   - 人工验收通过后，才可创建 RC 标签和 Draft GitHub Release；
+   - RC 再次人工确认后，才可发布稳定 Release；
+   - 只有已发布稳定 Release 的校验产物，才可在 production 环境人工批准后部署。
+7. `PRODUCTION_RELEASE_ENABLED` 默认必须为 `false`。生产后端与持久化方案未正式确认前不得开启，也不得通过本地 Wrangler、控制台手工上传或其他旁路发布生产。
+8. staging 与 production 必须使用不同 Cloudflare Pages 项目、不同环境变量和不同访问边界。staging 在验证 Access 挑战前不得部署业务页面。
+9. Commit 必须使用 Conventional Commits：`<type>[scope]: <description>`。
+10. 执行任何可能改写历史、覆盖文件、删除分支或标签的操作前，必须先检查当前分支、工作区状态、远端和目标范围；未获用户明确授权时不得执行破坏性操作。
+11. 不得覆盖或丢弃用户已有的未提交改动。发现脏工作区或与任务无关的改动时，必须保留并绕开。
+12. 在声称 Git 操作完成前，必须以最新命令输出验证分支、跟踪关系、工作区状态、标签、Release 及相关远端结果。
+13. 远端连接优先使用 HTTPS；除非用户明确要求，不得擅自改用 SSH。
+
+完整发布规范见 [`docs/release-governance.md`](./docs/release-governance.md)。
 
 ## 自动化测试执行规范（强制）
 
@@ -105,7 +112,7 @@
 使用参考仓库时必须遵守以下要求：
 
 - 优先阅读其公开文档、源码和提交历史，以事实为依据，不得臆测其实现。
-- 参考不等于照搬；必须结合 PomChat 的目标、现有架构和约束进行取舍。
+- 参考不等于照搬；必须结合 LiteTavern 的目标、现有架构和约束进行取舍。
 - 引入代码、配置、资源或设计前必须核对对应许可证及兼容性，并保留必要的版权和来源说明。
 - 不得把参考仓库中的密钥、凭据、私有配置、构建产物或无关代码复制进本项目。
 - 若两个参考仓库的做法冲突，应以本项目需求、现有技术决策和用户明确指示为最高依据，并记录关键取舍。

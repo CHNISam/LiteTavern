@@ -3,7 +3,7 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { ZodError } from 'zod';
-import { createDatabase, type PomChatDatabase } from '@pomchat/database';
+import { createDatabase, type LiteTavernDatabase } from '@litetavern/database';
 import { AppError } from './lib/errors.js';
 import { registerIdentityRoutes } from './modules/identity.js';
 import { registerCoreRoutes } from './modules/core-routes.js';
@@ -26,7 +26,7 @@ import {
 } from './modules/character-assets.js';
 
 export interface BuildAppOptions {
-  database?: PomChatDatabase;
+  database?: LiteTavernDatabase;
   gateway?: ModelGateway;
   platform?: PlatformProviderConfig;
   logger?: boolean;
@@ -38,7 +38,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const ownsDatabase = !options.database;
   const database =
     options.database ??
-    (await createDatabase({ dataDir: process.env.POMCHAT_DATA_DIR ?? '.pomchat/database' }));
+    (await createDatabase({ dataDir: process.env.LITETAVERN_DATA_DIR ?? '.litetavern/database' }));
   const gateway = options.gateway ?? createModelGateway();
   const platform = options.platform ?? loadPlatformProviderConfig();
   const emailProvider = options.emailProvider ?? loadEmailProvider().provider;
@@ -46,7 +46,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     (process.env.NODE_ENV === 'test'
       ? createMemoryCharacterAssetStore()
       : createFileCharacterAssetStore(
-          process.env.POMCHAT_ASSET_DIR ?? '.pomchat/assets'
+          process.env.LITETAVERN_ASSET_DIR ?? '.litetavern/assets'
         ));
 
   const app = Fastify({
@@ -56,7 +56,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           redact: {
             paths: [
               'req.headers.authorization',
-              'req.headers.x-pomchat-credential',
+              'req.headers.x-litetavern-credential',
               'req.body.credential.api_key',
               'req.body.api_key',
               'res.headers.set-cookie'
@@ -70,7 +70,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
 
   const webOrigin = new URL(
-    process.env.POMCHAT_WEB_ORIGIN ?? 'http://127.0.0.1:5173'
+    process.env.LITETAVERN_WEB_ORIGIN ?? 'http://127.0.0.1:5173'
   ).origin;
 
   await app.register(cookie);
@@ -117,7 +117,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
 
   await seedPlatformData(database);
-  app.decorate('pomchat', { database, gateway, platform });
+  app.decorate('litetavern', { database, gateway, platform });
 
   app.get('/health', async () => ({ status: 'ok', version: '0.1.0' }));
   registerIdentityRoutes(app, database, {

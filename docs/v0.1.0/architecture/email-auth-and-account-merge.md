@@ -2,13 +2,13 @@
 
 > v0.1.0 · 迁移版本 `6 email_auth`
 
-PomChat 默认免注册使用。登录只用于跨设备同步、数据恢复与把匿名身份升级为可恢复的正式身份。首版统一使用 **邮箱 + 6 位验证码**，不区分「注册」和「登录」。
+LiteTavern 默认免注册使用。登录只用于跨设备同步、数据恢复与把匿名身份升级为可恢复的正式身份。首版统一使用 **邮箱 + 6 位验证码**，不区分「注册」和「登录」。
 
 ## 身份模型
 
 沿用既有 `app_user` + `app_user_identity` 多身份结构，未新造用户实体：
 
-- 每台设备的会话令牌 = 一条 `identity_type = 'ANONYMOUS'` 的身份行，`pomchat_anon` Cookie 保存其明文 token，服务端只存 `sha256` 哈希。
+- 每台设备的会话令牌 = 一条 `identity_type = 'ANONYMOUS'` 的身份行，`litetavern_anon` Cookie 保存其明文 token，服务端只存 `sha256` 哈希。
 - 「正式账号」= 该 `app_user` 拥有一条 `identity_type = 'EMAIL'` 身份行，并在 `app_user.email` 冗余规范化邮箱用于展示。
 - `identity_type` CHECK 扩展为 `ANONYMOUS | ACCOUNT | OAUTH | EMAIL`；`app_user.status` 扩展出 `MERGED`。
 

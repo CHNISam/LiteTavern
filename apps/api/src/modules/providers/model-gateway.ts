@@ -2,7 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { generateText, streamText, type ModelMessage } from 'ai';
-import { getProviderRuntimePreset } from '@pomchat/contracts';
+import { getProviderRuntimePreset } from '@litetavern/contracts';
 import { AppError } from '../../lib/errors.js';
 
 export interface ProviderGatewayInput {
@@ -125,7 +125,7 @@ export function createModelGateway(): ModelGateway {
     async validate(input) {
       const startedAt = performance.now();
       if (input.provider === 'demo') {
-        return { ok: true, latencyMs: 0, models: ['pomchat-demo'] };
+        return { ok: true, latencyMs: 0, models: ['litetavern-demo'] };
       }
       try {
         const models = await this.listModels({
@@ -155,7 +155,7 @@ export function createModelGateway(): ModelGateway {
     },
 
     async listModels(input) {
-      if (input.provider === 'demo') return ['pomchat-demo'];
+      if (input.provider === 'demo') return ['litetavern-demo'];
       if (input.provider === 'cloudflare') return [];
       const preset = getProviderRuntimePreset(input.provider);
       if (preset.modelDiscovery === 'manual') return [...preset.placeholderModels];

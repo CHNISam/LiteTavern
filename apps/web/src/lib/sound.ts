@@ -18,7 +18,7 @@ function getContext(): AudioContext | null {
   return audioContext;
 }
 
-const MUTE_KEY = 'pomchat:muted';
+const MUTE_KEY = 'litetavern:muted';
 
 export function isMuted(): boolean {
   try {

@@ -1,12 +1,12 @@
 {
-  "name": "PomChat",
-  "short_name": "PomChat",
+  "name": "LiteTavern",
+  "short_name": "LiteTavern",
   "description": "与有记忆的角色持续对话",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#10131f",
   "theme_color": "#111421",
   "icons": [
-    { "src": "/pomchat.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "/litetavern.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
 }

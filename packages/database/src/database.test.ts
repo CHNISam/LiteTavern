@@ -3,9 +3,9 @@ import { PGlite } from '@electric-sql/pglite';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createDatabase, MIGRATION_SQL, type PomChatDatabase } from './index.js';
+import { createDatabase, MIGRATION_SQL, type LiteTavernDatabase } from './index.js';
 
-let database: PomChatDatabase | undefined;
+let database: LiteTavernDatabase | undefined;
 let temporaryDirectory: string | undefined;
 
 afterEach(async () => {
@@ -17,7 +17,7 @@ afterEach(async () => {
 
 describe('database migration', () => {
   it('creates missing parent directories on first persistent startup', async () => {
-    temporaryDirectory = await mkdtemp(join(tmpdir(), 'pomchat-db-'));
+    temporaryDirectory = await mkdtemp(join(tmpdir(), 'litetavern-db-'));
     const dataDir = join(temporaryDirectory, 'nested', 'database');
     database = await createDatabase({ dataDir });
     expect((await database.query('SELECT 1 AS ready')).rows).toHaveLength(1);
@@ -55,7 +55,7 @@ describe('database migration', () => {
   });
 
   it('upgrades an unversioned database without losing data or reapplying migrations', async () => {
-    temporaryDirectory = await mkdtemp(join(tmpdir(), 'pomchat-db-'));
+    temporaryDirectory = await mkdtemp(join(tmpdir(), 'litetavern-db-'));
     const dataDir = join(temporaryDirectory, 'legacy');
     const legacyDatabase = await PGlite.create(dataDir);
     await legacyDatabase.exec(MIGRATION_SQL);

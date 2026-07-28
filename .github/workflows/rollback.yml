@@ -1,0 +1,70 @@
+name: Roll back production
+
+on:
+  workflow_dispatch:
+    inputs:
+      stable_tag:
+        description: Earlier published stable tag to restore
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: litetavern-production
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: production rollback
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.LITETAVERN_PRODUCTION_URL }}
+    env:
+      STABLE_TAG: ${{ inputs.stable_tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PRODUCTION_RELEASE_ENABLED: ${{ vars.PRODUCTION_RELEASE_ENABLED }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.stable_tag }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify rollback target
+        run: |
+          RELEASE_STATE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$STABLE_TAG" --jq 'if (.draft == false and .prerelease == false) then "published" else "unpublished" end')"
+          node scripts/release-policy.mjs production \
+            --tag "$STABLE_TAG" \
+            --package package.json \
+            --release-state "$RELEASE_STATE"
+
+      - name: Download and verify rollback artifact
+        run: |
+          gh release download "$STABLE_TAG" --pattern "litetavern-web-$STABLE_TAG.tar.gz*"
+          sha256sum -c "litetavern-web-$STABLE_TAG.tar.gz.sha256"
+          mkdir deploy
+          tar -xzf "litetavern-web-$STABLE_TAG.tar.gz" -C deploy
+
+      - name: Restore production artifact
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy deploy
+            --project-name=${{ vars.CLOUDFLARE_PRODUCTION_PROJECT }}
+            --branch=main
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify restored production routes
+        env:
+          PRODUCTION_URL: ${{ vars.LITETAVERN_PRODUCTION_URL }}
+        run: npm run verify:deployment -- --url "$PRODUCTION_URL"

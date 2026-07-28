@@ -1,10 +1,10 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { PomChatDatabase } from '@pomchat/database';
+import type { LiteTavernDatabase } from '@litetavern/database';
 import { AppError } from '../lib/errors.js';
 import { getFreeQuota } from './free-quota.js';
 
-export const ANONYMOUS_COOKIE = 'pomchat_anon';
+export const ANONYMOUS_COOKIE = 'litetavern_anon';
 
 export function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex');
@@ -29,7 +29,7 @@ export function setAnonymousCookie(reply: FastifyReply, token: string) {
  * authentication is atomic. Returns the new raw token for the cookie.
  */
 export async function rotateSessionIdentity(
-  transaction: { query: PomChatDatabase['query'] },
+  transaction: { query: LiteTavernDatabase['query'] },
   userId: string,
   previousIdentityId?: string
 ): Promise<{ token: string; identityId: string }> {
@@ -61,7 +61,7 @@ export interface IdentityContext {
 
 export async function resolveIdentityContext(
   request: FastifyRequest,
-  database: PomChatDatabase
+  database: LiteTavernDatabase
 ): Promise<IdentityContext> {
   const token = request.cookies[ANONYMOUS_COOKIE];
   if (!token) throw new AppError('UNAUTHORIZED', '需要匿名身份。', 401);
@@ -97,7 +97,7 @@ export async function resolveIdentityContext(
 
 export async function resolveUserId(
   request: FastifyRequest,
-  database: PomChatDatabase
+  database: LiteTavernDatabase
 ): Promise<string> {
   return (await resolveIdentityContext(request, database)).userId;
 }
@@ -108,7 +108,7 @@ interface IdentityRouteOptions {
 }
 
 export async function identityPayload(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   identity: IdentityContext,
   freeQuotaEnabled: boolean
 ) {
@@ -130,7 +130,7 @@ export async function identityPayload(
 
 export function registerIdentityRoutes(
   app: FastifyInstance,
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   options: IdentityRouteOptions = {}
 ) {
   const initialQuota = options.initialQuota ?? 30;
@@ -199,7 +199,7 @@ export interface ClaimAuthenticatedIdentityInput {
  * another account by guessing its provider identifier.
  */
 export async function claimAuthenticatedIdentity(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   input: ClaimAuthenticatedIdentityInput
 ): Promise<{ userId: string; created: boolean }> {
   const subjectHash = hashToken(`${input.identityType}:${input.subject}`);
@@ -241,7 +241,7 @@ export async function claimAuthenticatedIdentity(
 export async function requireUser(
   request: FastifyRequest,
   _reply: FastifyReply,
-  database: PomChatDatabase
+  database: LiteTavernDatabase
 ) {
   return resolveUserId(request, database);
 }

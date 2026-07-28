@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { normalizeEmail } from '@pomchat/contracts';
-import type { PomChatDatabase } from '@pomchat/database';
+import { normalizeEmail } from '@litetavern/contracts';
+import type { LiteTavernDatabase } from '@litetavern/database';
 import {
   hashToken,
   rotateSessionIdentity,
@@ -32,7 +32,7 @@ function emailSubjectHash(email: string): string {
  * identity context. The whole operation is atomic and idempotent under retries.
  */
 export async function authenticateWithEmail(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   session: IdentityContext,
   emailInput: string,
   code: string

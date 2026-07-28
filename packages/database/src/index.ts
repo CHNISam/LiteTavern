@@ -3,13 +3,13 @@ import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { MIGRATIONS } from './migration.js';
 
-export type PomChatDatabase = PGlite;
+export type LiteTavernDatabase = PGlite;
 
 export interface CreateDatabaseOptions {
   dataDir?: string;
 }
 
-async function runMigrations(database: PomChatDatabase): Promise<void> {
+async function runMigrations(database: LiteTavernDatabase): Promise<void> {
   await database.exec(`
     CREATE TABLE IF NOT EXISTS system_schema_migration (
       version INTEGER PRIMARY KEY CHECK (version > 0),
@@ -42,7 +42,7 @@ async function runMigrations(database: PomChatDatabase): Promise<void> {
 
 export async function createDatabase(
   options: CreateDatabaseOptions = {}
-): Promise<PomChatDatabase> {
+): Promise<LiteTavernDatabase> {
   const dataDir = options.dataDir ?? 'memory://';
   if (!dataDir.startsWith('memory://')) await mkdir(dirname(dataDir), { recursive: true });
   const database = await PGlite.create(dataDir);

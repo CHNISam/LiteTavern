@@ -4,7 +4,7 @@
 
 ## 1. 仓库现状盘点(已核实的事实)
 
-**已有的流萤角色卡资产**:`.tmp/firefly-character-tavern.png`,736×736,PNG 内已正确嵌入 `tEXt` 的 `chara`(CCv2)和 `ccv3`(CCv3)两个 base64 字段,`spec_version` 均为完整规范。内容来自第三方创作者 `bananashark892`,标签包含 `Flirty/Obsessive/Possessive/Romantic/Mature` 等擦边风格 tag,和官方人设的基调不完全一致 —— **这是一个需要确认的取舍点**:是直接用这张现成卡(需确认来源许可与内容是否符合产品调性),还是基于官方人设重新撰写一版 PomChat 自己的流萤角色卡。
+**已有的流萤角色卡资产**:`.tmp/firefly-character-tavern.png`,736×736,PNG 内已正确嵌入 `tEXt` 的 `chara`(CCv2)和 `ccv3`(CCv3)两个 base64 字段,`spec_version` 均为完整规范。内容来自第三方创作者 `bananashark892`,标签包含 `Flirty/Obsessive/Possessive/Romantic/Mature` 等擦边风格 tag,和官方人设的基调不完全一致 —— **这是一个需要确认的取舍点**:是直接用这张现成卡(需确认来源许可与内容是否符合产品调性),还是基于官方人设重新撰写一版 LiteTavern 自己的流萤角色卡。
 
 **后端角色卡管道**(`apps/api/src/modules/character-cards/adapter.ts` + `character-card-routes.ts`)已经比较完整:
 - PNG `tEXt` 解析优先取 `ccv3`,回退 `chara`;JSON 直接解析;10MB 上限;深度/字符串长度校验防止恶意卡片。

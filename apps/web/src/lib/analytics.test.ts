@@ -53,7 +53,7 @@ describe('analytics client', () => {
     await first.initialize({
       userId: 'user-1',
       anonymousId: 'anonymous-1',
-      url: 'https://pomchat.example/?utm_source=bilibili&utm_campaign=firefly_launch',
+      url: 'https://litetavern.example/?utm_source=bilibili&utm_campaign=firefly_launch',
       referrer: '',
       appVersion: '0.1.0'
     });
@@ -68,7 +68,7 @@ describe('analytics client', () => {
     await refreshed.initialize({
       userId: 'user-1',
       anonymousId: 'anonymous-1',
-      url: 'https://pomchat.example/',
+      url: 'https://litetavern.example/',
       referrer: '',
       appVersion: '0.1.0'
     });
@@ -81,7 +81,7 @@ describe('analytics client', () => {
     await returned.initialize({
       userId: 'user-1',
       anonymousId: 'anonymous-1',
-      url: 'https://pomchat.example/',
+      url: 'https://litetavern.example/',
       referrer: '',
       appVersion: '0.1.0'
     });
@@ -130,7 +130,7 @@ describe('analytics client', () => {
     await client.initialize({
       userId: 'user-1',
       anonymousId: 'anonymous-1',
-      url: 'https://pomchat.example/',
+      url: 'https://litetavern.example/',
       referrer: '',
       appVersion: '0.1.0'
     });

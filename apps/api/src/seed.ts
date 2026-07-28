@@ -1,6 +1,6 @@
-import type { PomChatDatabase } from '@pomchat/database';
+import type { LiteTavernDatabase } from '@litetavern/database';
 
-export async function seedPlatformData(database: PomChatDatabase) {
+export async function seedPlatformData(database: LiteTavernDatabase) {
   await database.query(
     `UPDATE agent_character SET status = 'ARCHIVED', updated_at = CURRENT_TIMESTAMP
      WHERE visibility = 'PLATFORM' AND character_id IN (

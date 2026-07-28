@@ -1,19 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { PomChatDatabase } from '@pomchat/database';
+import type { LiteTavernDatabase } from '@litetavern/database';
 import {
   OPENAI_WEB_OAUTH_ENABLED,
   PROVIDER_RUNTIME_PRESETS,
   modelConfigurationInputSchema,
   providerConnectionValidationSchema
-} from '@pomchat/contracts';
+} from '@litetavern/contracts';
 import type { ModelGateway } from './providers/model-gateway.js';
 import { resolveProviderEndpoint } from './providers/endpoint-policy.js';
 import { resolveUserId } from './identity.js';
 
 export function registerModelRoutes(
   app: FastifyInstance,
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   gateway: ModelGateway
 ) {
   app.get('/v1/providers', async (request) => {

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { PomChatDatabase } from '@pomchat/database';
+import type { LiteTavernDatabase } from '@litetavern/database';
 import { AppError } from '../lib/errors.js';
 import { resolveUserId } from './identity.js';
 import {
@@ -105,9 +105,9 @@ function internalMetadata(): CharacterCardSourceMetadata {
   return {
     format: 'INTERNAL',
     container: 'INTERNAL',
-    spec_version: 'pomchat-0.1.0',
+    spec_version: 'litetavern-0.1.0',
     compatibility_level: 'FORMAL',
-    parser_id: 'pomchat/internal-character',
+    parser_id: 'litetavern/internal-character',
     parser_version: '0.2.0',
     unapplied_fields: []
   };
@@ -163,7 +163,7 @@ function restoreLegacyPassthrough(card: StoredCard): CharacterCardPassthrough {
 }
 
 async function insertCharacter(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   input: {
     userId: string;
     characterId: string;
@@ -236,7 +236,7 @@ async function insertCharacter(
 }
 
 async function readOwnedCard(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   userId: string,
   characterId: string
 ): Promise<(StoredCard & { name: string; avatar_object_key: string | null }) | null> {
@@ -259,7 +259,7 @@ async function readOwnedCard(
 
 export function registerCharacterCardRoutes(
   app: FastifyInstance,
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   assetStore: CharacterAssetStore
 ) {
   app.post('/v1/characters/import/preview', async (request) => {
@@ -628,7 +628,7 @@ export function registerCharacterCardRoutes(
       .type(extension === 'png' ? 'image/png' : 'application/json; charset=utf-8')
       .header(
         'Content-Disposition',
-        `attachment; filename="pomchat-character-${request.params.characterId}.${extension}"`
+        `attachment; filename="litetavern-character-${request.params.characterId}.${extension}"`
       );
     return reply.send(output);
   });

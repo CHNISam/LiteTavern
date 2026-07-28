@@ -2,7 +2,7 @@ import type { ModelMessage } from 'ai';
 import type {
   AvailableModel,
   ProviderConnection
-} from '@pomchat/contracts';
+} from '@litetavern/contracts';
 import type { CredentialLease } from './credential-store.js';
 
 export interface ConnectionRuntimeContext {

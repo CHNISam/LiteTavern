@@ -6,7 +6,7 @@
 
 ## 背景
 
-PomChat v0.1.0 是 Web/PWA 产品。OpenAI Provider 需要继续支持 API Key，同时评估是否可以让第三方 Web 应用通过 OpenAI/ChatGPT OAuth 获得模型调用权限，并消耗用户已有的 ChatGPT 套餐额度。
+LiteTavern v0.1.0 是 Web/PWA 产品。OpenAI Provider 需要继续支持 API Key，同时评估是否可以让第三方 Web 应用通过 OpenAI/ChatGPT OAuth 获得模型调用权限，并消耗用户已有的 ChatGPT 套餐额度。
 
 仓库中已有 `codex-device-code` 和 `codex-cli` 认证定义。它们面向 Codex 产品及 Codex App Server，不能据此推导出第三方 Web 应用拥有通用 OpenAI 模型 OAuth 权限。
 
@@ -15,7 +15,7 @@ PomChat v0.1.0 是 Web/PWA 产品。OpenAI Provider 需要继续支持 API Key�
 截至本 ADR 日期，公开官方资料能确认：
 
 1. [Sign in with ChatGPT](https://learn.chatgpt.com/docs/sites#add-sign-in-with-chatgpt) 提供用户身份登录能力，但没有公开承诺向任意第三方 Web 应用授予通用模型 API 调用权限。
-2. [Codex App Server](https://learn.chatgpt.com/docs/app-server) 的 ChatGPT 登录流程属于 Codex 产品集成范围，不能复用为 PomChat 的通用 OpenAI OAuth。
+2. [Codex App Server](https://learn.chatgpt.com/docs/app-server) 的 ChatGPT 登录流程属于 Codex 产品集成范围，不能复用为 LiteTavern 的通用 OpenAI OAuth。
 3. [OpenAI API Authentication](https://developers.openai.com/api/reference/overview#authentication) 公开的模型 API 调用方式仍以开发者平台凭证为准；公开资料没有给出满足本产品需求的第三方 Web OAuth Client 注册、模型调用 scope、审核流程和稳定授权契约。
 4. [Codex pricing](https://learn.chatgpt.com/docs/pricing) 描述的是 Codex 与 ChatGPT 套餐之间的使用关系，不能证明任意第三方 Web 应用可以消耗用户的 ChatGPT 套餐额度。
 

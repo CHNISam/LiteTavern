@@ -1,4 +1,4 @@
-import type { ProviderRegistry } from '@pomchat/contracts';
+import type { ProviderRegistry } from '@litetavern/contracts';
 import { AppError } from '../../lib/errors.js';
 import type { ConnectionRepository } from './connection-repository.js';
 import type { CredentialLifecycle } from './credential-lifecycle.js';

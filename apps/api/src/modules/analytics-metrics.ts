@@ -1,4 +1,4 @@
-import type { PomChatDatabase } from '@pomchat/database';
+import type { LiteTavernDatabase } from '@litetavern/database';
 
 export interface AnalyticsOverviewOptions {
   from: string;
@@ -32,7 +32,7 @@ function dayDifference(later: string, earlier: string): number {
 }
 
 export async function getAnalyticsOverview(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   options: AnalyticsOverviewOptions
 ) {
   const from = new Date(options.from);

@@ -1,4 +1,4 @@
-import type { ErrorCode } from '@pomchat/contracts';
+import type { ErrorCode } from '@litetavern/contracts';
 
 export class AppError extends Error {
   constructor(

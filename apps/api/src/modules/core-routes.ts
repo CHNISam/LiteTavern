@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { PomChatDatabase } from '@pomchat/database';
+import type { LiteTavernDatabase } from '@litetavern/database';
 import { AppError } from '../lib/errors.js';
 import { resolveUserId } from './identity.js';
 
 async function assertCharacterAccess(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   userId: string,
   characterId: string
 ) {
@@ -18,7 +18,7 @@ async function assertCharacterAccess(
   if (!result.rows[0]) throw new AppError('RESOURCE_NOT_FOUND', '角色不存在。', 404);
 }
 
-export function registerCoreRoutes(app: FastifyInstance, database: PomChatDatabase) {
+export function registerCoreRoutes(app: FastifyInstance, database: LiteTavernDatabase) {
   app.get('/v1/characters', async (request) => {
     const userId = await resolveUserId(request, database);
     const result = await database.query(

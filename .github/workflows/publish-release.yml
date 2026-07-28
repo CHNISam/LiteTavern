@@ -1,0 +1,78 @@
+name: Publish stable release
+
+on:
+  workflow_dispatch:
+    inputs:
+      rc_tag:
+        description: Approved RC tag
+        required: true
+        type: string
+      stable_tag:
+        description: Stable tag, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stable-release-${{ inputs.stable_tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: stable release
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      RC_TAG: ${{ inputs.rc_tag }}
+      STABLE_TAG: ${{ inputs.stable_tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify approved candidate reached main
+        run: |
+          git fetch origin main --tags
+          git rev-parse "$RC_TAG"
+          git merge-base --is-ancestor "$RC_TAG" HEAD
+          node scripts/release-policy.mjs stable --tag "$STABLE_TAG" --package package.json
+
+      - run: npm ci --no-audit
+      - run: npm run check
+      - run: npm audit --audit-level=high
+
+      - name: Build stable release artifact
+        run: |
+          tar -C apps/web/dist -czf "litetavern-web-$STABLE_TAG.tar.gz" .
+          sha256sum "litetavern-web-$STABLE_TAG.tar.gz" > "litetavern-web-$STABLE_TAG.tar.gz.sha256"
+
+      - name: Tag main and publish GitHub Release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if git rev-parse "refs/tags/$STABLE_TAG" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$STABLE_TAG")" = "$HEAD_SHA"
+          else
+            git tag -a "$STABLE_TAG" -m "LiteTavern $STABLE_TAG"
+            git push origin "$STABLE_TAG"
+          fi
+          if gh release view "$STABLE_TAG" >/dev/null 2>&1; then
+            echo "::error::Stable release already exists; refusing to overwrite it."
+            exit 1
+          fi
+          gh release create "$STABLE_TAG" \
+            --verify-tag \
+            --generate-notes \
+            --title "LiteTavern $STABLE_TAG" \
+            "litetavern-web-$STABLE_TAG.tar.gz" \
+            "litetavern-web-$STABLE_TAG.tar.gz.sha256"

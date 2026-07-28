@@ -1,8 +1,8 @@
-# PomChat v0.1.0 角色卡兼容与字段映射
+# LiteTavern v0.1.0 角色卡兼容与字段映射
 
 ## 结论
 
-PomChat 的运行时只读取内部角色模型。外部角色卡是输入/输出格式，不会直接成为提示词或运行时对象。
+LiteTavern 的运行时只读取内部角色模型。外部角色卡是输入/输出格式，不会直接成为提示词或运行时对象。
 
 首批兼容范围：
 
@@ -24,7 +24,7 @@ PomChat 的运行时只读取内部角色模型。外部角色卡是输入/输�
 
 每个 READY 角色卡版本明确分为：
 
-- `normalized_data`：PomChat 已理解、可编辑的稳定角色设定；
+- `normalized_data`：LiteTavern 已理解、可编辑的稳定角色设定；
 - `passthrough_data`：未知字段和当前不执行的外部字段，按 root/data 层级保留；
 - `source_metadata`：来源规范、容器、版本、文件名、媒体类型、大小、校验和、解析器版本、兼容等级和未生效字段；
 - 原 PNG 文件：作为头像输入及同容器导出的图像载体保留，不直接执行其中内容。
@@ -40,7 +40,7 @@ PomChat 的运行时只读取内部角色模型。外部角色卡是输入/输�
 | `first_message` | `first_mes` | `data.first_mes` | 是，新会话开场 | 基础 | 覆盖原值 | `""`，运行时可回退问候 |
 | `alternate_greetings` | 无正式字段 | `data.alternate_greetings` | 否，v0.1.0 未提供开场 swipe | 高级 | 覆盖原值并标记未生效 | `[]` |
 | `example_messages` | `mes_example` | `data.mes_example` | 是，作为风格参考 | 高级 | 覆盖原值 | `""` |
-| `system_prompt` | 无正式字段 | `data.system_prompt` | 是；支持 `{{original}}` | 高级 | 覆盖原值 | `""`，使用 PomChat 默认提示 |
+| `system_prompt` | 无正式字段 | `data.system_prompt` | 是；支持 `{{original}}` | 高级 | 覆盖原值 | `""`，使用 LiteTavern 默认提示 |
 | `post_history_instructions` | 无正式字段 | `data.post_history_instructions` | 是，作为本轮后置要求 | 高级 | 覆盖原值 | `""` |
 | `tags` | 无正式字段 | `data.tags` | 否，仅管理/展示 | 高级 | 覆盖原值 | `[]` |
 | `creator.name` | 无正式字段 | `data.creator` | 否 | 高级 | 覆盖原值 | `""` |

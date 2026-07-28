@@ -1,0 +1,83 @@
+name: Deploy protected staging
+
+on:
+  push:
+    branches:
+      - "release/**"
+      - "hotfix/**"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Release or hotfix branch to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: litetavern-staging
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ vars.LITETAVERN_STAGING_URL }}
+    env:
+      DEPLOY_REF: ${{ inputs.ref || github.ref_name }}
+      STAGING_PROJECT: ${{ vars.CLOUDFLARE_STAGING_PROJECT }}
+    steps:
+      - name: Require Access preflight
+        env:
+          STAGING_ACCESS_ENABLED: ${{ vars.STAGING_ACCESS_ENABLED }}
+        run: |
+          if [ "$STAGING_ACCESS_ENABLED" != "true" ]; then
+            echo "::error::Cloudflare Access must be configured before staging deployment."
+            exit 1
+          fi
+          if [ -z "$STAGING_PROJECT" ]; then
+            echo "::error::CLOUDFLARE_STAGING_PROJECT is not configured."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate staging branch
+        run: >-
+          node scripts/release-policy.mjs branch
+          --source "$DEPLOY_REF"
+          --target main
+
+      - run: npm ci --no-audit
+      - run: npm run check
+      - run: npm audit --omit=dev --audit-level=high
+
+      - name: Deploy fixed protected preview alias
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy apps/web/dist
+            --project-name=${{ vars.CLOUDFLARE_STAGING_PROJECT }}
+            --branch=staging
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Access and staging routes
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          STAGING_URL: ${{ vars.LITETAVERN_STAGING_URL }}
+        run: npm run verify:deployment -- --url "$STAGING_URL" --expect-access

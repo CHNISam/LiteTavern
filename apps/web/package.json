@@ -1,5 +1,5 @@
 {
-  "name": "@pomchat/web",
+  "name": "@litetavern/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,11 +11,10 @@
     "test:coverage": "vitest run src --coverage"
   },
   "dependencies": {
-    "@pomchat/contracts": "0.1.0",
+    "@litetavern/contracts": "0.1.0",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "react-router-dom": "latest",
     "zod": "latest"
   },
   "devDependencies": {

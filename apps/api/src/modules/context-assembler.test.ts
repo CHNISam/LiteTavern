@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDatabase, type PomChatDatabase } from '@pomchat/database';
+import { createDatabase, type LiteTavernDatabase } from '@litetavern/database';
 import { assembleContext } from './context-assembler.js';
 
-let database: PomChatDatabase | undefined;
+let database: LiteTavernDatabase | undefined;
 afterEach(async () => {
   await database?.close();
   database = undefined;

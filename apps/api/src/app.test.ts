@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDatabase, type PomChatDatabase } from '@pomchat/database';
+import { createDatabase, type LiteTavernDatabase } from '@litetavern/database';
 import { buildApp, type BuildAppOptions } from './app.js';
 import type { ModelGateway } from './modules/providers/model-gateway.js';
 import { insertTestCharacter } from './test-fixtures.js';
 
 const openApps: Array<Awaited<ReturnType<typeof buildApp>>> = [];
-const openDatabases: PomChatDatabase[] = [];
+const openDatabases: LiteTavernDatabase[] = [];
 
 afterEach(async () => {
   await Promise.all(openApps.splice(0).map((app) => app.close()));
@@ -28,7 +28,7 @@ async function anonymousCookie(app: Awaited<ReturnType<typeof buildApp>>) {
   return String(setCookie).split(';')[0];
 }
 
-describe('PomChat API', () => {
+describe('LiteTavern API', () => {
   it('rejects state-changing browser requests from an untrusted origin', async () => {
     const { app } = await setup();
 

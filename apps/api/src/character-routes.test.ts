@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDatabase, type PomChatDatabase } from '@pomchat/database';
+import { createDatabase, type LiteTavernDatabase } from '@litetavern/database';
 import { buildApp } from './app.js';
 import { exportCharacterCard } from './modules/character-cards/adapter.js';
 
-const resources: Array<{ app: Awaited<ReturnType<typeof buildApp>>; database: PomChatDatabase }> = [];
+const resources: Array<{ app: Awaited<ReturnType<typeof buildApp>>; database: LiteTavernDatabase }> = [];
 afterEach(async () => {
   await Promise.all(resources.splice(0).map(async ({ app, database }) => {
     await app.close();
@@ -12,7 +12,7 @@ afterEach(async () => {
 });
 
 function multipart(file: Buffer, filename = 'x.png') {
-  const boundary = '----pomchat-character-card';
+  const boundary = '----litetavern-character-card';
   const body = Buffer.concat([
     Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
     file,

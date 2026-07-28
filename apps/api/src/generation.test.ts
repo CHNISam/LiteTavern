@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDatabase, type PomChatDatabase } from '@pomchat/database';
+import { createDatabase, type LiteTavernDatabase } from '@litetavern/database';
 import { buildApp } from './app.js';
 import type {
   ModelGateway,
@@ -8,7 +8,7 @@ import type {
 import { insertTestCharacter } from './test-fixtures.js';
 
 const openApps: Array<Awaited<ReturnType<typeof buildApp>>> = [];
-const openDatabases: PomChatDatabase[] = [];
+const openDatabases: LiteTavernDatabase[] = [];
 
 afterEach(async () => {
   await Promise.all(openApps.splice(0).map((app) => app.close()));

@@ -22,9 +22,9 @@ const v2 = {
     post_history_instructions: '不要替用户做决定。',
     creator_notes: '测试角色卡',
     tags: ['电台'],
-    creator: 'PomChat Test',
+    creator: 'LiteTavern Test',
     character_version: '1.2',
-    extensions: { pomchat_test: true }
+    extensions: { litetavern_test: true }
   },
   future_field: 'must survive'
 };
@@ -52,14 +52,14 @@ describe('character card adapter', () => {
       alternate_greetings: ['欢迎回来。'],
       example_messages: '<START>\n{{char}}: 今晚想听什么？',
       creator: {
-        name: 'PomChat Test',
+        name: 'LiteTavern Test',
         notes: '测试角色卡',
         character_version: '1.2'
       }
     });
     expect(parsed.passthroughData).toEqual({
       root: { future_field: 'must survive' },
-      data: { extensions: { pomchat_test: true } }
+      data: { extensions: { litetavern_test: true } }
     });
     expect(parsed.sourceMetadata).toMatchObject({
       format: 'CHARACTER_CARD_V2',

@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDatabase, type PomChatDatabase } from '@pomchat/database';
+import { createDatabase, type LiteTavernDatabase } from '@litetavern/database';
 import { buildApp } from '../../app.js';
 import { MemoryEmailProvider } from './email-provider.js';
 import { mergeUserData } from './account-merge.js';
 
-let database: PomChatDatabase;
+let database: LiteTavernDatabase;
 let app: Awaited<ReturnType<typeof buildApp>>;
 let mail: MemoryEmailProvider;
 

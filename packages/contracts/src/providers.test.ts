@@ -114,7 +114,7 @@ describe('provider registry', () => {
           id: 'signed-token',
           kind: 'token',
           runtimeAdapterId: 'future-adapter',
-          credentialOwner: 'pomchat',
+          credentialOwner: 'litetavern',
           display: {
             title: 'Use token',
             description: 'Future auth method',

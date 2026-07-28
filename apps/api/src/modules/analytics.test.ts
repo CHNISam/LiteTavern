@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDatabase, type PomChatDatabase } from '@pomchat/database';
+import { createDatabase, type LiteTavernDatabase } from '@litetavern/database';
 import { buildApp } from '../app.js';
 import { getAnalyticsOverview } from './analytics-metrics.js';
 
-let database: PomChatDatabase | undefined;
+let database: LiteTavernDatabase | undefined;
 let app: Awaited<ReturnType<typeof buildApp>> | undefined;
 
 afterEach(async () => {
@@ -171,7 +171,7 @@ describe('analytics ingestion', () => {
 });
 
 async function insertCompletedTurn(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   input: {
     userId: string;
     conversationId: string;
@@ -197,7 +197,7 @@ async function insertCompletedTurn(
        provider, model_name, client_session_id,
        created_at, started_at, completed_at
      ) VALUES ($1, $2, $3, $4, 'PLATFORM', $5, 'COMPLETED',
-               'pomchat-v0.1.0', 'groq', 'configured-model', $6, $7, $7, $7)`,
+               'litetavern-v0.1.0', 'groq', 'configured-model', $6, $7, $7, $7)`,
     [
       generationId,
       input.userId,

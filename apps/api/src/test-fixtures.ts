@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { PomChatDatabase } from '@pomchat/database';
+import type { LiteTavernDatabase } from '@litetavern/database';
 
-export async function insertTestCharacter(database: PomChatDatabase): Promise<string> {
+export async function insertTestCharacter(database: LiteTavernDatabase): Promise<string> {
   const characterId = randomUUID();
   await database.query(
     `INSERT INTO agent_character (

@@ -1,5 +1,5 @@
 {
-  "name": "@pomchat/api",
+  "name": "@litetavern/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -18,8 +18,8 @@
     "@fastify/cookie": "latest",
     "@fastify/cors": "latest",
     "@fastify/multipart": "latest",
-    "@pomchat/contracts": "0.1.0",
-    "@pomchat/database": "0.1.0",
+    "@litetavern/contracts": "0.1.0",
+    "@litetavern/database": "0.1.0",
     "ai": "latest",
     "fastify": "latest",
     "zod": "latest"

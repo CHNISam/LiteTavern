@@ -1,5 +1,5 @@
 import { isIP } from 'node:net';
-import { getProviderRuntimePreset } from '@pomchat/contracts';
+import { getProviderRuntimePreset } from '@litetavern/contracts';
 import { AppError } from '../../lib/errors.js';
 
 function invalid(): never {

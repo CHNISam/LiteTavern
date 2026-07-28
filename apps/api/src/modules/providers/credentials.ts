@@ -126,9 +126,9 @@ function providerFromEnvironment(
   }
   return {
     provider,
-    model: environment.POMCHAT_PLATFORM_MODEL ?? 'pomchat-demo',
-    baseUrl: environment.POMCHAT_PLATFORM_BASE_URL ?? '',
-    apiKey: environment.POMCHAT_PLATFORM_API_KEY ?? '',
+    model: environment.LITETAVERN_PLATFORM_MODEL ?? 'litetavern-demo',
+    baseUrl: environment.LITETAVERN_PLATFORM_BASE_URL ?? '',
+    apiKey: environment.LITETAVERN_PLATFORM_API_KEY ?? '',
     enabled: true
   };
 }
@@ -138,7 +138,7 @@ export function loadPlatformProviderConfig(
 ): PlatformProviderConfig {
   const primaryName =
     environment.FREE_PROVIDER_PRIMARY ??
-    environment.POMCHAT_PLATFORM_PROVIDER ??
+    environment.LITETAVERN_PLATFORM_PROVIDER ??
     'groq';
   const fallbackName = environment.FREE_PROVIDER_FALLBACK ?? 'cloudflare';
   const primary = providerFromEnvironment(primaryName, environment);
@@ -149,7 +149,7 @@ export function loadPlatformProviderConfig(
   return {
     ...primary,
     dailyTokenQuota: integerValue(
-      environment.POMCHAT_PLATFORM_DAILY_TOKEN_QUOTA,
+      environment.LITETAVERN_PLATFORM_DAILY_TOKEN_QUOTA,
       50_000
     ),
     freeQuotaEnabled: booleanValue(environment.FREE_QUOTA_ENABLED, true),

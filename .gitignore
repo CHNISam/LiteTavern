@@ -4,7 +4,7 @@ coverage/
 .env
 .env.local
 *.log
-.pomchat/
+.litetavern/
 .tmp/
 playwright-report/
 test-results/

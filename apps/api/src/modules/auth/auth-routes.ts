@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { emailCodeSendSchema, emailCodeVerifySchema } from '@pomchat/contracts';
-import type { PomChatDatabase } from '@pomchat/database';
+import { emailCodeSendSchema, emailCodeVerifySchema } from '@litetavern/contracts';
+import type { LiteTavernDatabase } from '@litetavern/database';
 import { AppError } from '../../lib/errors.js';
 import {
   ANONYMOUS_COOKIE,
@@ -22,7 +22,7 @@ export interface AuthRouteOptions {
 
 export function registerAuthRoutes(
   app: FastifyInstance,
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   options: AuthRouteOptions
 ) {
   // Request a verification code. The response is intentionally uniform regardless of

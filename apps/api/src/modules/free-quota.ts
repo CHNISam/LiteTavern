@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { PomChatDatabase } from '@pomchat/database';
+import type { LiteTavernDatabase } from '@litetavern/database';
 import { AppError } from '../lib/errors.js';
 
 export interface FreeQuotaSnapshot {
@@ -31,7 +31,7 @@ function snapshot(row: QuotaRow): FreeQuotaSnapshot {
 }
 
 async function readQuota(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   userId: string
 ): Promise<FreeQuotaSnapshot> {
   const result = await database.query<QuotaRow>(
@@ -47,14 +47,14 @@ async function readQuota(
 }
 
 export async function getFreeQuota(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   userId: string
 ): Promise<FreeQuotaSnapshot> {
   return readQuota(database, userId);
 }
 
 export async function initializeFreeQuota(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   userId: string,
   initialCount: number
 ): Promise<FreeQuotaSnapshot> {
@@ -87,7 +87,7 @@ export async function initializeFreeQuota(
 }
 
 export async function reserveFreeQuota(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   userId: string,
   requestId: string
 ): Promise<{
@@ -152,7 +152,7 @@ export interface FinalizeFreeQuotaInput {
 }
 
 export async function finalizeFreeQuota(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   input: FinalizeFreeQuotaInput
 ): Promise<FreeQuotaSnapshot> {
   await database.transaction(async (transaction) => {
@@ -227,7 +227,7 @@ export interface ReleaseFreeQuotaInput extends FinalizeFreeQuotaInput {
 }
 
 export async function releaseFreeQuota(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   input: ReleaseFreeQuotaInput
 ): Promise<FreeQuotaSnapshot> {
   await database.transaction(async (transaction) => {

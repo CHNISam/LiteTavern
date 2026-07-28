@@ -2,7 +2,7 @@ import type {
   AuthMethodDefinition,
   ConnectionStatus,
   ProviderConnection
-} from '@pomchat/contracts';
+} from '@litetavern/contracts';
 import { AppError } from '../../lib/errors.js';
 import type { ConnectionRepository } from './connection-repository.js';
 import {
@@ -66,7 +66,7 @@ export class CredentialLifecycle {
     connection: ProviderConnection,
     authMethod: AuthMethodDefinition
   ): Promise<CredentialLease | undefined> {
-    if (authMethod.credentialOwner !== 'pomchat') return undefined;
+    if (authMethod.credentialOwner !== 'litetavern') return undefined;
 
     const metadata = await this.options.connections.getCredentialMetadata(connection.id);
     if (!metadata) return this.#missing(connection);

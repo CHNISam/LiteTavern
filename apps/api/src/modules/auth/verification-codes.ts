@@ -1,6 +1,6 @@
 import { createHash, randomInt, randomUUID } from 'node:crypto';
-import { normalizeEmail } from '@pomchat/contracts';
-import type { PomChatDatabase } from '@pomchat/database';
+import { normalizeEmail } from '@litetavern/contracts';
+import type { LiteTavernDatabase } from '@litetavern/database';
 import { AppError } from '../../lib/errors.js';
 import type { EmailProvider } from './email-provider.js';
 
@@ -41,7 +41,7 @@ export interface SendCodeInput {
  * limited; never reveals whether the email already has an account.
  */
 export async function sendVerificationCode(
-  database: PomChatDatabase,
+  database: LiteTavernDatabase,
   provider: EmailProvider,
   input: SendCodeInput
 ): Promise<void> {

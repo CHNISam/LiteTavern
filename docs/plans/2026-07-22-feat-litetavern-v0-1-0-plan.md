@@ -1,12 +1,12 @@
 ---
-title: "feat: Implement PomChat v0.1.0"
+title: "feat: Implement LiteTavern v0.1.0"
 type: feat
 status: active
 date: 2026-07-22
-origin: docs/brainstorms/2026-07-22-pomchat-v0-1-0-brainstorm.md
+origin: docs/brainstorms/2026-07-22-litetavern-v0-1-0-brainstorm.md
 ---
 
-# Implement PomChat v0.1.0
+# Implement LiteTavern v0.1.0
 
 ## Overview
 
@@ -31,7 +31,7 @@ origin: docs/brainstorms/2026-07-22-pomchat-v0-1-0-brainstorm.md
 
 ### Credential Boundary
 
-- IndexedDB `pomchat-credentials` 保存 `{credential_id, provider, key, masked_hint, updated_at}`。
+- IndexedDB `litetavern-credentials` 保存 `{credential_id, provider, key, masked_hint, updated_at}`。
 - 服务端 model configuration 只保存 `credential_id` 和 `credential_configured`，不保存 Key 或掩码来源以外的秘密。
 - BYOK 验证与生成请求通过专用请求字段临时传 Key；Fastify logger 禁止记录 body/header，错误归一前移除 Provider 原始响应中的敏感内容。
 - 更新 Key 保持 `credential_id` 稳定；删除后 UI 立即将相关配置标记为断开。
@@ -87,7 +87,7 @@ origin: docs/brainstorms/2026-07-22-pomchat-v0-1-0-brainstorm.md
 
 ### Phase 4 — Product UI
 
-- [ ] 建立 PomChat 设计 tokens、响应式 shell、联系人列表和移动端导航。
+- [ ] 建立 LiteTavern 设计 tokens、响应式 shell、联系人列表和移动端导航。
 - [ ] 实现产品介绍/匿名进入、角色聊天与流式状态恢复。
 - [ ] 实现角色档案、记忆管理和删除确认。
 - [ ] 实现角色设置、模型选择和模型服务连接向导。
@@ -146,7 +146,7 @@ origin: docs/brainstorms/2026-07-22-pomchat-v0-1-0-brainstorm.md
 
 - [Product flows](../v0.1.0/product/交互流程图和页面流程图/readme.md)
 - [Architecture baseline](../v0.1.0/architecture/readme.md)
-- [Origin brainstorm](../brainstorms/2026-07-22-pomchat-v0-1-0-brainstorm.md)
+- [Origin brainstorm](../brainstorms/2026-07-22-litetavern-v0-1-0-brainstorm.md)
 - [Vercel AI SDK providers](https://ai-sdk.dev/providers/openai-compatible-providers/custom-providers)
 - [Fastify v5](https://fastify.dev/docs/latest/)
 - [PGlite](https://pglite.dev/docs/api)

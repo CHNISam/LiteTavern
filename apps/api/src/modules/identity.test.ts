@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDatabase, type PomChatDatabase } from '@pomchat/database';
+import { createDatabase, type LiteTavernDatabase } from '@litetavern/database';
 import { buildApp } from '../app.js';
 import { claimAuthenticatedIdentity } from './identity.js';
 
-let database: PomChatDatabase | undefined;
+let database: LiteTavernDatabase | undefined;
 let app: Awaited<ReturnType<typeof buildApp>> | undefined;
 
 afterEach(async () => {

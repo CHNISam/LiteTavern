@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import type { PomChatDatabase } from '@pomchat/database';
-import { analyticsEventBatchSchema } from '@pomchat/contracts';
+import type { LiteTavernDatabase } from '@litetavern/database';
+import { analyticsEventBatchSchema } from '@litetavern/contracts';
 import { resolveIdentityContext } from './identity.js';
 
 export function registerAnalyticsRoutes(
   app: FastifyInstance,
-  database: PomChatDatabase
+  database: LiteTavernDatabase
 ) {
   app.post('/v1/analytics/events', async (request, reply) => {
     const identity = await resolveIdentityContext(request, database);
