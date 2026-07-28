@@ -105,6 +105,12 @@ export async function resolveUserId(
 interface IdentityRouteOptions {
   initialQuota?: number;
   freeQuotaEnabled?: boolean;
+  /**
+   * Called once, after a brand-new anonymous identity and its one-time LiteTavern
+   * Cloud Trial have been committed. Lets the hosted service record the membership
+   * and the grant without the core identity module depending on it.
+   */
+  onAnonymousCreated?: (userId: string, initialQuota: number) => Promise<void>;
 }
 
 export async function identityPayload(
@@ -172,6 +178,8 @@ export function registerIdentityRoutes(
         [randomUUID(), userId, initialQuota]
       );
     });
+
+    await options.onAnonymousCreated?.(userId, initialQuota);
 
     setAnonymousCookie(reply, token);
     return identityPayload(

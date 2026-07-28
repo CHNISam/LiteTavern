@@ -18,6 +18,17 @@ const GENERIC_SEND_MESSAGE = '如果该邮箱可用，验证码已发送。';
 export interface AuthRouteOptions {
   emailProvider: EmailProvider;
   freeQuotaEnabled: boolean;
+  /**
+   * LiteTavern Cloud hooks. Registration is an account fact; entering the Alpha
+   * waitlist is a Cloud fact, so the Cloud module reacts here instead of the auth
+   * module reaching into the program itself.
+   */
+  onCodeRequested?: (userId: string) => Promise<void>;
+  onCodeSent?: (userId: string) => Promise<void>;
+  onAuthenticated?: (
+    userId: string,
+    outcome: 'REGISTERED' | 'LOGGED_IN' | 'MERGED'
+  ) => Promise<void>;
 }
 
 export function registerAuthRoutes(
@@ -31,12 +42,14 @@ export function registerAuthRoutes(
   app.post('/v1/auth/email-code/send', async (request) => {
     const body = emailCodeSendSchema.parse(request.body);
     const session = await resolveIdentityContext(request, database);
+    await options.onCodeRequested?.(session.userId);
     try {
       await sendVerificationCode(database, options.emailProvider, {
         email: body.email,
         ip: request.ip,
         sessionIdentityId: session.anonymousId
       });
+      await options.onCodeSent?.(session.userId);
     } catch (error) {
       if (error instanceof AppError) throw error;
       // Never expose delivery internals (or account existence). Log without the code.
@@ -59,6 +72,7 @@ export function registerAuthRoutes(
       body.email,
       body.code
     );
+    await options.onAuthenticated?.(result.context.userId, result.outcome);
     setAnonymousCookie(reply, result.token);
     const payload = await identityPayload(
       database,

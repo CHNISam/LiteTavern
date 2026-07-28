@@ -6,6 +6,12 @@
 
 - [`project/`](./project/)：项目定位、与原作及权利人的关系、素材原则和宣传主文档。
 
+## 当前架构
+
+- [`architecture/litetavern-cloud.md`](./architecture/litetavern-cloud.md)：LiteTavern 客户端与
+  LiteTavern Cloud 的边界、匿名与注册身份、Trial、Alpha 候补与批次、额度与成本账本、
+  BYOK 边界、同步降级、导出与备份恢复。
+
 ## v0.1.0
 
 - [`v0.1.0/product/`](./v0.1.0/product/)：页面原型、页面流程和交互流程。

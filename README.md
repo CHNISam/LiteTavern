@@ -26,7 +26,9 @@ v0.1.0 正在从“AI 角色聊天应用”转向“AI 角色世界”的最小�
 - 基于角色卡、近期对话和角色记忆的流式对话；
 - append-only 世界正史、角色主观认知、角色当前状态、可追溯关系变化和决策引用的最小数据基础；
 - 可配置的确定性因果决策内核，以及复用聊天 `EVENT` 消息的后果演出；
-- PomChat 官方额度与用户自带 API Key 两套完全隔离的调用路径；
+- LiteTavern Cloud 平台额度与用户自带 API Key 两套完全隔离的调用路径；
+- LiteTavern Cloud Alpha 测试程序：匿名 Trial、注册后进入候补、按批次动态放行、
+  周期额度与真实成本账本、运营接口、导出与可验证的备份恢复；
 - 国内、国际、本地与自定义 OpenAI-compatible Provider；
 - 匿名身份、会话隔离、用量账本和增量自动化测试。
 
@@ -47,7 +49,37 @@ v0.1.0 正在从“AI 角色聊天应用”转向“AI 角色世界”的最小�
 
 用户自带 API Key 仅保存在当前浏览器，优先使用 IndexedDB。前端只显示掩码，服务端仅在验证和模型请求期间临时接收并转发 Key，不持久化、不缓存，也不写入日志、错误信息或埋点。
 
-PomChat 官方额度使用服务端独立配置的官方 Provider 凭证。官方凭证、用户凭证与计费逻辑完全隔离。
+LiteTavern Cloud 的平台额度使用服务端独立配置的官方 Provider 凭证。官方凭证、用户凭证与计费逻辑完全隔离。
+
+## LiteTavern 与 LiteTavern Cloud
+
+```text
+LiteTavern        开源客户端、本地能力、角色聊天体验、BYOK、导入导出
+LiteTavern Cloud  官方闭源账号、平台模型额度、Model Gateway、云同步、
+                  云备份与恢复、用量成本、反滥用
+```
+
+客户端可独立构建为静态 Web / PWA，部署到 Cloudflare Pages、GitHub Pages、自定义域名或子路径，
+通过 `VITE_CLOUD_BASE_URL`（构建时）或 `public/litetavern-config.js`（构建后可编辑）连接 Cloud，
+不要求前后端同域，也不内置任何平台 API Key。Cloud 不可用时，本地角色、已缓存会话和 BYOK 仍可使用。
+
+托管服务当前处于 **LiteTavern Cloud Alpha** 测试阶段：匿名访客获得一次性 Trial 额度；
+注册后进入 Alpha 候补名单；只有被按批次放行后才获得 Alpha 平台额度。Alpha、Beta 表示测试阶段，
+不是并列的价格套餐，本阶段不提供 Free / Pro 商业套餐。
+
+详见 [LiteTavern Cloud 架构文档](./docs/architecture/litetavern-cloud.md)。
+
+## 支持 LiteTavern
+
+LiteTavern 的开源部分可以免费使用。
+
+如果项目对你有帮助，可以自愿支持服务器、模型调用、域名及持续开发成本：
+
+[支持 LiteTavern](https://litetavern.pages.dev/support?source=github)
+
+支持完全自愿，不影响任何功能使用。
+
+支持页的微信二维码、爱发电、B 站和抖音入口均通过公开环境变量配置；仓库不保存真实二维码或私人账号信息。详见 [`.env.example`](./.env.example)。
 
 ## 本地开发
 
@@ -86,6 +118,7 @@ docs/
 ## 文档
 
 - [文档索引](./docs/README.md)
+- [LiteTavern Cloud：身份、Trial、Alpha 与额度](./docs/architecture/litetavern-cloud.md)
 - [项目定位与宣传主文档](./docs/project/崩坏：星穹铁道短信AI项目.docx)
 - [v0.1.0 产品流程](./docs/v0.1.0/product/交互流程图和页面流程图/readme.md)
 - [v0.1.0 系统设计](./docs/v0.1.0/architecture/readme.md)

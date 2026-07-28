@@ -318,7 +318,7 @@ describe('relationship import commit', () => {
     const rows = messages.json().messages as { role: string; content_text: string }[];
     expect(rows).toHaveLength(1);
     expect(rows[0]?.role).toBe('EVENT');
-    expect(rows[0]?.content_text).toContain('已从其他平台迁移到 PomChat');
+    expect(rows[0]?.content_text).toContain('已从其他平台迁移到 LiteTavern');
 
     const uncertain = await database.query<{ count: number }>(
       `SELECT COUNT(*)::int AS count FROM agent_memory WHERE content LIKE '%糖%'`

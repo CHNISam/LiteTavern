@@ -21,9 +21,9 @@ export function renderVerificationEmail(email: VerificationEmail): {
   text: string;
 } {
   return {
-    subject: 'PomChat 登录验证码',
+    subject: 'LiteTavern 登录验证码',
     text:
-      `你的 PomChat 验证码是：${email.code}\n\n` +
+      `你的 LiteTavern 验证码是：${email.code}\n\n` +
       `验证码将在 ${email.expiresInMinutes} 分钟后失效。` +
       `如果这不是你的操作，可以忽略此邮件。`
   };

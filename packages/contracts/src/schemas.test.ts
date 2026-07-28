@@ -93,4 +93,31 @@ describe('analytics event contracts', () => {
       expect(parsed.success, forbidden).toBe(false);
     }
   });
+
+  it.each(['support_page_view', 'support_method_click', 'support_qr_view'])(
+    'accepts the support event %s with safe attribution fields',
+    (eventName) => {
+      const parsed = analyticsEventBatchSchema.parse({
+        events: [
+          {
+            event_id: '018f7ec2-38a7-7fd7-8000-000000000001',
+            event_name: eventName,
+            session_id: 'session-support',
+            occurred_at: '2026-07-28T08:00:00.000Z',
+            page_name: 'support',
+            page_path: '/support?source=website',
+            properties: {
+              source: 'website',
+              method: eventName === 'support_page_view' ? null : 'wechat',
+              placement: 'footer',
+              is_authenticated: false
+            }
+          }
+        ]
+      });
+
+      expect(parsed.events[0]?.event_name).toBe(eventName);
+      expect(parsed.events[0]?.page_name).toBe('support');
+    }
+  );
 });

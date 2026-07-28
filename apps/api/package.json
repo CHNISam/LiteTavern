@@ -8,6 +8,10 @@
     "start": "node dist/server.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "backup": "tsx src/scripts/backup-cli.ts backup",
+    "verify-backup": "tsx src/scripts/backup-cli.ts verify",
+    "restore": "tsx src/scripts/backup-cli.ts restore",
+    "prune-backups": "tsx src/scripts/backup-cli.ts prune",
     "test": "vitest run src --no-file-parallelism",
     "test:coverage": "vitest run src --coverage --no-file-parallelism"
   },

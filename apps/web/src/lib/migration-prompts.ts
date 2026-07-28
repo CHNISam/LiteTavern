@@ -1,9 +1,9 @@
 /**
  * Prompts the user copies into an external model (ChatGPT / Claude / Gemini / …)
- * to turn a chat log from another platform into PomChat's import JSON.
+ * to turn a chat log from another platform into LiteTavern's import JSON.
  *
- * PomChat never runs these itself: no API key, no BYOK, no token cost, and the raw
- * chat log never reaches PomChat's servers.
+ * LiteTavern never runs these itself: no API key, no BYOK, no token cost, and the raw
+ * chat log never reaches LiteTavern Cloud.
  */
 
 export const RELATIONSHIP_IMPORT_SCHEMA_VERSION = 'pomchat_relationship_import_v1';
@@ -51,9 +51,9 @@ const OUTPUT_TEMPLATE = `{
   }
 }`;
 
-export const DIRECT_MIGRATION_PROMPT = `你现在需要帮助我把一段 AI 角色聊天关系迁移到 PomChat。
+export const DIRECT_MIGRATION_PROMPT = `你现在需要帮助我把一段 AI 角色聊天关系迁移到 LiteTavern。
 
-我接下来会提供来自其他 AI 平台的聊天记录。请基于聊天记录提取角色设定、双方关系、用户资料和重要共同记忆，并输出严格符合 PomChat 格式的 JSON。
+我接下来会提供来自其他 AI 平台的聊天记录。请基于聊天记录提取角色设定、双方关系、用户资料和重要共同记忆，并输出严格符合 LiteTavern 格式的 JSON。
 
 处理规则：
 
@@ -85,7 +85,7 @@ ${OUTPUT_TEMPLATE}`;
 
 export const MERGE_MIGRATION_PROMPT = `下面是针对同一名角色、同一名用户、同一段关系的多份分批提取结果。
 
-请把它们合并为一份 PomChat 标准迁移 JSON。
+请把它们合并为一份 LiteTavern 标准迁移 JSON。
 
 合并规则：
 

@@ -28,6 +28,15 @@ export const ERROR_CODES = [
   'FREE_SERVICE_DISABLED',
   'FREE_SERVICE_UNAVAILABLE',
   'FREE_RATE_LIMITED',
+  // LiteTavern Cloud. A spent Trial keeps the long-standing FREE_QUOTA_EXHAUSTED
+  // code above (same meaning, clients already handle it); a spent Alpha cycle gets
+  // its own code because the honest next step differs — wait for the next cycle,
+  // switch to BYOK, or use the support entry.
+  'CLOUD_QUOTA_EXHAUSTED',
+  'CLOUD_QUOTA_DAILY_LIMIT',
+  'CLOUD_BUDGET_EXHAUSTED',
+  'REGISTRATION_REQUIRED',
+  'BATCH_NOT_OPEN',
   'PROVIDER_REQUEST_INVALID',
   'PROVIDER_SAFETY_REJECTED',
   'PROVIDER_RATE_LIMITED',

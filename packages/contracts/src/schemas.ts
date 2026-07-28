@@ -123,11 +123,76 @@ export const modelConfigurationInputSchema = z
   .strict();
 export type ModelConfigurationInput = z.infer<typeof modelConfigurationInputSchema>;
 
-export const analyticsEventNameSchema = z.enum([
+// Structural events emitted by the client on every session, plus the support-page
+// events the marketing surface emits.
+const BASE_ANALYTICS_EVENTS = [
   'app_session_started',
   'page_view',
   'critical_action',
-  'core_blocking_error_shown'
+  'core_blocking_error_shown',
+  'support_page_view',
+  'support_method_click',
+  'support_qr_view'
+] as const;
+
+/**
+ * LiteTavern Cloud program events. These are named facts about identity, quota and
+ * entitlement rather than free-form interactions, because the funnel questions the
+ * business needs answered (trial → registration → waitlist → Alpha activation, and
+ * what happens when quota runs out) must be countable without parsing action strings.
+ *
+ * Lifecycle events that only the server can witness (a grant, a batch, a quota cycle
+ * reset, a backup) are emitted server-side; the rest come from the client. None of
+ * them may carry chat content, verification codes, full emails or API keys — the
+ * property-name guard below rejects those outright.
+ */
+const CLOUD_ANALYTICS_EVENTS = [
+  // identity & registration
+  'anonymous_created',
+  'registration_started',
+  'verification_code_sent',
+  'registration_completed',
+  // trial
+  'cloud_trial_granted',
+  'cloud_trial_used',
+  'cloud_trial_exhausted',
+  // alpha waitlist & entitlement
+  'alpha_waitlist_joined',
+  'alpha_batch_created',
+  'alpha_invitation_sent',
+  'alpha_granted',
+  'alpha_activated',
+  'alpha_paused',
+  'alpha_ended',
+  // alpha quota
+  'alpha_quota_granted',
+  'alpha_quota_used',
+  'alpha_quota_exhausted',
+  'alpha_quota_cycle_reset',
+  // core product value
+  'first_message_sent',
+  'memory_generated',
+  'memory_recalled',
+  'core_memory_loop_completed',
+  'return_visit',
+  // cloud services
+  'cloud_sync_succeeded',
+  'cloud_sync_failed',
+  'backup_created',
+  'restore_completed',
+  'restore_failed',
+  // byok & support
+  'byok_selected',
+  'support_entry_viewed',
+  'support_entry_clicked',
+  'founding_supporter_marked'
+] as const;
+
+export const CLOUD_ANALYTICS_EVENT_NAMES = CLOUD_ANALYTICS_EVENTS;
+
+export const analyticsEventNameSchema = z.enum([
+  ...BASE_ANALYTICS_EVENTS,
+  ...CLOUD_ANALYTICS_EVENTS
 ]);
 
 export const analyticsSourceChannelSchema = z.enum([
@@ -150,7 +215,8 @@ export const analyticsPageNameSchema = z.enum([
   'character_create',
   'character_import',
   'relationship_import',
-  'model_config'
+  'model_config',
+  'support'
 ]);
 
 const analyticsPropertyValueSchema = z.union([
@@ -241,3 +307,103 @@ export const analyticsEventBatchSchema = z
 
 export type AnalyticsEventInput = z.infer<typeof analyticsEventSchema>;
 export type AnalyticsEventBatchInput = z.infer<typeof analyticsEventBatchSchema>;
+
+// ===== LiteTavern Cloud =====
+
+export const grantSourceSchema = z.enum([
+  'SUPPORTER_PRIORITY',
+  'WAITLIST',
+  'DIRECT_INVITE',
+  'ADMIN_GRANT'
+]);
+export type GrantSourceInput = z.infer<typeof grantSourceSchema>;
+
+export const cloudWaitlistJoinSchema = z
+  .object({ channel: z.string().trim().max(50).optional() })
+  .strict();
+
+export const cloudSyncCheckpointSchema = z
+  .object({
+    device_key: z.string().trim().min(1).max(100),
+    status: z.enum(['LOCAL', 'SYNCING', 'SYNCED', 'FAILED']),
+    client_revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+    pending_count: z.number().int().min(0).max(100_000).optional(),
+    error_code: z.string().trim().max(80).optional()
+  })
+  .strict();
+export type CloudSyncCheckpointInput = z.infer<typeof cloudSyncCheckpointSchema>;
+
+// Batch capacity and quota policy are operator inputs, never constants in code:
+// each Alpha batch can run a different allowance while its size stays adjustable.
+export const alphaQuotaPolicySchema = z
+  .object({
+    cycle_units: z.number().int().min(1).max(1_000_000).optional(),
+    cycle_days: z.number().int().min(1).max(365).optional(),
+    carry_over: z.boolean().optional(),
+    max_units_per_request: z.number().int().min(1).max(1000).optional(),
+    daily_unit_limit: z.number().int().min(0).max(1_000_000).optional(),
+    user_rate_limit_per_minute: z.number().int().min(1).max(600).optional(),
+    model_multipliers: z.record(z.string().min(1).max(200), z.number().positive()).optional()
+  })
+  .strict();
+
+export const alphaBatchCreateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    capacity: z.number().int().min(1).max(1_000_000),
+    quota_policy: alphaQuotaPolicySchema.optional(),
+    budget_limit_usd: z.number().min(0).max(1_000_000).optional(),
+    notes: z.string().trim().max(1000).optional()
+  })
+  .strict();
+export type AlphaBatchCreateInput = z.infer<typeof alphaBatchCreateSchema>;
+
+export const alphaBatchUpdateSchema = z
+  .object({
+    capacity: z.number().int().min(1).max(1_000_000).optional(),
+    status: z.enum(['OPEN', 'PAUSED', 'CLOSED']).optional(),
+    quota_policy: alphaQuotaPolicySchema.optional(),
+    budget_limit_usd: z.number().min(0).max(1_000_000).optional(),
+    notes: z.string().trim().max(1000).optional()
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: '至少需要一个待更新字段。'
+  });
+export type AlphaBatchUpdateInput = z.infer<typeof alphaBatchUpdateSchema>;
+
+// Either release specific users (targeted invite) or take the next `count` from the
+// waitlist in priority order. Never both: an ambiguous release is a rejected release.
+export const alphaReleaseSchema = z
+  .object({
+    user_ids: z.array(z.uuid()).min(1).max(500).optional(),
+    count: z.number().int().min(1).max(500).optional(),
+    grant_source: grantSourceSchema.optional()
+  })
+  .strict()
+  .refine(
+    (value) => Boolean(value.user_ids) !== Boolean(value.count),
+    { message: '请提供 user_ids 或 count 之一。' }
+  );
+export type AlphaReleaseInput = z.infer<typeof alphaReleaseSchema>;
+
+export const membershipTransitionSchema = z
+  .object({
+    transition: z.enum(['PAUSE', 'RESUME', 'END']),
+    reason: z.string().trim().max(200).optional()
+  })
+  .strict();
+
+// Founding Supporter is a voluntary-contribution identity, not a purchased tier.
+// `external_reference` is the payment-platform reference used to keep marking a
+// supporter idempotent; it is never treated as an entitlement to paid features.
+export const foundingSupporterSchema = z
+  .object({
+    user_id: z.uuid(),
+    display_name: z.string().trim().max(120).optional(),
+    anonymous: z.boolean().optional(),
+    external_reference: z.string().trim().max(200).optional(),
+    note: z.string().trim().max(300).optional()
+  })
+  .strict();
+export type FoundingSupporterInput = z.infer<typeof foundingSupporterSchema>;

@@ -53,6 +53,14 @@ describe('database migration', () => {
         'model_usage_ledger',
         'free_quota_ledger',
         'analytics_event',
+        'alpha_batch',
+        'alpha_grant',
+        'cloud_membership',
+        'cloud_quota_cycle',
+        'cloud_quota_ledger',
+        'cloud_sync_state',
+        'cloud_backup_job',
+        'founding_supporter',
         'provider_connection',
         'provider_credential_metadata',
         'provider_model_catalog',
@@ -98,6 +106,8 @@ describe('database migration', () => {
       { version: 6, name: 'email_auth' },
       { version: 7, name: 'relationship_import' },
       { version: 8, name: 'causal_world_foundation' },
+      { version: 9, name: 'cloud_alpha_program' },
+      { version: 10, name: 'alpha_capacity_plan' }
     ]);
 
     await database.close();

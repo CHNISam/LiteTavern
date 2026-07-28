@@ -4,7 +4,17 @@ export type AnalyticsEventName =
   | 'app_session_started'
   | 'page_view'
   | 'critical_action'
-  | 'core_blocking_error_shown';
+  | 'core_blocking_error_shown'
+  | 'support_page_view'
+  | 'support_method_click'
+  | 'support_qr_view'
+  // LiteTavern Cloud program events the client is the one to witness. The rest of
+  // the program vocabulary is emitted server-side; see the Cloud architecture doc.
+  | 'first_message_sent'
+  | 'return_visit'
+  | 'byok_selected'
+  | 'support_entry_viewed'
+  | 'support_entry_clicked';
 
 export type AnalyticsPageName =
   | 'home'
@@ -15,7 +25,8 @@ export type AnalyticsPageName =
   | 'character_create'
   | 'character_import'
   | 'relationship_import'
-  | 'model_config';
+  | 'model_config'
+  | 'support';
 
 export type AnalyticsSourceChannel =
   | 'direct'
@@ -250,6 +261,17 @@ export class AnalyticsClient {
             typeof navigator === 'undefined' ? 'unknown' : navigator.language
         }
       });
+
+      // A session that is not the first one this browser has had is a return visit —
+      // the denominator for "did the memory loop bring them back".
+      if (this.session.sessionNumber > 1) {
+        this.track('return_visit', {
+          properties: {
+            session_number: this.session.sessionNumber,
+            first_source_channel: attribution.firstSourceChannel
+          }
+        });
+      }
     }
   }
 
@@ -306,6 +328,37 @@ export class AnalyticsClient {
           this.now() - this.session.startedAt
         )
       }
+    });
+  }
+
+  /**
+   * Emits a named LiteTavern Cloud program event the client is the one to witness
+   * (a first message actually being sent, a returning session). Program facts only
+   * the server sees — grants, quota, backups — are emitted server-side instead, so
+   * one query spans both without double counting.
+   */
+  track(
+    eventName: AnalyticsEventName,
+    options: {
+      pageName?: AnalyticsPageName;
+      characterId?: string;
+      conversationId?: string;
+      properties?: Record<string, PropertyValue>;
+    } = {}
+  ) {
+    if (!this.session || !this.initialized) return;
+    this.touch();
+    void this.emit({
+      event_id: createId(),
+      event_name: eventName,
+      session_id: this.session.sessionId,
+      occurred_at: new Date(this.now()).toISOString(),
+      ...(options.pageName ? { page_name: options.pageName } : {}),
+      ...(options.characterId ? { character_id: options.characterId } : {}),
+      ...(options.conversationId
+        ? { conversation_id: options.conversationId }
+        : {}),
+      properties: options.properties ?? {}
     });
   }
 
@@ -375,6 +428,39 @@ export class AnalyticsClient {
         error_stage: options.errorStage,
         retryable: options.retryable,
         request_id: options.requestId ?? ''
+      }
+    });
+  }
+
+  supportEvent(
+    eventName:
+      | 'support_page_view'
+      | 'support_method_click'
+      | 'support_qr_view',
+    options: {
+      source: 'bilibili' | 'douyin' | 'github' | 'website' | 'other';
+      method?: 'wechat' | 'afdian' | 'bilibili' | 'douyin';
+      placement: 'footer' | 'about' | 'readme' | 'quota_prompt' | 'direct';
+      isAuthenticated: boolean;
+    }
+  ) {
+    if (!this.session || !this.initialized) return;
+    this.touch();
+    void this.emit({
+      event_id: createId(),
+      event_name: eventName,
+      session_id: this.session.sessionId,
+      occurred_at: new Date(this.now()).toISOString(),
+      page_name: 'support',
+      page_path:
+        typeof window === 'undefined'
+          ? '/support'
+          : `${window.location.pathname}${window.location.search}`,
+      properties: {
+        source: options.source,
+        ...(options.method ? { method: options.method } : {}),
+        placement: options.placement,
+        is_authenticated: options.isAuthenticated
       }
     });
   }

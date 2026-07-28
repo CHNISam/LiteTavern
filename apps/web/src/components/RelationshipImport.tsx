@@ -317,10 +317,10 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
           {step === 'intro' && (
             <>
               <ol className="migration-steps">
-                <li>PomChat 不会读取你在豆包、星野、猫箱等平台的账号，也不会代你抓取任何数据。</li>
+                <li>LiteTavern 不会读取你在豆包、星野、猫箱等平台的账号，也不会代你抓取任何数据。</li>
                 <li>请自行从原平台取得聊天记录。</li>
                 <li>复制下面的迁移 Prompt，在你自己使用的 ChatGPT / Claude / Gemini 等模型里整理这段记录。</li>
-                <li>PomChat 只接收整理后的结构化 JSON，原始聊天内容不需要上传到 PomChat。</li>
+                <li>LiteTavern 只接收整理后的结构化 JSON，原始聊天内容不需要上传到 LiteTavern。</li>
                 <li>外部 AI 平台可能会接触到你提交的聊天内容，请自行判断隐私风险。</li>
               </ol>
               <div className="migration-actions">
@@ -337,7 +337,7 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
               </div>
               <button className="primary-button" onClick={() => setStep('input')}>进入导入</button>
               <p className="privacy-footnote">
-                迁移不需要配置 API Key，PomChat 全流程不调用外部模型，也不会承担你的整理费用。
+                迁移不需要配置 API Key，LiteTavern 全流程不调用外部模型，也不会承担你的整理费用。
               </p>
             </>
           )}
@@ -568,10 +568,10 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
                 <li>将写入 {selectedMemories.length} 条长期记忆</li>
                 <li>将更新 1 份关系摘要</li>
                 <li>将保留 {keepUncertain ? draft.uncertain_items.length : 0} 条不确定信息</li>
-                <li>将创建 1 个新的 PomChat 会话</li>
+                <li>将创建 1 个新的 LiteTavern 会话</li>
               </ul>
               <p className="privacy-footnote">
-                旧平台的聊天记录不会被伪造成 PomChat 的历史消息，新会话只会有一条迁移说明。
+                旧平台的聊天记录不会被伪造成 LiteTavern 的历史消息，新会话只会有一条迁移说明。
               </p>
               {error && <p className="inline-error">{error}</p>}
               <div className="migration-actions">

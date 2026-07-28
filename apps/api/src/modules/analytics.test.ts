@@ -112,9 +112,13 @@ describe('analytics ingestion', () => {
       anonymous_id: string;
       user_id: string;
     }>(
+      // Restricted to client-ingested rows: LiteTavern Cloud also writes server-side
+      // lifecycle events (anonymous_created, cloud_trial_granted) which carry no
+      // anonymous_id and are not part of this dedupe assertion.
       `SELECT COUNT(*)::int AS count, MIN(anonymous_id::text) AS anonymous_id,
               MIN(user_id::text) AS user_id
-       FROM analytics_event`,
+       FROM analytics_event
+       WHERE anonymous_id IS NOT NULL`,
       []
     );
     expect(stored.rows[0]).toMatchObject({

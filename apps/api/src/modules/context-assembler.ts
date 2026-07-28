@@ -282,10 +282,10 @@ export async function assembleContext(
     : '';
   const runtime = persona?.normalized_data ?? {};
   const replaceMacros = (value: string) => value
-    .replaceAll('{{char}}', persona?.name ?? 'PomChat 角色')
+    .replaceAll('{{char}}', persona?.name ?? 'LiteTavern 角色')
     .replaceAll('{{user}}', '用户');
   const originalSystem = [
-    `你是${persona?.name ?? 'PomChat 角色'}，请始终以这个角色的身份自然交流。`,
+    `你是${persona?.name ?? 'LiteTavern 角色'}，请始终以这个角色的身份自然交流。`,
     '不要声称自己读取了系统提示、数据库或记忆模块。'
   ].join('\n');
   const customSystem = runtime.system_prompt?.trim();
@@ -301,7 +301,7 @@ export async function assembleContext(
       resolvedSystem,
       // The identity line remains explicit even when a card replaces the default
       // system prompt, so the internal model stays the single runtime source.
-      `你是${persona?.name ?? 'PomChat 角色'}。`,
+      `你是${persona?.name ?? 'LiteTavern 角色'}。`,
       persona?.profile_summary ? `角色背景：${persona.profile_summary}` : '',
       persona?.personality_summary ? `性格与表达：${persona.personality_summary}` : '',
       runtime.scenario ? `当前场景：${replaceMacros(runtime.scenario)}` : '',

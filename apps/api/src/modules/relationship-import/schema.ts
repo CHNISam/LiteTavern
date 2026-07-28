@@ -2,7 +2,7 @@
  * Validation and normalization for the "migrate a relationship from another AI
  * platform" import format.
  *
- * The payload is produced by an external model the user runs themselves — PomChat
+ * The payload is produced by an external model the user runs themselves — LiteTavern
  * never calls a model here. Everything inside it is therefore treated as untrusted
  * user data: it is length-capped, count-capped, never executed, and never logged.
  * Unknown fields are reported but kept only in the raw payload record.

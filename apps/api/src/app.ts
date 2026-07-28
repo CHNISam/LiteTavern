@@ -19,6 +19,14 @@ import {
   type ModelGateway
 } from './modules/providers/model-gateway.js';
 import { loadPlatformProviderConfig, type PlatformProviderConfig } from './modules/providers/credentials.js';
+import { loadCloudConfig, type CloudConfig } from './modules/cloud/config.js';
+import { registerCloudRoutes } from './modules/cloud/routes.js';
+import { registerCloudAdminRoutes } from './modules/cloud/admin-routes.js';
+import { recordCloudEvent } from './modules/cloud/events.js';
+import {
+  ensureMembership,
+  onRegistrationCompleted
+} from './modules/cloud/membership.js';
 import { seedPlatformData } from './seed.js';
 import {
   createFileCharacterAssetStore,
@@ -33,6 +41,7 @@ export interface BuildAppOptions {
   logger?: boolean;
   assetStore?: CharacterAssetStore;
   emailProvider?: EmailProvider;
+  cloud?: CloudConfig;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -42,6 +51,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     (await createDatabase({ dataDir: process.env.POMCHAT_DATA_DIR ?? '.pomchat/database' }));
   const gateway = options.gateway ?? createModelGateway();
   const platform = options.platform ?? loadPlatformProviderConfig();
+  const cloud = options.cloud ?? loadCloudConfig();
   const emailProvider = options.emailProvider ?? loadEmailProvider().provider;
   const assetStore = options.assetStore ??
     (process.env.NODE_ENV === 'test'
@@ -118,21 +128,57 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
 
   await seedPlatformData(database);
-  app.decorate('pomchat', { database, gateway, platform });
+  app.decorate('pomchat', { database, gateway, platform, cloud });
 
-  app.get('/health', async () => ({ status: 'ok', version: '0.1.0' }));
+  app.get('/health', async () => ({
+    status: 'ok',
+    version: '0.1.0',
+    // The client uses this to tell "LiteTavern Cloud is down" apart from "my network
+    // is down", so it can degrade to local + BYOK instead of reporting data loss.
+    cloud: { stage: cloud.stage, platform_models: cloud.trialEnabled }
+  }));
   registerIdentityRoutes(app, database, {
     initialQuota: platform.initialQuota ?? 30,
-    freeQuotaEnabled: platform.freeQuotaEnabled ?? true
+    freeQuotaEnabled: platform.freeQuotaEnabled ?? true,
+    onAnonymousCreated: async (userId, initialQuota) => {
+      await ensureMembership(database, userId, false);
+      await recordCloudEvent(database, 'anonymous_created', { userId });
+      await recordCloudEvent(database, 'cloud_trial_granted', {
+        userId,
+        properties: { trial_units: initialQuota, stage: cloud.stage }
+      });
+    }
   });
   registerAuthRoutes(app, database, {
     emailProvider,
-    freeQuotaEnabled: platform.freeQuotaEnabled ?? true
+    freeQuotaEnabled: platform.freeQuotaEnabled ?? true,
+    onCodeRequested: async (userId) => {
+      await recordCloudEvent(database, 'registration_started', { userId });
+    },
+    onCodeSent: async (userId) => {
+      await recordCloudEvent(database, 'verification_code_sent', { userId });
+    },
+    // Registration never grants Alpha: a newly verified account lands on the
+    // waitlist, keeping its user_id and all of its anonymous data.
+    onAuthenticated: async (userId, outcome) => {
+      const membership = await onRegistrationCompleted(database, userId);
+      if (outcome === 'REGISTERED') {
+        await recordCloudEvent(database, 'registration_completed', { userId });
+        if (membership.status === 'REGISTERED_WAITLIST') {
+          await recordCloudEvent(database, 'alpha_waitlist_joined', {
+            userId,
+            properties: { channel: 'registration' }
+          });
+        }
+      }
+    }
   });
   registerAnalyticsRoutes(app, database);
   registerCoreRoutes(app, database);
   registerModelRoutes(app, database, gateway);
-  registerGenerationRoutes(app, { database, gateway, platform });
+  registerGenerationRoutes(app, { database, gateway, platform, cloud });
+  registerCloudRoutes(app, database, cloud);
+  registerCloudAdminRoutes(app, database, cloud);
   registerCharacterCardRoutes(app, database, assetStore);
   registerRelationshipImportRoutes(app, database);
 

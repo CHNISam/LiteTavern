@@ -1,5 +1,6 @@
 import { analytics } from './analytics';
 import { createId } from './id';
+import { cloudUrl } from './runtime-config';
 
 export interface Character {
   character_id: string;
@@ -96,7 +97,9 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
+  // `cloudUrl` keeps same-origin deployments on relative paths and rewrites to the
+  // configured LiteTavern Cloud origin when the client is hosted separately.
+  const response = await fetch(cloudUrl(path), {
     ...init,
     credentials: 'include',
     headers: {
@@ -128,6 +131,14 @@ export interface TurnPlan {
   turn_id: string;
   messages: string[];
   free_quota_remaining?: number;
+  /** Present for platform-paid turns: which pool paid and what is left of it. */
+  cloud_quota?: {
+    source: 'TRIAL' | 'ALPHA' | 'BYOK' | 'NONE';
+    total: number;
+    available: number;
+    remaining_ratio: number;
+    cycle_ends_at: string | null;
+  };
 }
 
 // Generate a whole Agent turn (1–4 bubbles) in one model call. The bubbles are not
@@ -164,7 +175,7 @@ export async function streamGeneration(
   payload: unknown,
   onDelta: (text: string) => void
 ): Promise<{ freeQuotaRemaining?: number }> {
-  const response = await fetch(`/v1/conversations/${conversationId}/generations`, {
+  const response = await fetch(cloudUrl(`/v1/conversations/${conversationId}/generations`), {
     method: 'POST',
     credentials: 'include',
     headers: {

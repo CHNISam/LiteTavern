@@ -8,7 +8,7 @@ import {
 } from './schema.js';
 
 /** The migration event is a system note, never a line the character "said". */
-export const MIGRATION_EVENT_TEXT = '你们的关系资料已从其他平台迁移到 PomChat。';
+export const MIGRATION_EVENT_TEXT = '你们的关系资料已从其他平台迁移到 LiteTavern。';
 
 const INTERNAL_CARD_METADATA = {
   format: 'INTERNAL',
@@ -171,7 +171,7 @@ function normalizedCardData(data: NormalizedRelationshipImport) {
     description: data.character.description,
     personality: buildPersonalitySummary(data),
     scenario: '',
-    // A migrated relationship has no opening line: PomChat must not invent one.
+    // A migrated relationship has no opening line: LiteTavern must not invent one.
     first_message: '',
     alternate_greetings: [],
     example_messages: '',

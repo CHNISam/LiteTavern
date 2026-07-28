@@ -8,7 +8,7 @@ import {
   type GenerationRequestInput
 } from '@pomchat/contracts';
 import { AppError } from '../lib/errors.js';
-import { resolveUserId } from './identity.js';
+import { resolveIdentityContext, resolveUserId } from './identity.js';
 import { assembleContext } from './context-assembler.js';
 import type { ModelGateway } from './providers/model-gateway.js';
 import {
@@ -19,18 +19,42 @@ import {
   createOfficialProviderRouter,
   type OfficialCompletionMetadata
 } from './providers/official-providers.js';
-import {
-  finalizeFreeQuota,
-  getFreeQuota,
-  releaseFreeQuota,
-  reserveFreeQuota
-} from './free-quota.js';
 import { FreeTrafficGuard } from './free-traffic-guard.js';
+import { loadCloudConfig, type CloudConfig } from './cloud/config.js';
+import {
+  abortPlatformGate,
+  openPlatformGate,
+  readPlatformQuota,
+  settlePlatformGate,
+  type PlatformGate
+} from './cloud/gate.js';
+import { recordUsage } from './cloud/cost.js';
+import type { QuotaSnapshot } from './cloud/quota.js';
+
+/**
+ * Quota echoed back to the client after a platform reply. `free_quota_remaining` is
+ * kept for compatibility with existing clients and means what it always meant — how
+ * many replies are left — while `cloud_quota` says which pool paid (Trial or Alpha),
+ * how much of the current cycle is left and when that cycle ends.
+ */
+function quotaPayload(quota: QuotaSnapshot) {
+  return {
+    free_quota_remaining: quota.available,
+    cloud_quota: {
+      source: quota.source,
+      total: quota.total,
+      available: quota.available,
+      remaining_ratio: quota.remainingRatio,
+      cycle_ends_at: quota.cycleEndsAt
+    }
+  };
+}
 
 interface GenerationRouteOptions {
   database: PomChatDatabase;
   gateway: ModelGateway;
   platform: PlatformProviderConfig;
+  cloud?: CloudConfig;
 }
 
 function sse(event: string, data: unknown): string {
@@ -99,8 +123,9 @@ function normalizeTurn(messages: string[]): string[] {
 
 export function registerGenerationRoutes(
   app: FastifyInstance,
-  { database, gateway, platform }: GenerationRouteOptions
+  { database, gateway, platform, cloud }: GenerationRouteOptions
 ) {
+  const cloudConfig = cloud ?? loadCloudConfig();
   const officialRouter = createOfficialProviderRouter(gateway, platform);
   const trafficGuard = new FreeTrafficGuard({
     userRateLimitPerMinute: platform.userRateLimitPerMinute ?? 12,
@@ -112,7 +137,8 @@ export function registerGenerationRoutes(
   app.post<{ Params: { conversationId: string } }>(
     '/v1/conversations/:conversationId/generations',
     async (request, reply) => {
-      const userId = await resolveUserId(request, database);
+      const identity = await resolveIdentityContext(request, database);
+      const userId = identity.userId;
       const input = generationRequestSchema.parse(request.body);
       const rawIdempotencyKey = request.headers['idempotency-key'];
       const idempotencyKey =
@@ -135,7 +161,12 @@ export function registerGenerationRoutes(
       if (existing.rows[0]) {
         const quota =
           input.usage_mode === 'PLATFORM'
-            ? await getFreeQuota(database, userId)
+            ? await readPlatformQuota(
+                database,
+                cloudConfig,
+                userId,
+                identity.registered
+              )
             : null;
         reply.type('text/event-stream; charset=utf-8');
         return reply.send(
@@ -145,7 +176,7 @@ export function registerGenerationRoutes(
               status: existing.rows[0].status,
               text: existing.rows[0].content_text ?? '',
               replayed: true,
-              ...(quota ? { free_quota_remaining: quota.remaining } : {})
+              ...(quota ? quotaPayload(quota) : {})
             })
           ])
         );
@@ -236,24 +267,17 @@ export function registerGenerationRoutes(
       }
 
       let releaseTraffic: (() => void) | undefined;
-      let quotaReserved = false;
+      let gate: PlatformGate | null = null;
       if (input.usage_mode === 'PLATFORM') {
         releaseTraffic = trafficGuard.enter(userId, request.ip);
         try {
-          const reservation = await reserveFreeQuota(
-            database,
+          gate = await openPlatformGate(database, cloudConfig, {
             userId,
-            idempotencyKey
-          );
-          if (!reservation.acquired) {
-            throw new AppError(
-              'IDEMPOTENCY_CONFLICT',
-              '相同请求正在处理中，请稍后重试。',
-              409,
-              true
-            );
-          }
-          quotaReserved = true;
+            registered: identity.registered,
+            requestId: idempotencyKey,
+            provider,
+            model
+          });
         } catch (error) {
           releaseTraffic();
           throw error;
@@ -330,9 +354,24 @@ export function registerGenerationRoutes(
         await database.query(
           `INSERT INTO model_usage_ledger (
              usage_id, generation_request_id, user_id, usage_mode,
-             provider, model_name, status
-           ) VALUES ($1, $2, $3, $4, $5, $6, 'RESERVED')`,
-          [usageId, generationRequestId, userId, input.usage_mode, provider, model]
+             provider, model_name, status, quota_source, quota_units,
+             cycle_id, batch_id, conversation_id, purpose
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, 'RESERVED', $7, $8, $9, $10, $11, 'MAIN_REPLY'
+           )`,
+          [
+            usageId,
+            generationRequestId,
+            userId,
+            input.usage_mode,
+            provider,
+            model,
+            gate?.source ?? 'BYOK',
+            gate?.units ?? 0,
+            gate?.cycleId ?? null,
+            gate?.batchId ?? null,
+            request.params.conversationId
+          ]
         );
         await database.query(
           `UPDATE chat_conversation
@@ -344,12 +383,14 @@ export function registerGenerationRoutes(
         await database.exec('COMMIT');
       } catch (error) {
         await database.exec('ROLLBACK');
-        if (quotaReserved) {
-          await releaseFreeQuota(database, {
+        if (gate) {
+          await abortPlatformGate(database, cloudConfig, {
             userId,
+            registered: identity.registered,
             requestId: idempotencyKey,
             provider,
             model,
+            gate,
             failureCode: 'REQUEST_SETUP_FAILED'
           });
         }
@@ -467,21 +508,42 @@ export function registerGenerationRoutes(
             await database.exec('ROLLBACK');
             throw error;
           }
-          const quota =
-            input.usage_mode === 'PLATFORM'
-              ? await finalizeFreeQuota(database, {
-                  userId,
-                  requestId: idempotencyKey,
-                  provider: actualProvider,
-                  model: actualModel
-                })
-              : null;
+          const quota = gate
+            ? await settlePlatformGate(database, cloudConfig, {
+                userId,
+                registered: identity.registered,
+                requestId: idempotencyKey,
+                provider: actualProvider,
+                model: actualModel,
+                gate,
+                generationRequestId,
+                conversationId: request.params.conversationId,
+                usage
+              })
+            : null;
+          if (!gate) {
+            // BYOK still gets a cost row for observability; it consumes no quota and
+            // is priced at zero because the user paid their own provider directly.
+            await recordUsage(database, cloudConfig, {
+              generationRequestId,
+              userId,
+              conversationId: request.params.conversationId,
+              usageMode: 'BYOK',
+              quotaSource: 'BYOK',
+              purpose: 'MAIN_REPLY',
+              provider: actualProvider,
+              model: actualModel,
+              usage,
+              quotaUnits: 0,
+              status: 'FINALIZED'
+            });
+          }
           yield sse('done', {
             generation_request_id: generationRequestId,
             message_id: assistantMessageId,
             usage_mode: input.usage_mode,
             usage,
-            ...(quota ? { free_quota_remaining: quota.remaining } : {})
+            ...(quota ? quotaPayload(quota) : {})
           });
         } catch (reason) {
           await officialCompletion?.catch(() => undefined);
@@ -519,12 +581,14 @@ export function registerGenerationRoutes(
              WHERE usage_id = $1`,
             [usageId]
           );
-          if (quotaReserved) {
-            await releaseFreeQuota(database, {
+          if (gate) {
+            await abortPlatformGate(database, cloudConfig, {
               userId,
+              registered: identity.registered,
               requestId: idempotencyKey,
               provider,
               model,
+              gate,
               failureCode: error.code
             });
           }
@@ -720,7 +784,8 @@ export function registerGenerationRoutes(
   app.post<{ Params: { conversationId: string } }>(
     '/v1/conversations/:conversationId/turns',
     async (request, reply) => {
-      const userId = await resolveUserId(request, database);
+      const identity = await resolveIdentityContext(request, database);
+      const userId = identity.userId;
       const input = generationRequestSchema.parse(request.body);
       const rawIdempotencyKey = request.headers['idempotency-key'];
       const idempotencyKey =
@@ -746,13 +811,18 @@ export function registerGenerationRoutes(
         );
         const quota =
           input.usage_mode === 'PLATFORM'
-            ? await getFreeQuota(database, userId)
+            ? await readPlatformQuota(
+                database,
+                cloudConfig,
+                userId,
+                identity.registered
+              )
             : null;
         return {
           turn_id: turnId,
           messages: bubbles.rows.map((row) => row.content_text),
           replayed: true,
-          ...(quota ? { free_quota_remaining: quota.remaining } : {})
+          ...(quota ? quotaPayload(quota) : {})
         };
       }
 
@@ -780,24 +850,17 @@ export function registerGenerationRoutes(
       }
 
       let releaseTraffic: (() => void) | undefined;
-      let quotaReserved = false;
+      let gate: PlatformGate | null = null;
       if (input.usage_mode === 'PLATFORM') {
         releaseTraffic = trafficGuard.enter(userId, request.ip);
         try {
-          const reservation = await reserveFreeQuota(
-            database,
+          gate = await openPlatformGate(database, cloudConfig, {
             userId,
-            idempotencyKey
-          );
-          if (!reservation.acquired) {
-            throw new AppError(
-              'IDEMPOTENCY_CONFLICT',
-              '相同请求正在处理中，请稍后重试。',
-              409,
-              true
-            );
-          }
-          quotaReserved = true;
+            registered: identity.registered,
+            requestId: idempotencyKey,
+            provider: target.provider,
+            model: target.model
+          });
         } catch (error) {
           releaseTraffic();
           throw error;
@@ -858,9 +921,24 @@ export function registerGenerationRoutes(
         await database.query(
           `INSERT INTO model_usage_ledger (
              usage_id, generation_request_id, user_id, usage_mode,
-             provider, model_name, status
-           ) VALUES ($1, $2, $3, $4, $5, $6, 'RESERVED')`,
-          [usageId, generationRequestId, userId, input.usage_mode, target.provider, target.model]
+             provider, model_name, status, quota_source, quota_units,
+             cycle_id, batch_id, conversation_id, purpose
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, 'RESERVED', $7, $8, $9, $10, $11, 'MAIN_REPLY'
+           )`,
+          [
+            usageId,
+            generationRequestId,
+            userId,
+            input.usage_mode,
+            target.provider,
+            target.model,
+            gate?.source ?? 'BYOK',
+            gate?.units ?? 0,
+            gate?.cycleId ?? null,
+            gate?.batchId ?? null,
+            request.params.conversationId
+          ]
         );
         await database.query(
           `UPDATE chat_conversation
@@ -872,12 +950,14 @@ export function registerGenerationRoutes(
         await database.exec('COMMIT');
       } catch (error) {
         await database.exec('ROLLBACK');
-        if (quotaReserved) {
-          await releaseFreeQuota(database, {
+        if (gate) {
+          await abortPlatformGate(database, cloudConfig, {
             userId,
+            registered: identity.registered,
             requestId: idempotencyKey,
             provider: target.provider,
             model: target.model,
+            gate,
             failureCode: 'REQUEST_SETUP_FAILED'
           });
         }
@@ -949,12 +1029,14 @@ export function registerGenerationRoutes(
            WHERE usage_id = $1`,
           [usageId]
         );
-        if (quotaReserved) {
-          await releaseFreeQuota(database, {
+        if (gate) {
+          await abortPlatformGate(database, cloudConfig, {
             userId,
+            registered: identity.registered,
             requestId: idempotencyKey,
             provider: target.provider,
             model: target.model,
+            gate,
             failureCode: error.code
           });
         }
@@ -1001,30 +1083,51 @@ export function registerGenerationRoutes(
            WHERE usage_id = $1`,
           [usageId, actualProvider, actualModel, inputTokens, outputTokens]
         );
-        const quota =
-          input.usage_mode === 'PLATFORM'
-            ? await finalizeFreeQuota(database, {
-                userId,
-                requestId: idempotencyKey,
-                provider: actualProvider,
-                model: actualModel
-              })
-            : null;
+        const quota = gate
+          ? await settlePlatformGate(database, cloudConfig, {
+              userId,
+              registered: identity.registered,
+              requestId: idempotencyKey,
+              provider: actualProvider,
+              model: actualModel,
+              gate,
+              generationRequestId,
+              conversationId: request.params.conversationId,
+              usage: { inputTokens, outputTokens }
+            })
+          : null;
+        if (!gate) {
+          await recordUsage(database, cloudConfig, {
+            generationRequestId,
+            userId,
+            conversationId: request.params.conversationId,
+            usageMode: 'BYOK',
+            quotaSource: 'BYOK',
+            purpose: 'MAIN_REPLY',
+            provider: actualProvider,
+            model: actualModel,
+            usage: { inputTokens, outputTokens },
+            quotaUnits: 0,
+            status: 'FINALIZED'
+          });
+        }
 
         reply.code(201);
         return {
           turn_id: generationRequestId,
           usage_mode: input.usage_mode,
           messages,
-          ...(quota ? { free_quota_remaining: quota.remaining } : {})
+          ...(quota ? quotaPayload(quota) : {})
         };
       } catch (error) {
-        if (quotaReserved) {
-          await releaseFreeQuota(database, {
+        if (gate) {
+          await abortPlatformGate(database, cloudConfig, {
             userId,
+            registered: identity.registered,
             requestId: idempotencyKey,
             provider: actualProvider,
             model: actualModel,
+            gate,
             failureCode: 'FINALIZATION_FAILED'
           });
         }

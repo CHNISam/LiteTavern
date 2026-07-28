@@ -332,7 +332,7 @@ function warningsFor(
 ): string[] {
   const warnings: string[] = [];
   if (version === 1) {
-    warnings.push('这是旧版 Tavern Card V1，PomChat 已按兼容模式导入。');
+    warnings.push('这是旧版 Tavern Card V1，LiteTavern 已按兼容模式导入。');
   } else if (level === 'COMPATIBLE') {
     warnings.push(`角色卡规范版本 ${specVersion} 与当前正式支持版本不同，已按兼容模式导入。`);
   }
