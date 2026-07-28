@@ -1,14 +1,22 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  alphaFeedbackCreateSchema,
   cloudSyncCheckpointSchema,
   cloudWaitlistJoinSchema
 } from '@pomchat/contracts';
 import type { PomChatDatabase } from '@pomchat/database';
+import { AppError } from '../../lib/errors.js';
 import { resolveIdentityContext } from '../identity.js';
 import type { CloudConfig } from './config.js';
 import { recordCloudEvent } from './events.js';
 import { buildExportBundle } from './export.js';
-import { joinWaitlist } from './membership.js';
+import { submitFeedback } from './feedback.js';
+import {
+  activateAlpha,
+  ensureMembership,
+  joinWaitlist,
+  readBatchPolicy
+} from './membership.js';
 import { getCloudStatus } from './status.js';
 import { countSupporters, listThanks } from './supporter.js';
 import { listSyncState, recordSyncCheckpoint } from './sync.js';
@@ -52,6 +60,90 @@ export function registerCloudRoutes(
       joined: result.joined,
       cloud: await getCloudStatus(database, config, identity)
     };
+  });
+
+  /**
+   * "Enter Alpha" — the user's own activation step.
+   *
+   * Whether the caller may do this is decided entirely here, from the membership row:
+   * only ALPHA_GRANTED can activate. A client that fakes its local state simply gets
+   * a 403, because nothing about entitlement is taken from the request.
+   *
+   * Idempotent: a second call reports `already_active` and keeps the first
+   * `activated_at`, which is the timestamp the effective-tester计算 relies on.
+   */
+  app.post('/v1/cloud/alpha/activate', async (request, reply) => {
+    const identity = await resolveIdentityContext(request, database);
+    const membership = await ensureMembership(
+      database,
+      identity.userId,
+      identity.registered
+    );
+    const policy = membership.batchId
+      ? await readBatchPolicy(database, membership.batchId, config.defaultAlphaPolicy)
+      : config.defaultAlphaPolicy;
+
+    const result = await activateAlpha(database, {
+      userId: identity.userId,
+      policy
+    });
+    if (result.activated) {
+      await recordCloudEvent(database, 'alpha_activated', {
+        userId: identity.userId,
+        properties: {
+          batch_id: result.membership.batchId ?? '',
+          grant_source: result.membership.grantSource ?? ''
+        }
+      });
+    }
+    reply.code(result.activated ? 201 : 200);
+    return {
+      activated: result.activated,
+      already_active: result.alreadyActive,
+      cloud: await getCloudStatus(database, config, identity)
+    };
+  });
+
+  /**
+   * Alpha feedback from a tester. Restricted to users who actually hold a seat: the
+   * release gate counts these rows, so anonymous or waitlisted submissions would let
+   * anyone inflate the outstanding-feedback number.
+   */
+  app.post('/v1/cloud/alpha/feedback', async (request, reply) => {
+    const identity = await resolveIdentityContext(request, database);
+    const membership = await ensureMembership(
+      database,
+      identity.userId,
+      identity.registered
+    );
+    if (
+      !['ALPHA_GRANTED', 'ALPHA_ACTIVE', 'ALPHA_PAUSED', 'ALPHA_ENDED'].includes(
+        membership.status
+      )
+    ) {
+      throw new AppError(
+        'ALPHA_NOT_GRANTED',
+        '只有 LiteTavern Cloud Alpha 参与者可以提交 Alpha 反馈。',
+        403
+      );
+    }
+    const body = alphaFeedbackCreateSchema.parse(request.body);
+
+    const grant = await database.query<{ batch_no: number | null }>(
+      `SELECT batch_no FROM alpha_grant
+       WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [identity.userId]
+    );
+    const feedback = await submitFeedback(database, {
+      userId: identity.userId,
+      title: body.title,
+      source: 'ALPHA_USER',
+      ...(body.detail ? { detail: body.detail } : {}),
+      batchNo: body.batch_no ?? grant.rows[0]?.batch_no ?? null
+    });
+    reply.code(201);
+    // Only the submitter's own row comes back; the register itself is operator-only.
+    return { feedback: { feedback_id: feedback.feedback_id, created_at: feedback.created_at } };
   });
 
   // Support entry configuration. The payment platform is a plain external URL, so no

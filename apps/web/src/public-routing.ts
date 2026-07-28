@@ -1,3 +1,5 @@
+// Routes of the open client only. Operator surfaces for the hosted service are served
+// by the closed Cloud API and must not be routable from here.
 export type PublicRoute = 'support' | 'about';
 
 function normalizedBase(base: string): string {

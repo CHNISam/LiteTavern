@@ -164,6 +164,16 @@ const CLOUD_ANALYTICS_EVENTS = [
   'alpha_activated',
   'alpha_paused',
   'alpha_ended',
+  'alpha_seat_reclaimed',
+  // alpha capacity plan (v0.1.0 two-wave release)
+  'alpha_batch_2_unlocked',
+  'alpha_readiness_confirmed',
+  // alpha quality register. The authoritative state lives in alpha_feedback and
+  // alpha_blocker; these events exist for funnel analysis, not as the record.
+  'alpha_feedback_submitted',
+  'alpha_feedback_disposed',
+  'alpha_blocker_detected',
+  'alpha_blocker_resolved',
   // alpha quota
   'alpha_quota_granted',
   'alpha_quota_used',
@@ -407,3 +417,105 @@ export const foundingSupporterSchema = z
   })
   .strict();
 export type FoundingSupporterInput = z.infer<typeof foundingSupporterSchema>;
+
+// ===== Alpha capacity plan (v0.1.0 two-wave release) =====
+
+export const feedbackCategorySchema = z.enum([
+  'BUG',
+  'UX',
+  'PERFORMANCE',
+  'CONTENT_QUALITY',
+  'BILLING_QUOTA',
+  'FEATURE_REQUEST',
+  'OTHER'
+]);
+
+export const feedbackSeveritySchema = z.enum([
+  'UNTRIAGED',
+  'BLOCKER',
+  'MAJOR',
+  'MINOR',
+  'ENHANCEMENT'
+]);
+
+// The only permitted conclusions. There is deliberately no "in progress" value:
+// an undecided row must stay undecided so the release gate keeps counting it.
+export const feedbackDispositionSchema = z.enum([
+  'FIX_NOW',
+  'DEFER',
+  'REJECT',
+  'OBSERVE'
+]);
+
+export const blockerTypeSchema = z.enum([
+  'AUTH_FAILURE',
+  'ALPHA_ENTRY_FAILURE',
+  'CHAT_UNAVAILABLE',
+  'QUOTA_MISCHARGE',
+  'MODEL_CALL_FAILURE',
+  'DATA_LOSS',
+  'CROSS_USER_LEAK',
+  'COST_RUNAWAY',
+  'DATA_CORRUPTION'
+]);
+
+export const alphaFeedbackCreateSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    detail: z.string().trim().max(5000).optional(),
+    batch_no: z.number().int().min(1).max(100).optional()
+  })
+  .strict();
+export type AlphaFeedbackCreateInput = z.infer<typeof alphaFeedbackCreateSchema>;
+
+export const alphaFeedbackTriageSchema = z
+  .object({
+    category: feedbackCategorySchema.optional(),
+    severity: feedbackSeveritySchema.optional(),
+    disposition: feedbackDispositionSchema.optional(),
+    disposition_note: z.string().trim().max(500).optional(),
+    duplicate_of_feedback_id: z.uuid().optional(),
+    valid: z.boolean().optional()
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: '至少需要一个待更新字段。'
+  });
+export type AlphaFeedbackTriageInput = z.infer<typeof alphaFeedbackTriageSchema>;
+
+export const alphaBlockerCreateSchema = z
+  .object({
+    blocker_type: blockerTypeSchema,
+    title: z.string().trim().min(1).max(200),
+    detail: z.string().trim().max(5000).optional(),
+    batch_no: z.number().int().min(1).max(100).optional(),
+    user_id: z.uuid().optional(),
+    feedback_id: z.uuid().optional(),
+    // Reopening the original issue rather than filing a new one, so a regression
+    // resets the stability counter instead of hiding behind a fresh row.
+    recurrence_of: z.uuid().optional()
+  })
+  .strict();
+export type AlphaBlockerCreateInput = z.infer<typeof alphaBlockerCreateSchema>;
+
+export const alphaBlockerTransitionSchema = z
+  .object({ transition: z.enum(['RESOLVE', 'VERIFY', 'CLOSE']) })
+  .strict();
+export type AlphaBlockerTransitionInput = z.infer<
+  typeof alphaBlockerTransitionSchema
+>;
+
+export const alphaReadinessConfirmSchema = z
+  .object({ note: z.string().trim().max(500).optional() })
+  .strict();
+
+// The unlock request carries no condition results: the server re-evaluates every
+// automatic gate itself, so a client cannot assert its way past one.
+export const alphaBatchUnlockSchema = z
+  .object({ note: z.string().trim().max(500).optional() })
+  .strict();
+
+export const alphaSeatReclaimSchema = z
+  .object({ reason: z.string().trim().min(1).max(300) })
+  .strict();
+export type AlphaSeatReclaimInput = z.infer<typeof alphaSeatReclaimSchema>;

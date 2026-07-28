@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { PomChatDatabase } from '@pomchat/database';
 import { AppError } from '../../lib/errors.js';
 import { resolveAlphaPolicy, type AlphaQuotaPolicy } from './config.js';
+import { lockPlanForUpdate, recordCapacityAudit } from './plan.js';
 import { openQuotaCycle } from './quota.js';
 
 /**
@@ -9,14 +10,33 @@ import { openQuotaCycle } from './quota.js';
  *
  * Registering a LiteTavern account never grants Alpha on its own: a verified email
  * moves ANONYMOUS_TRIAL → REGISTERED_WAITLIST, and only an explicit release (batch,
- * invite or admin grant) moves REGISTERED_WAITLIST → ALPHA_ACTIVE.
+ * invite or admin grant) moves REGISTERED_WAITLIST → ALPHA_GRANTED.
+ *
+ * Holding a seat and using it are separate states on purpose. ALPHA_GRANTED means a
+ * seat is reserved and consuming released capacity; ALPHA_ACTIVE means the user has
+ * actually entered and their quota cycle is running. Collapsing the two would make
+ * "10 seats issued, 3 people testing" unrepresentable — which is precisely the
+ * situation the effective-tester gate and the reclaim path exist to handle.
  */
 export type MembershipStatus =
   | 'ANONYMOUS_TRIAL'
   | 'REGISTERED_WAITLIST'
+  | 'ALPHA_GRANTED'
   | 'ALPHA_ACTIVE'
   | 'ALPHA_PAUSED'
   | 'ALPHA_ENDED';
+
+/** Statuses that hold a seat against the plan's released capacity. */
+export const SEAT_HOLDING_STATUSES: readonly MembershipStatus[] = [
+  'ALPHA_GRANTED',
+  'ALPHA_ACTIVE',
+  'ALPHA_PAUSED'
+];
+
+/** Statuses allowed to reach Alpha-only capabilities. */
+export function hasAlphaAccess(status: MembershipStatus): boolean {
+  return status === 'ALPHA_ACTIVE';
+}
 
 export type GrantSource =
   | 'SUPPORTER_PRIORITY'
@@ -40,6 +60,10 @@ export interface Membership {
   grantSource: GrantSource | null;
   grantedAt: string | null;
   activatedAt: string | null;
+  pausedAt: string | null;
+  endedAt: string | null;
+  revokedReason: string | null;
+  supporterPriority: boolean;
 }
 
 interface MembershipRow {
@@ -51,6 +75,10 @@ interface MembershipRow {
   grant_source: GrantSource | null;
   granted_at: string | null;
   activated_at: string | null;
+  paused_at: string | null;
+  ended_at: string | null;
+  revoked_reason: string | null;
+  supporter_priority: boolean;
 }
 
 function toMembership(row: MembershipRow): Membership {
@@ -62,13 +90,18 @@ function toMembership(row: MembershipRow): Membership {
     batchId: row.batch_id,
     grantSource: row.grant_source,
     grantedAt: row.granted_at,
-    activatedAt: row.activated_at
+    activatedAt: row.activated_at,
+    pausedAt: row.paused_at,
+    endedAt: row.ended_at,
+    revokedReason: row.revoked_reason,
+    supporterPriority: row.supporter_priority
   };
 }
 
 const SELECT_MEMBERSHIP = `
   SELECT user_id, membership_status, waitlist_joined_at, waitlist_channel,
-         batch_id, grant_source, granted_at, activated_at
+         batch_id, grant_source, granted_at, activated_at, paused_at, ended_at,
+         revoked_reason, supporter_priority
   FROM cloud_membership
   WHERE user_id = $1`;
 
@@ -172,25 +205,42 @@ export interface GrantAlphaInput {
   grantedBy?: string;
   policy: AlphaQuotaPolicy;
   now?: Date;
+  planKey?: string;
 }
 
 export interface GrantAlphaResult {
   granted: boolean;
   /** Set when the release was rejected rather than replayed. */
-  reason?: 'ALREADY_GRANTED' | 'BATCH_FULL' | 'BATCH_NOT_OPEN' | 'NOT_REGISTERED';
+  reason?:
+    | 'ALREADY_GRANTED'
+    | 'BATCH_FULL'
+    | 'BATCH_NOT_OPEN'
+    | 'NOT_REGISTERED'
+    | 'PROGRAM_CAPACITY_EXHAUSTED'
+    | 'PLAN_PAUSED';
   grantId?: string;
-  cycleId?: string;
+  batchNo?: number;
   waitedSeconds?: number;
 }
 
 /**
- * Releases one user into an Alpha batch: writes the audit grant, flips membership to
- * ALPHA_ACTIVE and opens the first quota cycle — all in one transaction.
+ * Releases one user into an Alpha batch: writes the audit grant and moves membership
+ * to ALPHA_GRANTED, in one transaction. The quota cycle is deliberately *not* opened
+ * here — it starts when the user actually enters, in `activateAlpha`, so an unused
+ * seat never silently burns a cycle.
  *
- * Idempotent and concurrency-safe. `idx_alpha_grant_active_user` guarantees a user
- * can hold only one live grant, so two simultaneous releases produce one grant and
- * one ALREADY_GRANTED. Capacity is re-counted inside the transaction, so a batch can
- * never overshoot its cap.
+ * Overshoot is prevented at two independent levels:
+ *
+ *  1. `lockPlanForUpdate` takes a row lock on the single plan row, then live grants
+ *     are re-counted inside the same transaction and checked against
+ *     `released_capacity`. Because every grant serialises behind that one lock, two
+ *     concurrent releases cannot both observe the same free seat.
+ *  2. `idx_alpha_grant_active_user` (a partial unique index on GRANTED rows)
+ *     guarantees a user holds at most one live grant, so a duplicate release is a
+ *     no-op rather than a second seat.
+ *
+ * Per-batch capacity is still enforced on top of the program ceiling, so a wave-1
+ * batch of 10 stays a batch of 10 even after the program ceiling rises to 30.
  */
 export async function grantAlpha(
   database: PomChatDatabase,
@@ -199,8 +249,19 @@ export async function grantAlpha(
   let result: GrantAlphaResult = { granted: false, reason: 'ALREADY_GRANTED' };
 
   await database.transaction(async (transaction) => {
-    const batch = await transaction.query<{ capacity: number; status: string }>(
-      `SELECT capacity, status FROM alpha_batch WHERE batch_id = $1`,
+    // Serialises every seat-consuming operation in the program.
+    const plan = await lockPlanForUpdate(transaction, input.planKey);
+    if (plan.paused) {
+      result = { granted: false, reason: 'PLAN_PAUSED' };
+      return;
+    }
+
+    const batch = await transaction.query<{
+      capacity: number;
+      status: string;
+      batch_no: number | null;
+    }>(
+      `SELECT capacity, status, batch_no FROM alpha_batch WHERE batch_id = $1`,
       [input.batchId]
     );
     const batchRow = batch.rows[0];
@@ -216,6 +277,15 @@ export async function grantAlpha(
     );
     if (!user.rows[0]?.email) {
       result = { granted: false, reason: 'NOT_REGISTERED' };
+      return;
+    }
+
+    // Program ceiling: live grants across every batch versus released capacity.
+    const live = await transaction.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM alpha_grant WHERE status = 'GRANTED'`
+    );
+    if (Number(live.rows[0]?.count ?? 0) >= plan.released_capacity) {
+      result = { granted: false, reason: 'PROGRAM_CAPACITY_EXHAUSTED' };
       return;
     }
 
@@ -241,18 +311,20 @@ export async function grantAlpha(
         )
       : null;
 
+    const batchNo = Number(batchRow.batch_no ?? plan.current_batch_no);
     const grantId = randomUUID();
     const inserted = await transaction.query<{ grant_id: string }>(
       `INSERT INTO alpha_grant (
-         grant_id, user_id, batch_id, grant_source, status,
+         grant_id, user_id, batch_id, batch_no, grant_source, status,
          waited_seconds, granted_by
-       ) VALUES ($1, $2, $3, $4, 'GRANTED', $5, $6)
+       ) VALUES ($1, $2, $3, $4, $5, 'GRANTED', $6, $7)
        ON CONFLICT DO NOTHING
        RETURNING grant_id`,
       [
         grantId,
         input.userId,
         input.batchId,
+        batchNo,
         input.grantSource,
         waitedSeconds,
         input.grantedBy ?? null
@@ -265,34 +337,40 @@ export async function grantAlpha(
 
     await transaction.query(
       `INSERT INTO cloud_membership (user_id, membership_status)
-       VALUES ($1, 'ALPHA_ACTIVE')
+       VALUES ($1, 'ALPHA_GRANTED')
        ON CONFLICT (user_id) DO NOTHING`,
       [input.userId]
     );
     await transaction.query(
       `UPDATE cloud_membership
-       SET membership_status = 'ALPHA_ACTIVE',
+       SET membership_status = 'ALPHA_GRANTED',
            batch_id = $2, grant_source = $3,
            granted_at = CURRENT_TIMESTAMP,
-           activated_at = COALESCE(activated_at, CURRENT_TIMESTAMP),
-           paused_at = NULL, ended_at = NULL,
+           paused_at = NULL, ended_at = NULL, revoked_reason = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE user_id = $1`,
       [input.userId, input.batchId, input.grantSource]
     );
 
-    const cycle = await openQuotaCycle(transaction, {
+    await recordCapacityAudit(transaction, {
+      ...(input.planKey ? { planKey: input.planKey } : {}),
+      action: 'GRANT',
+      actor: input.grantedBy ?? 'system',
       userId: input.userId,
-      batchId: input.batchId,
-      grantId,
-      policy: input.policy,
-      now
+      batchNo,
+      detail: {
+        grant_id: grantId,
+        batch_id: input.batchId,
+        grant_source: input.grantSource,
+        released_capacity: plan.released_capacity,
+        seats_used_before: Number(live.rows[0]?.count ?? 0)
+      }
     });
 
     result = {
       granted: true,
       grantId,
-      cycleId: cycle.cycleId,
+      batchNo,
       ...(waitedSeconds === null ? {} : { waitedSeconds })
     };
   });
@@ -300,33 +378,143 @@ export async function grantAlpha(
   return result;
 }
 
+export interface ActivateAlphaResult {
+  activated: boolean;
+  /** True when the user had already entered; the original timestamp is kept. */
+  alreadyActive: boolean;
+  membership: Membership;
+  cycleId?: string;
+}
+
+/**
+ * The user's own "enter Alpha" step: ALPHA_GRANTED → ALPHA_ACTIVE, opening the first
+ * quota cycle. Idempotent — a repeat call keeps the original `activated_at` and does
+ * not open a second cycle — and it refuses any status other than ALPHA_GRANTED, so a
+ * suspended or revoked user cannot re-enter by replaying the request.
+ */
+export async function activateAlpha(
+  database: PomChatDatabase,
+  input: { userId: string; policy: AlphaQuotaPolicy; now?: Date }
+): Promise<ActivateAlphaResult> {
+  let activated = false;
+  let alreadyActive = false;
+  let cycleId: string | undefined;
+
+  await database.transaction(async (transaction) => {
+    const current = await transaction.query<MembershipRow>(
+      `${SELECT_MEMBERSHIP} FOR UPDATE`,
+      [input.userId]
+    );
+    const row = current.rows[0];
+    if (!row) throw new AppError('UNAUTHORIZED', '用户身份无效。', 401);
+
+    if (row.membership_status === 'ALPHA_ACTIVE') {
+      alreadyActive = true;
+      return;
+    }
+    if (row.membership_status !== 'ALPHA_GRANTED') {
+      throw new AppError(
+        'ALPHA_NOT_GRANTED',
+        '你还没有获得 LiteTavern Cloud Alpha 资格。',
+        403
+      );
+    }
+
+    const grant = await transaction.query<{ grant_id: string }>(
+      `SELECT grant_id FROM alpha_grant
+       WHERE user_id = $1 AND status = 'GRANTED'`,
+      [input.userId]
+    );
+    if (!grant.rows[0]) {
+      throw new AppError(
+        'ALPHA_NOT_GRANTED',
+        '你的 Alpha 资格已失效，请联系我们。',
+        403
+      );
+    }
+
+    await transaction.query(
+      `UPDATE cloud_membership
+       SET membership_status = 'ALPHA_ACTIVE',
+           activated_at = COALESCE(activated_at, CURRENT_TIMESTAMP),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1`,
+      [input.userId]
+    );
+
+    const cycle = await openQuotaCycle(transaction, {
+      userId: input.userId,
+      batchId: row.batch_id,
+      grantId: grant.rows[0].grant_id,
+      policy: input.policy,
+      now: input.now ?? new Date()
+    });
+    cycleId = cycle.cycleId;
+    activated = true;
+
+    await recordCapacityAudit(transaction, {
+      action: 'ACTIVATE',
+      actor: input.userId,
+      userId: input.userId,
+      detail: { batch_id: row.batch_id, cycle_id: cycle.cycleId }
+    });
+  });
+
+  const refreshed = await database.query<MembershipRow>(SELECT_MEMBERSHIP, [
+    input.userId
+  ]);
+  const row = refreshed.rows[0];
+  if (!row) throw new AppError('UNAUTHORIZED', '用户身份无效。', 401);
+
+  return {
+    activated,
+    alreadyActive,
+    membership: toMembership(row),
+    ...(cycleId ? { cycleId } : {})
+  };
+}
+
 export type MembershipTransition = 'PAUSE' | 'RESUME' | 'END';
 
 /**
- * Suspends, resumes or ends a user's Alpha. Ending revokes the grant so the batch
- * seat is freed and a fresh release is possible later. Already-granted cycles are
- * left in place: a paused user simply cannot spend them.
+ * Suspends, resumes or ends a user's Alpha. Ending revokes the grant so the seat is
+ * freed against the plan's released capacity and can be re-issued. Already-granted
+ * cycles are left in place: a paused user simply cannot spend them, because
+ * `resolveQuota` returns nothing for any status other than ALPHA_ACTIVE.
+ *
+ * A suspension takes effect on the next request with no cache to invalidate — the
+ * membership row is the authority and every platform call reads it.
  */
 export async function transitionAlpha(
   database: PomChatDatabase,
   userId: string,
   transition: MembershipTransition,
-  reason?: string
+  reason?: string,
+  actor = 'admin'
 ): Promise<Membership> {
   await database.transaction(async (transaction) => {
     if (transition === 'PAUSE') {
+      // A seat that has not been entered yet can be suspended too.
       await transaction.query(
         `UPDATE cloud_membership
          SET membership_status = 'ALPHA_PAUSED',
-             paused_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-         WHERE user_id = $1 AND membership_status = 'ALPHA_ACTIVE'`,
-        [userId]
+             paused_at = CURRENT_TIMESTAMP,
+             revoked_reason = $2,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $1
+           AND membership_status IN ('ALPHA_GRANTED', 'ALPHA_ACTIVE')`,
+        [userId, reason ?? null]
       );
     } else if (transition === 'RESUME') {
+      // Resuming returns the user to whichever side of the line they were on:
+      // someone who never entered goes back to ALPHA_GRANTED, not ALPHA_ACTIVE.
       await transaction.query(
         `UPDATE cloud_membership
-         SET membership_status = 'ALPHA_ACTIVE',
-             paused_at = NULL, updated_at = CURRENT_TIMESTAMP
+         SET membership_status =
+               CASE WHEN activated_at IS NULL THEN 'ALPHA_GRANTED'
+                    ELSE 'ALPHA_ACTIVE' END,
+             paused_at = NULL, revoked_reason = NULL,
+             updated_at = CURRENT_TIMESTAMP
          WHERE user_id = $1 AND membership_status = 'ALPHA_PAUSED'`,
         [userId]
       );
@@ -334,10 +522,12 @@ export async function transitionAlpha(
       await transaction.query(
         `UPDATE cloud_membership
          SET membership_status = 'ALPHA_ENDED',
-             ended_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+             ended_at = CURRENT_TIMESTAMP,
+             revoked_reason = $2,
+             updated_at = CURRENT_TIMESTAMP
          WHERE user_id = $1
-           AND membership_status IN ('ALPHA_ACTIVE', 'ALPHA_PAUSED')`,
-        [userId]
+           AND membership_status IN ('ALPHA_GRANTED', 'ALPHA_ACTIVE', 'ALPHA_PAUSED')`,
+        [userId, reason ?? null]
       );
       await transaction.query(
         `UPDATE alpha_grant
@@ -353,6 +543,18 @@ export async function transitionAlpha(
         [userId]
       );
     }
+
+    await recordCapacityAudit(transaction, {
+      action:
+        transition === 'PAUSE'
+          ? 'SUSPEND'
+          : transition === 'RESUME'
+            ? 'RESUME'
+            : 'REVOKE',
+      actor,
+      userId,
+      reason: reason ?? null
+    });
   });
 
   const current = await database.query<MembershipRow>(SELECT_MEMBERSHIP, [userId]);
@@ -366,13 +568,23 @@ export interface WaitlistCandidate {
   joinedAt: string | null;
   channel: string | null;
   foundingSupporter: boolean;
+  /** 1-based position under the system ordering, for the operator view only. */
+  rank: number;
 }
 
 /**
- * Waitlist ordering. Founding Supporters are placed ahead of the general queue — a
- * priority, not a guarantee, and never the only way in: `DIRECT_INVITE` and
- * `ADMIN_GRANT` releases bypass this ordering entirely. Within each tier the order is
- * "waiting longest first"; an operator can still pick individual users explicitly.
+ * Waitlist ordering, computed in SQL so it is the same for every caller and cannot be
+ * re-ordered by a client.
+ *
+ * Three rules, in order: eligibility (registered, active, actually waitlisted),
+ * Founding Supporter priority, then longest-waiting first with `user_id` as a stable
+ * tie-break. Supporter status only reorders the queue — it is never the sole route in
+ * and grants no extra allowance, and `DIRECT_INVITE` / `ADMIN_GRANT` releases bypass
+ * the ordering entirely while still being audited.
+ *
+ * The rank is returned to operators only. It is deliberately not shown to waiting
+ * users: it moves as people join, leave and are released, so presenting it as a
+ * position would be a promise the program cannot keep.
  */
 export async function listWaitlist(
   database: PomChatDatabase,
@@ -396,11 +608,12 @@ export async function listWaitlist(
      LIMIT $1`,
     [Math.max(1, Math.min(limit, 500))]
   );
-  return result.rows.map((row) => ({
+  return result.rows.map((row, index) => ({
     userId: row.user_id,
     joinedAt: row.waitlist_joined_at,
     channel: row.waitlist_channel,
-    foundingSupporter: row.founding_supporter
+    foundingSupporter: row.founding_supporter,
+    rank: index + 1
   }));
 }
 

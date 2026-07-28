@@ -6,6 +6,7 @@ import { loadCloudConfig, type CloudConfig } from './config.js';
 import { estimateCostUsd, recordUsage, assertGlobalBudget } from './cost.js';
 import { createBatch, getBatchMetrics, releaseUsers, updateBatch } from './batches.js';
 import {
+  activateAlpha,
   ensureMembership,
   grantAlpha,
   joinWaitlist,
@@ -208,6 +209,19 @@ describe('alpha batches', () => {
       [userId]
     );
     expect(grants.rows[0]?.count).toBe(1);
+
+    // Granting reserves a seat but opens no cycle; entering Alpha opens exactly one,
+    // and entering twice does not open a second.
+    const beforeEntry = await db.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM cloud_quota_cycle WHERE user_id = $1`,
+      [userId]
+    );
+    expect(beforeEntry.rows[0]?.count).toBe(0);
+
+    await activateAlpha(db, { userId, policy });
+    const replay = await activateAlpha(db, { userId, policy });
+    expect(replay.alreadyActive).toBe(true);
+
     const cycles = await db.query<{ count: number }>(
       `SELECT COUNT(*)::int AS count FROM cloud_quota_cycle WHERE user_id = $1`,
       [userId]
@@ -238,6 +252,14 @@ describe('alpha batches', () => {
     await releaseUsers(db, cloud, {
       batchId: large.batch_id,
       userIds: [largeUser]
+    });
+    await activateAlpha(db, {
+      userId: smallUser,
+      policy: await readBatchPolicy(db, small.batch_id, cloud.defaultAlphaPolicy)
+    });
+    await activateAlpha(db, {
+      userId: largeUser,
+      policy: await readBatchPolicy(db, large.batch_id, cloud.defaultAlphaPolicy)
     });
 
     const grants = await db.query<{ user_id: string; granted_units: number }>(
@@ -273,6 +295,8 @@ describe('alpha quota', () => {
     const userId = await createUser(db, { email: `${randomUUID()}@example.com` });
     await releaseUsers(db, cloud, { batchId: batch.batch_id, userIds: [userId] });
     const policy = await readBatchPolicy(db, batch.batch_id, cloud.defaultAlphaPolicy);
+    // A released seat is not a running cycle: the user has to enter Alpha first.
+    await activateAlpha(db, { userId, policy });
     return { userId, batchId: batch.batch_id, policy };
   }
 
@@ -582,6 +606,10 @@ describe('cost accounting and budget', () => {
     });
     const userId = await createUser(db, { email: 'metrics@example.com' });
     await releaseUsers(db, cloud, { batchId: batch.batch_id, userIds: [userId] });
+    await activateAlpha(db, {
+      userId,
+      policy: await readBatchPolicy(db, batch.batch_id, cloud.defaultAlphaPolicy)
+    });
     await recordUsage(db, cloud, {
       generationRequestId: randomUUID(),
       userId,

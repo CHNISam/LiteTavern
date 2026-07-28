@@ -21,6 +21,7 @@ export type CloudNextAction =
   | 'REGISTER'
   | 'JOIN_WAITLIST'
   | 'WAIT_FOR_ALPHA'
+  | 'ENTER_ALPHA'
   | 'USE_BYOK'
   | 'SUPPORT_LITETAVERN';
 
@@ -34,8 +35,14 @@ export interface CloudStatus {
   on_waitlist: boolean;
   waitlist_joined_at: string | null;
   alpha_active: boolean;
+  /** Holds a seat, whether or not they have entered yet. */
+  alpha_granted: boolean;
+  alpha_granted_at: string | null;
+  alpha_activated_at: string | null;
   alpha_batch_id: string | null;
   alpha_grant_source: Membership['grantSource'];
+  /** Populated only for a suspended or revoked seat, so the UI can say why. */
+  alpha_status_reason: string | null;
   founding_supporter: boolean;
   quota: {
     source: QuotaSnapshot['source'];
@@ -72,6 +79,9 @@ function nextActions(
     // A registered user who somehow has no waitlist timestamp can still join;
     // otherwise the honest next step is simply waiting.
     actions.push(membership.waitlistJoinedAt ? 'WAIT_FOR_ALPHA' : 'JOIN_WAITLIST');
+  } else if (membership.status === 'ALPHA_GRANTED') {
+    // A seat is held but unused: the next step is entering, not chatting.
+    actions.push('ENTER_ALPHA');
   }
 
   if (!hasQuota) actions.push('USE_BYOK');
@@ -110,8 +120,16 @@ export async function getCloudStatus(
     on_waitlist: membership.status === 'REGISTERED_WAITLIST',
     waitlist_joined_at: membership.waitlistJoinedAt,
     alpha_active: membership.status === 'ALPHA_ACTIVE',
+    alpha_granted:
+      membership.status === 'ALPHA_GRANTED' || membership.status === 'ALPHA_ACTIVE',
+    alpha_granted_at: membership.grantedAt,
+    alpha_activated_at: membership.activatedAt,
     alpha_batch_id: membership.batchId,
     alpha_grant_source: membership.grantSource,
+    alpha_status_reason:
+      membership.status === 'ALPHA_PAUSED' || membership.status === 'ALPHA_ENDED'
+        ? membership.revokedReason
+        : null,
     founding_supporter: supporter,
     quota: {
       source: quota.source,

@@ -40,8 +40,12 @@ function cloudStatus(
       on_waitlist: false,
       waitlist_joined_at: null,
       alpha_active: false,
+      alpha_granted: false,
+      alpha_granted_at: null,
+      alpha_activated_at: null,
       alpha_batch_id: null,
       alpha_grant_source: null,
+      alpha_status_reason: null,
       founding_supporter: false,
       quota: {
         source: 'TRIAL',
@@ -350,13 +354,115 @@ describe('HSR message shell', () => {
     const panel = await screen.findByRole('dialog', { name: 'LiteTavern Cloud' });
     expect(
       within(panel).getByText(
-        '已加入 LiteTavern Cloud Alpha 候补名单。获得资格后即可使用平台额度和云服务。'
+        '已加入 LiteTavern Cloud Alpha 候补名单。名额有限，我们会按候补顺序逐批开放，暂时无法承诺确切的开放日期。'
       )
     ).toBeInTheDocument();
+    // The application time is factual and shown; a queue position is not, because it
+    // moves as people join, leave and are released.
+    expect(within(panel).getByText(/申请时间：/)).toBeInTheDocument();
+    expect(within(panel).queryByText(/第\s*\d+\s*位/)).not.toBeInTheDocument();
+    expect(within(panel).queryByText(/排名/)).not.toBeInTheDocument();
+    // A waitlisted user is not offered the Alpha entry point.
+    expect(
+      within(panel).queryByRole('button', { name: /进入 Alpha/ })
+    ).not.toBeInTheDocument();
     // The stage disclaimer is always present, and no plan or price is invented.
     expect(within(panel).getByText(/仍处于测试阶段/)).toBeInTheDocument();
     expect(within(panel).queryByText(/Pro/)).not.toBeInTheDocument();
     expect(within(panel).queryByText(/永久免费/)).not.toBeInTheDocument();
+  });
+
+  /**
+   * Builds a fetch mock whose only interesting answer is the cloud status; every
+   * other call the shell makes on boot gets a benign stub.
+   */
+  function mockCloud(overrides: Record<string, unknown>, quota: CloudQuotaOverrides) {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      if (path === '/v1/cloud/status') {
+        return json(cloudStatus(overrides, quota));
+      }
+      if (path === '/v1/cloud/support') {
+        return json({
+          support: {
+            enabled: false, url: '', headline: '', body: '',
+            thanks_list_enabled: false, supporter_count: 0,
+            confirmation: 'MANUAL', thanks: []
+          },
+          is_founding_supporter: false
+        });
+      }
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/identities/anonymous') {
+        return json({
+          user: {
+            user_id: 'user-1', anonymous_id: 'anonymous-1', identity_type: 'EMAIL',
+            email: 'a@example.com', registered: true,
+            free_quota_remaining: 0, free_quota_enabled: true
+          }
+        });
+      }
+      if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
+      if (path === '/v1/characters') return json({ characters: [] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+  }
+
+  it('offers the Alpha entry point to a granted user who has not entered yet', async () => {
+    mockCloud(
+      {
+        identity_type: 'EMAIL',
+        registered: true,
+        membership_status: 'ALPHA_GRANTED',
+        alpha_granted: true,
+        alpha_granted_at: '2026-07-25T00:00:00.000Z',
+        alpha_batch_id: 'batch-1',
+        alpha_grant_source: 'WAITLIST',
+        next_actions: ['ENTER_ALPHA', 'USE_BYOK']
+      },
+      { source: 'NONE', total: 0, available: 0, remaining_ratio: 0 }
+    );
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'LiteTavern Cloud 状态' }));
+    const panel = await screen.findByRole('dialog', { name: 'LiteTavern Cloud' });
+
+    expect(
+      within(panel).getByText(/你已获得 LiteTavern Cloud Alpha 资格，还没有开始使用/)
+    ).toBeInTheDocument();
+    expect(within(panel).getByText(/获得资格时间：/)).toBeInTheDocument();
+    expect(
+      within(panel).getByRole('button', { name: '进入 Alpha 并开始使用' })
+    ).toBeInTheDocument();
+  });
+
+  it('states the reason and withdraws the Alpha entry point once a seat is suspended', async () => {
+    mockCloud(
+      {
+        identity_type: 'EMAIL',
+        registered: true,
+        membership_status: 'ALPHA_PAUSED',
+        alpha_status_reason: '疑似异常调用',
+        next_actions: ['USE_BYOK']
+      },
+      { source: 'NONE', total: 0, available: 0, remaining_ratio: 0 }
+    );
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'LiteTavern Cloud 状态' }));
+    const panel = await screen.findByRole('dialog', { name: 'LiteTavern Cloud' });
+
+    const notice = within(panel).getByRole('alert');
+    expect(notice).toHaveTextContent('访问已暂停：疑似异常调用');
+    // A suspended user is not offered any Alpha-only entry point.
+    expect(
+      within(panel).queryByRole('button', { name: /进入 Alpha/ })
+    ).not.toBeInTheDocument();
+    // Their own model service still is: the product keeps working without the seat.
+    expect(
+      within(panel).getByRole('button', { name: /使用自己的模型服务/ })
+    ).toBeInTheDocument();
   });
 
   it('falls back to the cached contact list when LiteTavern Cloud is unreachable', async () => {

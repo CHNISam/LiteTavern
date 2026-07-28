@@ -17,6 +17,9 @@ export type CloudStage = 'ALPHA' | 'BETA';
 export type MembershipStatus =
   | 'ANONYMOUS_TRIAL'
   | 'REGISTERED_WAITLIST'
+  // Holds a seat but has not entered yet. Kept distinct from ALPHA_ACTIVE so the
+  // panel can offer "enter Alpha" instead of pretending the user is already in.
+  | 'ALPHA_GRANTED'
   | 'ALPHA_ACTIVE'
   | 'ALPHA_PAUSED'
   | 'ALPHA_ENDED';
@@ -28,6 +31,7 @@ export type CloudNextAction =
   | 'REGISTER'
   | 'JOIN_WAITLIST'
   | 'WAIT_FOR_ALPHA'
+  | 'ENTER_ALPHA'
   | 'USE_BYOK'
   | 'SUPPORT_LITETAVERN';
 
@@ -52,8 +56,12 @@ export interface CloudStatus {
   on_waitlist: boolean;
   waitlist_joined_at: string | null;
   alpha_active: boolean;
+  alpha_granted: boolean;
+  alpha_granted_at: string | null;
+  alpha_activated_at: string | null;
   alpha_batch_id: string | null;
   alpha_grant_source: string | null;
+  alpha_status_reason: string | null;
   founding_supporter: boolean;
   quota: CloudQuota;
   support: { enabled: boolean; url: string; headline: string; body: string };
@@ -143,6 +151,38 @@ export async function joinAlphaWaitlist(
   return response;
 }
 
+/**
+ * Enters Alpha. The server decides whether the caller is allowed to — this only
+ * reports the result, and a client that has been suspended gets a plain error back
+ * rather than a usable session.
+ */
+export async function activateAlpha(): Promise<{
+  activated: boolean;
+  already_active: boolean;
+  cloud: CloudStatus;
+}> {
+  const response = await api<{
+    activated: boolean;
+    already_active: boolean;
+    cloud: CloudStatus;
+  }>('/v1/cloud/alpha/activate', { method: 'POST' });
+  cacheStatus(response.cloud);
+  return response;
+}
+
+export async function submitAlphaFeedback(input: {
+  title: string;
+  detail?: string;
+}): Promise<void> {
+  await api('/v1/cloud/alpha/feedback', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: input.title,
+      ...(input.detail ? { detail: input.detail } : {})
+    })
+  });
+}
+
 export interface SupportInfo {
   enabled: boolean;
   url: string;
@@ -219,17 +259,25 @@ export function membershipNotice(status: CloudStatus | null): string | null {
         ? '正在使用 LiteTavern Cloud 提供的试用额度'
         : 'LiteTavern Cloud 试用额度已用完。注册后可加入 Alpha 候补名单，或切换到自己的模型服务继续聊天。';
     case 'REGISTERED_WAITLIST':
+      // No queue position is shown: it moves as people join, leave and are released,
+      // so a number here would be a promise the program cannot keep.
       return status.founding_supporter
-        ? '感谢你成为 LiteTavern 的早期支持者。你将在下一批 LiteTavern Cloud Alpha 开放时获得优先资格。'
-        : '已加入 LiteTavern Cloud Alpha 候补名单。获得资格后即可使用平台额度和云服务。';
+        ? '已加入 LiteTavern Cloud Alpha 候补名单。感谢你成为 LiteTavern 的早期支持者——你在候补排序中会被优先考虑，但支持本身不等于购买资格，我们也无法承诺确切的开放日期。'
+        : '已加入 LiteTavern Cloud Alpha 候补名单。名额有限，我们会按候补顺序逐批开放，暂时无法承诺确切的开放日期。';
+    case 'ALPHA_GRANTED':
+      return '你已获得 LiteTavern Cloud Alpha 资格，还没有开始使用。进入 Alpha 后即可使用平台额度和云服务。';
     case 'ALPHA_ACTIVE':
       return `LiteTavern Cloud Alpha · 本期额度剩余 ${Math.round(
         status.quota.remaining_ratio * 100
       )}%`;
     case 'ALPHA_PAUSED':
-      return 'LiteTavern Cloud Alpha 访问已暂停。你可以切换到自己的模型服务继续聊天。';
+      return status.alpha_status_reason
+        ? `LiteTavern Cloud Alpha 访问已暂停：${status.alpha_status_reason}。你可以切换到自己的模型服务继续聊天。`
+        : 'LiteTavern Cloud Alpha 访问已暂停。你可以切换到自己的模型服务继续聊天。';
     case 'ALPHA_ENDED':
-      return '本轮 LiteTavern Cloud Alpha 已结束。你可以切换到自己的模型服务继续聊天。';
+      return status.alpha_status_reason
+        ? `本轮 LiteTavern Cloud Alpha 已结束：${status.alpha_status_reason}。你可以切换到自己的模型服务继续聊天。`
+        : '本轮 LiteTavern Cloud Alpha 已结束。你可以切换到自己的模型服务继续聊天。';
     default:
       return null;
   }

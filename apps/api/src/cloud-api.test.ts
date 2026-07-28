@@ -240,6 +240,116 @@ describe('cloud status', () => {
 describe('cloud admin', () => {
   const adminHeaders = { 'x-litetavern-admin-token': ADMIN_TOKEN };
 
+  it('refuses every Alpha capacity route to a caller without the admin token', async () => {
+    const { app, database, cookie } = await setup();
+    const user = await register(app, database, cookie, 'nosy@example.com');
+    // A logged-in ordinary user's cookie is not an operator credential.
+    const userHeaders = { cookie: user.cookie };
+
+    const routes: { method: 'GET' | 'POST'; url: string }[] = [
+      { method: 'GET', url: '/v1/cloud/admin/alpha/overview' },
+      { method: 'GET', url: '/v1/cloud/admin/alpha/readiness' },
+      { method: 'GET', url: '/v1/cloud/admin/alpha/audit' },
+      { method: 'POST', url: '/v1/cloud/admin/alpha/readiness/confirm' },
+      { method: 'POST', url: '/v1/cloud/admin/alpha/batch-2/unlock' }
+    ];
+
+    for (const route of routes) {
+      const anonymous = await app.inject({ method: route.method, url: route.url });
+      expect(anonymous.statusCode, `${route.url} without credentials`).toBe(401);
+      const asUser = await app.inject({
+        method: route.method,
+        url: route.url,
+        headers: userHeaders
+      });
+      expect(asUser.statusCode, `${route.url} as ordinary user`).toBe(401);
+      // A wrong token is rejected the same way as none at all.
+      const wrongToken = await app.inject({
+        method: route.method,
+        url: route.url,
+        headers: { 'x-litetavern-admin-token': 'not-the-token' }
+      });
+      expect(wrongToken.statusCode, `${route.url} with a wrong token`).toBe(401);
+    }
+
+    // And none of it changed the plan.
+    const plan = await database.query<{ released_capacity: number }>(
+      `SELECT released_capacity FROM alpha_program_plan WHERE plan_key = 'v0.1.0'`
+    );
+    expect(Number(plan.rows[0]?.released_capacity)).toBe(10);
+  });
+
+  it('serves the operator console from the closed API, and only when configured', async () => {
+    // The console lives here rather than in the open web client. A browser cannot send
+    // the admin header on a navigation, so the shell is gated on the token being
+    // configured at all — it ships no data of its own.
+    const { app } = await setup();
+    const console_ = await app.inject({
+      method: 'GET',
+      url: '/v1/cloud/admin/alpha/console'
+    });
+    expect(console_.statusCode).toBe(200);
+    expect(console_.headers['content-type']).toContain('text/html');
+    expect(console_.headers['cache-control']).toBe('no-store');
+    expect(console_.body).toContain('LiteTavern Cloud Alpha 名额管理');
+
+    // With no CLOUD_ADMIN_TOKEN the whole administrative surface is absent.
+    const { app: bare } = await setup({ adminToken: '' });
+    const absent = await bare.inject({
+      method: 'GET',
+      url: '/v1/cloud/admin/alpha/console'
+    });
+    expect(absent.statusCode).toBe(404);
+  });
+
+  it('rejects an unlock with a readable list of unmet conditions', async () => {
+    const { app } = await setup();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/cloud/admin/alpha/batch-2/unlock',
+      headers: { 'x-litetavern-admin-token': ADMIN_TOKEN }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe('ALPHA_UNLOCK_CONDITIONS_UNMET');
+    const readiness = response.json().readiness;
+    expect(readiness.can_unlock).toBe(false);
+    // Every failing check names its current value, requirement and reason.
+    const failing = readiness.checks.filter(
+      (check: { passed: boolean }) => !check.passed
+    );
+    expect(failing.length).toBeGreaterThan(0);
+    for (const check of failing) {
+      expect(check.reason).toBeTruthy();
+      expect(check.evidence).toBeTruthy();
+      expect(check).toHaveProperty('required');
+    }
+    expect(readiness.blocking_reasons.length).toBe(failing.length);
+  });
+
+  it('refuses Alpha-only routes to a user who holds no seat', async () => {
+    const { app, database, cookie } = await setup();
+    const user = await register(app, database, cookie, 'outsider@example.com');
+
+    const activate = await app.inject({
+      method: 'POST',
+      url: '/v1/cloud/alpha/activate',
+      headers: { cookie: user.cookie }
+    });
+    expect(activate.statusCode).toBe(403);
+    expect(activate.json().error.code).toBe('ALPHA_NOT_GRANTED');
+
+    // Feedback counts towards the release gate, so it is seat-holders only.
+    const feedback = await app.inject({
+      method: 'POST',
+      url: '/v1/cloud/alpha/feedback',
+      headers: { cookie: user.cookie },
+      payload: { title: '想提个建议' }
+    });
+    expect(feedback.statusCode).toBe(403);
+  });
+
   it('hides the admin surface entirely when no token is configured', async () => {
     const { app } = await setup({ adminToken: '' });
 
@@ -300,6 +410,31 @@ describe('cloud admin', () => {
     });
     expect(release.json().release.granted).toEqual([registration.userId]);
 
+    // A released seat is held, not yet used: the user is ALPHA_GRANTED, has no Alpha
+    // cycle, and the honest next step offered to them is entering Alpha.
+    const granted = await app.inject({
+      method: 'GET',
+      url: '/v1/cloud/status',
+      headers: { cookie: registration.cookie }
+    });
+    expect(granted.json().cloud).toMatchObject({
+      membership_status: 'ALPHA_GRANTED',
+      alpha_granted: true,
+      alpha_active: false,
+      alpha_batch_id: batchId,
+      alpha_grant_source: 'WAITLIST'
+    });
+    expect(granted.json().cloud.quota.source).not.toBe('ALPHA');
+    expect(granted.json().cloud.next_actions).toContain('ENTER_ALPHA');
+
+    const activate = await app.inject({
+      method: 'POST',
+      url: '/v1/cloud/alpha/activate',
+      headers: { cookie: registration.cookie }
+    });
+    expect(activate.statusCode).toBe(201);
+    expect(activate.json().activated).toBe(true);
+
     const status = await app.inject({
       method: 'GET',
       url: '/v1/cloud/status',
@@ -313,6 +448,15 @@ describe('cloud admin', () => {
       quota: { source: 'ALPHA', total: 120, available: 120, remaining_ratio: 1 }
     });
     expect(status.json().cloud.quota.cycle_ends_at).toBeTruthy();
+
+    // Entering twice must not open a second cycle or move activated_at.
+    const replay = await app.inject({
+      method: 'POST',
+      url: '/v1/cloud/alpha/activate',
+      headers: { cookie: registration.cookie }
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().already_active).toBe(true);
   });
 
   it('spends Alpha allowance on a platform reply and reports the remaining ratio', async () => {
@@ -333,6 +477,11 @@ describe('cloud admin', () => {
       url: `/v1/cloud/admin/batches/${batch.json().batch.batch_id}/release`,
       headers: adminHeaders,
       payload: { count: 1 }
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/cloud/alpha/activate',
+      headers: { cookie: registration.cookie }
     });
 
     const characterId = await insertTestCharacter(database);

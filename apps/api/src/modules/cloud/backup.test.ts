@@ -7,7 +7,12 @@ import { createDatabase, type PomChatDatabase } from '@pomchat/database';
 import { runBackup, runRestore, verifyBackup } from './backup.js';
 import { loadCloudConfig } from './config.js';
 import { createBatch, releaseUsers } from './batches.js';
-import { ensureMembership, joinWaitlist, readBatchPolicy } from './membership.js';
+import {
+  activateAlpha,
+  ensureMembership,
+  joinWaitlist,
+  readBatchPolicy
+} from './membership.js';
 import { finalizeQuota, reserveQuota } from './quota.js';
 import { initializeFreeQuota } from '../free-quota.js';
 
@@ -44,6 +49,7 @@ async function seed(dataDir: string): Promise<{
   });
 
   const policy = await readBatchPolicy(database, batch.batch_id, cloud.defaultAlphaPolicy);
+  await activateAlpha(database, { userId, policy });
   const context = {
     userId,
     membershipStatus: 'ALPHA_ACTIVE' as const,

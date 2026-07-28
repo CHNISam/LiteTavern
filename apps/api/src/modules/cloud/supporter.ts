@@ -52,6 +52,15 @@ export async function markFoundingSupporter(
   );
 
   if (inserted.rows[0]) {
+    // Mirror the flag onto the membership row so the waitlist ordering and the
+    // operator view read one column instead of joining on every query. The
+    // founding_supporter table stays the source of truth.
+    await database.query(
+      `UPDATE cloud_membership
+       SET supporter_priority = TRUE, updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1`,
+      [input.userId]
+    );
     await recordCloudEvent(database, 'founding_supporter_marked', {
       userId: input.userId,
       properties: { anonymous: input.anonymous ?? true }

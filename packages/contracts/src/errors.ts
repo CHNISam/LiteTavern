@@ -37,6 +37,11 @@ export const ERROR_CODES = [
   'CLOUD_BUDGET_EXHAUSTED',
   'REGISTRATION_REQUIRED',
   'BATCH_NOT_OPEN',
+  // Alpha capacity plan. Separate codes because the honest next step differs: the
+  // user has no seat, the program has no free seat, or wave 2 is not yet earned.
+  'ALPHA_NOT_GRANTED',
+  'ALPHA_CAPACITY_EXHAUSTED',
+  'ALPHA_UNLOCK_CONDITIONS_UNMET',
   'PROVIDER_REQUEST_INVALID',
   'PROVIDER_SAFETY_REJECTED',
   'PROVIDER_RATE_LIMITED',

@@ -3,6 +3,7 @@ import { CloudOff, Gift, HeartHandshake, KeyRound, LoaderCircle, X } from 'lucid
 import {
   ALPHA_DISCLAIMER,
   EXPORT_PATH,
+  activateAlpha,
   fetchSupportInfo,
   joinAlphaWaitlist,
   membershipNotice,
@@ -82,12 +83,33 @@ export function CloudPanel({
     }
   }
 
+  async function enterAlpha() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await activateAlpha();
+      onStatusChanged(result.cloud);
+      analytics.criticalAction('alpha_activated', 'model_config', {
+        result: result.activated ? 'success' : 'already'
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '操作失败，请稍后重试。');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const notice = membershipNotice(status);
   const quota = status?.quota;
   const showJoin =
     status?.registered === true &&
     status.membership_status === 'REGISTERED_WAITLIST' &&
     !status.waitlist_joined_at;
+  // Entitlement comes from the server's membership status, never from local state.
+  const showEnterAlpha = status?.membership_status === 'ALPHA_GRANTED';
+  const suspended =
+    status?.membership_status === 'ALPHA_PAUSED' ||
+    status?.membership_status === 'ALPHA_ENDED';
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -116,7 +138,26 @@ export function CloudPanel({
             </p>
           )}
 
-          {notice && <p className="cloud-notice">{notice}</p>}
+          {notice && (
+            <p className="cloud-notice" role={suspended ? 'alert' : undefined}>
+              {notice}
+            </p>
+          )}
+
+          {status?.on_waitlist && status.waitlist_joined_at && (
+            <small className="cloud-waitlist-meta">
+              申请时间：
+              {new Date(status.waitlist_joined_at).toLocaleString('zh-CN')}
+            </small>
+          )}
+
+          {status?.membership_status === 'ALPHA_GRANTED' &&
+            status.alpha_granted_at && (
+              <small className="cloud-waitlist-meta">
+                获得资格时间：
+                {new Date(status.alpha_granted_at).toLocaleString('zh-CN')}
+              </small>
+            )}
 
           {quota && quota.source !== 'NONE' && (
             <div className="cloud-quota">
@@ -169,6 +210,15 @@ export function CloudPanel({
             {showJoin && (
               <button className="gold-button" disabled={busy} onClick={() => void join()}>
                 {busy ? <LoaderCircle className="spin" size={16} /> : '加入 Alpha 候补名单'}
+              </button>
+            )}
+            {showEnterAlpha && (
+              <button
+                className="gold-button"
+                disabled={busy}
+                onClick={() => void enterAlpha()}
+              >
+                {busy ? <LoaderCircle className="spin" size={16} /> : '进入 Alpha 并开始使用'}
               </button>
             )}
             <button className="secondary-button" onClick={onProvider}>
