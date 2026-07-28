@@ -71,14 +71,24 @@ function supportQrImgSrc(): Plugin {
   };
 }
 
-// Cloudflare Pages reads `_redirects`; GitHub Pages serves `404.html`. Shipping
-// both static-host fallbacks keeps `/support` refreshable without adding a server.
+export function shouldWriteGithubPagesFallback(target: string | undefined): boolean {
+  return target === 'github-pages';
+}
+
+// Cloudflare Pages treats a build without 404.html as an SPA and reads `_redirects`.
+// GitHub Pages needs an index copy named 404.html, so only create it for an
+// explicitly targeted GitHub Pages build.
 function githubPagesFallback(): Plugin {
   return {
     name: 'github-pages-spa-fallback',
     apply: 'build',
     async writeBundle(options) {
-      if (!options.dir) return;
+      if (
+        !options.dir ||
+        !shouldWriteGithubPagesFallback(process.env.VITE_DEPLOY_TARGET)
+      ) {
+        return;
+      }
       await copyFile(
         resolve(options.dir, 'index.html'),
         resolve(options.dir, '404.html')
