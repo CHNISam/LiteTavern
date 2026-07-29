@@ -122,13 +122,13 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
         className="login-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="登录并同步"
+        aria-label="注册或登录 LiteTavern Cloud 账号"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="login-header">
           <div>
-            <span className="eyebrow">登录并同步</span>
-            <h2>{step === 'email' ? '绑定邮箱，随时找回' : '输入验证码'}</h2>
+            <span className="eyebrow">LiteTavern Cloud 账号</span>
+            <h2>{step === 'email' ? '注册或登录' : '输入验证码'}</h2>
           </div>
           <button className="icon-button" aria-label="关闭" onClick={onClose}>
             <X size={20} />
@@ -138,7 +138,8 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
         {step === 'email' ? (
           <form className="login-body" onSubmit={requestCode}>
             <p className="login-lead">
-              绑定邮箱后，可以在其他设备继续使用，并在浏览器数据丢失时恢复角色、对话和记忆。
+              输入邮箱后，已有账号将直接登录；新邮箱验证后会创建云端账号并进入
+              LiteTavern Free，可同步角色、对话和记忆。Alpha 资格需要单独申请。
             </p>
             <label className="login-field">
               <span>邮箱</span>
@@ -193,7 +194,7 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
               type="submit"
               disabled={busy || code.trim().length !== 6}
             >
-              {busy ? <LoaderCircle className="spin" size={18} /> : '验证并同步'}
+              {busy ? <LoaderCircle className="spin" size={18} /> : '验证 LiteTavern Cloud 账号'}
             </button>
             <div className="login-secondary">
               <button

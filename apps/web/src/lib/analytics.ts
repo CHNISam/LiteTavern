@@ -14,7 +14,11 @@ export type AnalyticsEventName =
   | 'return_visit'
   | 'byok_selected'
   | 'support_entry_viewed'
-  | 'support_entry_clicked';
+  | 'support_entry_clicked'
+  // Founding Supporter claim funnel. These never carry contact details, amount
+  // or message text — only where the claim was started from.
+  | 'supporter_claim_opened'
+  | 'supporter_claim_submitted';
 
 export type AnalyticsPageName =
   | 'home'
@@ -486,6 +490,30 @@ export class AnalyticsClient {
       properties: {
         source: options.source,
         ...(options.method ? { method: options.method } : {}),
+        placement: options.placement,
+        is_authenticated: options.isAuthenticated
+      }
+    });
+  }
+
+  supporterClaimEvent(
+    eventName: 'supporter_claim_opened' | 'supporter_claim_submitted',
+    options: {
+      source: 'bilibili' | 'douyin' | 'github' | 'website' | 'other';
+      placement: 'footer' | 'about' | 'readme' | 'quota_prompt' | 'direct';
+      isAuthenticated: boolean;
+    }
+  ) {
+    if (!this.session || !this.initialized) return;
+    this.touch();
+    void this.emit({
+      event_id: createId(),
+      event_name: eventName,
+      session_id: this.session.sessionId,
+      occurred_at: new Date(this.now()).toISOString(),
+      page_name: 'support',
+      properties: {
+        source: options.source,
         placement: options.placement,
         is_authenticated: options.isAuthenticated
       }

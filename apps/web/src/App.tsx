@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowLeft, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download,
-  HeartHandshake, KeyRound, LoaderCircle, MessageCircle, Pencil, Plus, Send, Settings,
+  KeyRound, LoaderCircle, MessageCircle, Pencil, Plus, Send, Settings,
   Trash2, Upload, UserRound, Volume2, VolumeX
 } from 'lucide-react';
-import { CloudPanel } from './components/CloudPanel';
+import { AccountSyncPanel } from './components/CloudPanel';
 import { ProviderSettings } from './components/ProviderSettings';
+import { AppSettingsPanel } from './components/AppSettingsPanel';
 import { CharacterImport } from './components/CharacterImport';
 import { CharacterEditor } from './components/CharacterEditor';
 import { RelationshipImport } from './components/RelationshipImport';
@@ -38,7 +39,7 @@ import { copyText } from './lib/clipboard';
 import { createId } from './lib/id';
 import { TurnPlaybackController } from './lib/turn-playback';
 import { playClick, isMuted, setMuted } from './lib/sound';
-import { publicRouteForPath, siteHref } from './public-routing';
+import { publicRouteForPath } from './public-routing';
 
 type View = 'chat' | 'profile' | 'memories' | 'settings';
 
@@ -102,7 +103,11 @@ function ProductApp() {
   const [sending, setSending] = useState(false);
   const [view, setView] = useState<View>('chat');
   const [providerOpen, setProviderOpen] = useState(false);
+  const [providerInitialSection, setProviderInitialSection] =
+    useState<'overview' | 'platform' | 'byok'>('overview');
+  const [appSettingsOpen, setAppSettingsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [importCharacterId, setImportCharacterId] = useState<string | undefined>();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorCharacterId, setEditorCharacterId] = useState<string | undefined>();
   const [migrationOpen, setMigrationOpen] = useState(false);
@@ -111,14 +116,14 @@ function ProductApp() {
   const [usageMode, setUsageMode] = useState<'PLATFORM' | 'BYOK'>('PLATFORM');
   const [selectedConfigurationId, setSelectedConfigurationId] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [, setErrorCode] = useState<string | null>(null);
   const [freeQuotaRemaining, setFreeQuotaRemaining] = useState<number | null>(null);
   const [freeQuotaEnabled, setFreeQuotaEnabled] = useState(true);
   const [account, setAccount] = useState<AnonymousIdentity | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [cloud, setCloud] = useState<CloudStatus | null>(() => readCachedStatus());
   const [cloudOffline, setCloudOffline] = useState(false);
-  const [cloudOpen, setCloudOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [analyticsReady, setAnalyticsReady] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggesting, setSuggesting] = useState(false);
@@ -198,6 +203,7 @@ function ProductApp() {
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
+      suggestAbortRef.current?.abort();
       controller.interrupt();
     };
   }, []);
@@ -218,6 +224,7 @@ function ProductApp() {
     const created = await api<{ conversation_id: string }>('/v1/conversations', {
       method: 'POST', body: JSON.stringify({ character_id: character.character_id })
     });
+    conversationIdRef.current = created.conversation_id;
     setConversationId(created.conversation_id);
     if (trackSelection) {
       analytics.criticalAction('character_selected', 'home', {
@@ -245,6 +252,7 @@ function ProductApp() {
     setView('chat');
     setSuggestions([]);
     const cachedId = cachedConversationId(character.character_id);
+    conversationIdRef.current = cachedId;
     setConversationId(cachedId);
     setMessages(cachedId ? cachedMessages(cachedId) : []);
   }
@@ -430,7 +438,6 @@ function ProductApp() {
   }
 
   async function loadSuggestions(targetConversationId: string) {
-    // Cancel any in-flight suggestion request — only the latest conversation matters.
     suggestAbortRef.current?.abort();
     const controller = new AbortController();
     suggestAbortRef.current = controller;
@@ -439,13 +446,20 @@ function ProductApp() {
       const selector = await resolveModelSelector();
       const response = await api<{ suggestions: string[] }>(
         `/v1/conversations/${targetConversationId}/reply-suggestions`,
-        { method: 'POST', body: JSON.stringify(selector), signal: controller.signal }
+        {
+          method: 'POST',
+          body: JSON.stringify(selector),
+          signal: controller.signal
+        }
       );
       if (conversationIdRef.current === targetConversationId) {
         setSuggestions(response.suggestions.slice(0, 3));
       }
     } catch (reason) {
-      if ((reason as Error)?.name !== 'AbortError' && conversationIdRef.current === targetConversationId) {
+      if (
+        (reason as Error)?.name !== 'AbortError' &&
+        conversationIdRef.current === targetConversationId
+      ) {
         setSuggestions([]);
       }
     } finally {
@@ -456,9 +470,9 @@ function ProductApp() {
     }
   }
 
-  // Keep the playback controller's onDone able to reach the latest loadSuggestions
-  // closure (it captures the current usage mode / credentials).
-  useEffect(() => { loadSuggestionsRef.current = loadSuggestions; });
+  useEffect(() => {
+    loadSuggestionsRef.current = loadSuggestions;
+  });
 
   // `editOfMessageId` re-sends an earlier user message: that message and everything
   // after it leaves the active branch, and this turn continues from the new text.
@@ -547,6 +561,7 @@ function ProductApp() {
           current ? { ...current, quota: { ...current.quota, ...plan.cloud_quota } } : current
         );
       }
+      setSuggestions((plan.suggestions ?? []).slice(0, 3));
       return plan.messages;
     });
   }
@@ -556,21 +571,25 @@ function ProductApp() {
     void submit(draft);
   }
 
-  function openProviderSettings() {
+  function openProviderSettings(
+    initialSection: 'overview' | 'platform' | 'byok' = 'overview'
+  ) {
     analytics.criticalAction('provider_config_started', analyticsPage, {
       ...(active ? { characterId: active.character_id } : {}),
       ...(conversationId ? { conversationId } : {}),
       result: 'attempted'
     });
+    setProviderInitialSection(initialSection);
     setProviderOpen(true);
   }
 
-  function openCharacterImport() {
+  function openCharacterImport(characterId?: string) {
     analytics.criticalAction('character_import_started', analyticsPage, {
       ...(active ? { characterId: active.character_id } : {}),
       ...(conversationId ? { conversationId } : {}),
       result: 'attempted'
     });
+    setImportCharacterId(characterId);
     setImportOpen(true);
   }
 
@@ -624,9 +643,7 @@ function ProductApp() {
       active={active}
       tone={view === 'chat' ? 'dark' : 'light'}
       onSelect={(character) => void openCharacter(character, 'chat', true)}
-      onImport={openCharacterImport}
       onCreate={openCharacterCreate}
-      onMigrate={() => openRelationshipImport()}
     />
   );
 
@@ -638,10 +655,10 @@ function ProductApp() {
         muted={muted}
         onToggleMute={toggleMute}
         account={account}
-        cloud={cloud}
-        onLogin={openLogin}
-        onLogout={() => void onLogout()}
-        onCloud={() => setCloudOpen(true)}
+        syncError={cloudOffline}
+        onAccount={() => setAccountOpen(true)}
+        onProvider={() => openProviderSettings('overview')}
+        onSettings={() => setAppSettingsOpen(true)}
         {...(view === 'memories' && active ? { title: `与${active.name}的回忆` } : view === 'settings' ? { title: 'LiteTavern' } : {})}
       />
 
@@ -654,15 +671,11 @@ function ProductApp() {
         )}
         {view === 'chat' && contactRail}
         {!active ? (
-          <EmptyCharacter
-            onImport={openCharacterImport}
-            onCreate={openCharacterCreate}
-            onMigrate={() => openRelationshipImport()}
-          />
+          <EmptyCharacter />
         ) : view === 'chat' ? (
           <ChatPage
             character={active} messages={messages} draft={draft} sending={sending} error={error}
-            errorCode={errorCode} freeQuotaRemaining={freeQuotaRemaining} freeQuotaEnabled={freeQuotaEnabled}
+            freeQuotaRemaining={freeQuotaRemaining} freeQuotaEnabled={freeQuotaEnabled}
             cloud={cloud}
             usageMode={usageMode} configurations={configurations} selectedConfigurationId={selectedConfigurationId}
             suggestions={suggestions} suggesting={suggesting} typing={typing}
@@ -675,8 +688,8 @@ function ProductApp() {
               }
             }}
             onConfiguration={setSelectedConfigurationId}
-            onProvider={openProviderSettings}
-            onCloud={() => setCloudOpen(true)}
+            onProvider={() => openProviderSettings('byok')}
+            onPlatformQuota={() => openProviderSettings('platform')}
           />
         ) : view === 'profile' ? (
           <ProfilePage
@@ -696,14 +709,13 @@ function ProductApp() {
           <MemoryPage character={active} onBack={() => setView('profile')} onChat={() => setView('chat')} />
         ) : (
           <CharacterSettingsPage
-            character={active} configurations={configurations}
-            onBack={() => setView('profile')} onImport={openCharacterImport}
-            onMigrate={() => openRelationshipImport(active.character_id)}
+            character={active}
+            onBack={() => setView('profile')}
+            onImport={() => openCharacterImport(active.character_id)}
             onEdit={() => {
               setEditorCharacterId(active.character_id);
               setEditorOpen(true);
             }}
-            onProvider={openProviderSettings}
             onDelete={deleteActiveCharacter}
           />
         )}
@@ -712,6 +724,11 @@ function ProductApp() {
       <ProviderSettings
         open={providerOpen}
         onClose={() => setProviderOpen(false)}
+        cloud={cloud}
+        freeQuotaEnabled={freeQuotaEnabled}
+        usageMode={usageMode}
+        initialSection={providerInitialSection}
+        onUsageMode={setUsageMode}
         onConfigurationsChanged={(next) => {
           setConfigurations(next);
           if (!selectedConfigurationId && next[0]) setSelectedConfigurationId(next[0].model_configuration_id);
@@ -719,8 +736,11 @@ function ProductApp() {
       />
       <CharacterImport
         open={importOpen}
-        {...(active && view === 'settings' ? { replaceCharacterId: active.character_id } : {})}
-        onClose={() => setImportOpen(false)}
+        {...(importCharacterId ? { replaceCharacterId: importCharacterId } : {})}
+        onClose={() => {
+          setImportOpen(false);
+          setImportCharacterId(undefined);
+        }}
         onImported={() => refreshCharacters(true)}
       />
       <CharacterEditor
@@ -741,19 +761,26 @@ function ProductApp() {
         onClose={() => setLoginOpen(false)}
         onAuthenticated={(user) => void onAuthenticated(user)}
       />
-      <CloudPanel
-        open={cloudOpen}
+      <AppSettingsPanel
+        open={appSettingsOpen}
+        onClose={() => setAppSettingsOpen(false)}
+        onImport={() => openCharacterImport()}
+        onMigrate={() => openRelationshipImport(active?.character_id)}
+      />
+      <AccountSyncPanel
+        open={accountOpen}
         status={cloud}
         offline={cloudOffline}
-        onClose={() => setCloudOpen(false)}
+        account={account}
+        onClose={() => setAccountOpen(false)}
         onStatusChanged={setCloud}
         onLogin={() => {
-          setCloudOpen(false);
+          setAccountOpen(false);
           openLogin();
         }}
-        onProvider={() => {
-          setCloudOpen(false);
-          openProviderSettings();
+        onLogout={() => {
+          setAccountOpen(false);
+          void onLogout();
         }}
       />
     </main>
@@ -776,48 +803,42 @@ function SmsIcon({ size = 30 }: { size?: number }) {
   );
 }
 
-function TopChrome({ title, muted, onToggleMute, account, cloud, onLogin, onLogout, onCloud }: {
+function TopChrome({
+  title,
+  muted,
+  onToggleMute,
+  account,
+  syncError,
+  onAccount,
+  onProvider,
+  onSettings
+}: {
   title?: string; muted?: boolean; onToggleMute?: () => void;
-  account?: AnonymousIdentity | null; cloud?: CloudStatus | null;
-  onLogin?: () => void; onLogout?: () => void; onCloud?: () => void;
+  account?: AnonymousIdentity | null; syncError?: boolean;
+  onAccount: () => void; onProvider: () => void; onSettings: () => void;
 }) {
   const registered = account?.registered ?? account?.identity_type === 'EMAIL';
   return (
     <header className="top-chrome">
       <div className="sms-title"><SmsIcon size={30} /><span><strong>短信</strong>{title && <small>{title}</small>}</span></div>
       <div className="chrome-actions">
-        {/* Always reachable, including on the empty state — service status is not a
-            chat-only concern. */}
-        {onCloud && (
-          <button type="button" className="chrome-cloud" onClick={onCloud} aria-label="LiteTavern Cloud 状态">
-            {cloud
-              ? cloud.quota.source === 'ALPHA'
-                ? `Cloud Alpha ${Math.round(cloud.quota.remaining_ratio * 100)}%`
-                : cloud.quota.source === 'TRIAL'
-                  ? `Cloud 试用 ${cloud.quota.available} 次`
-                  : 'LiteTavern Cloud'
-              : 'LiteTavern Cloud'}
-          </button>
-        )}
-        <a
-          className="chrome-support"
-          href={siteHref('/support?source=website&placement=direct')}
+        <button type="button" className="chrome-nav" onClick={onProvider} aria-label="模型服务">
+          <KeyRound size={16} /><span className="chrome-action-label">模型服务</span>
+        </button>
+        <button type="button" className="chrome-nav" onClick={onSettings} aria-label="设置">
+          <Settings size={16} /><span className="chrome-action-label">设置</span>
+        </button>
+        <button
+          type="button"
+          className={registered ? 'account-chip account-entry' : 'chrome-login account-entry'}
+          onClick={onAccount}
+          aria-label={registered ? '管理账号与同步' : '登录'}
+          title={registered ? account?.email ?? undefined : undefined}
         >
-          支持 LiteTavern
-        </a>
-        {account && (
-          registered ? (
-            <div className="account-chip" title={account.email ?? undefined}>
-              <UserRound size={15} />
-              <span className="account-email">{account.email}</span>
-              <button type="button" className="account-logout" onClick={onLogout}>退出</button>
-            </div>
-          ) : (
-            <button type="button" className="chrome-login" onClick={onLogin} aria-label="登录并同步">
-              <UserRound size={16} /> 登录并同步
-            </button>
-          )
-        )}
+          <UserRound size={16} />
+          <span className="account-email">{registered ? account?.email || '账号' : '登录'}</span>
+          {syncError && <span className="sync-warning">同步异常</span>}
+        </button>
         {onToggleMute && (
           <button className="chrome-mute" onClick={onToggleMute} aria-label={muted ? '开启音效' : '关闭音效'} aria-pressed={muted}>
             {muted ? <VolumeX size={22} /> : <Volume2 size={22} />}
@@ -828,10 +849,9 @@ function TopChrome({ title, muted, onToggleMute, account, cloud, onLogin, onLogo
   );
 }
 
-function ContactRail({ characters, active, tone, onSelect, onImport, onCreate, onMigrate }: {
+function ContactRail({ characters, active, tone, onSelect, onCreate }: {
   characters: Character[]; active: Character | null; tone: 'dark' | 'light';
-  onSelect: (character: Character) => void; onImport: () => void; onCreate: () => void;
-  onMigrate: () => void;
+  onSelect: (character: Character) => void; onCreate: () => void;
 }) {
   return (
     <aside className={`contact-rail rail-${tone}`}>
@@ -843,28 +863,21 @@ function ContactRail({ characters, active, tone, onSelect, onImport, onCreate, o
             <ChevronRight size={24} />
           </button>
         ))}
-        {!characters.length && <div className="empty-contacts"><MessageCircle size={28} /><strong>还没有联系人</strong><span>先导入你已准备并有权使用的流萤角色卡</span></div>}
+        {!characters.length && <div className="empty-contacts"><MessageCircle size={28} /><strong>还没有联系人</strong><span>从下方新建角色；角色卡可从顶部设置导入</span></div>}
       </div>
       <div className="rail-actions">
         <button className="rail-action" onClick={onCreate}><Plus size={21} /> 新建角色</button>
-        <button className="rail-action" onClick={onImport}><Upload size={21} /> 导入角色卡</button>
-        <button className="rail-action" onClick={onMigrate}><HeartHandshake size={21} /> 迁移角色关系</button>
       </div>
     </aside>
   );
 }
 
-function EmptyCharacter({ onImport, onCreate, onMigrate }: { onImport: () => void; onCreate: () => void; onMigrate: () => void }) {
+function EmptyCharacter() {
   return (
     <section className="main-paper empty-paper">
       <MessageCircle size={42} />
       <h1>等待第一条短信</h1>
-      <p>这里不会预置或杜撰角色。你可以创建自己的角色，也可以导入已准备并有权使用的角色卡。</p>
-      <div className="empty-actions">
-        <button className="gold-button" onClick={onCreate}><Plus size={19} /> 创建角色</button>
-        <button className="secondary-button" aria-label="导入流萤角色卡" onClick={onImport}><Upload size={19} /> 导入角色卡</button>
-        <button className="secondary-button" onClick={onMigrate}><HeartHandshake size={19} /> 迁移角色关系</button>
-      </div>
+      <p>从左侧“新建角色”开始；已有角色卡可在“设置 → 数据导入与迁移”中导入。</p>
     </section>
   );
 }
@@ -938,16 +951,16 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   );
 }
 
-function ChatPage({ character, messages, draft, sending, error, errorCode, freeQuotaRemaining, freeQuotaEnabled, cloud, usageMode, configurations, selectedConfigurationId, suggestions, suggesting, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider, onCloud }: {
+function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaining, freeQuotaEnabled, cloud, usageMode, configurations, selectedConfigurationId, suggestions, suggesting, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider, onPlatformQuota }: {
   character: Character; messages: Message[]; draft: string; sending: boolean; error: string | null;
-  errorCode: string | null; freeQuotaRemaining: number | null; freeQuotaEnabled: boolean;
+  freeQuotaRemaining: number | null; freeQuotaEnabled: boolean;
   cloud: CloudStatus | null;
   usageMode: 'PLATFORM' | 'BYOK'; configurations: ModelConfiguration[]; selectedConfigurationId: string;
   suggestions: string[]; suggesting: boolean; typing: boolean;
   onProfile: () => void; onDraft: (value: string) => void; onSend: (event: FormEvent) => void; onPick: (text: string) => void;
   onEditSubmit: (messageId: string, text: string) => void;
   onUsageMode: (mode: 'PLATFORM' | 'BYOK') => void; onConfiguration: (id: string) => void; onProvider: () => void;
-  onCloud: () => void;
+  onPlatformQuota: () => void;
 }) {
   const lastLine = [...messages].reverse().find((message) => message.role === 'ASSISTANT' && message.content_text.trim())?.content_text
     || character.first_message || character.profile_summary || '角色档案';
@@ -959,16 +972,8 @@ function ChatPage({ character, messages, draft, sending, error, errorCode, freeQ
     : freeQuotaRemaining === 0;
   const officialBlocked =
     usageMode === 'PLATFORM' && (!freeQuotaEnabled || platformExhausted);
-  const quotaMessage =
-    usageMode === 'PLATFORM' && !freeQuotaEnabled
-      ? 'LiteTavern Cloud 平台模型当前已关闭。你可以切换到自己的模型服务继续聊天。'
-      : usageMode === 'PLATFORM' && platformExhausted
-        ? cloud?.membership_status === 'ALPHA_ACTIVE'
-          ? '本期 LiteTavern Cloud Alpha 额度已用完。你可以切换到自己的模型服务继续聊天。'
-          : cloud?.registered
-            ? '试用额度已用完。你已在 LiteTavern Cloud Alpha 候补名单中，获得资格后即可使用平台额度。也可以切换到自己的模型服务继续聊天。'
-            : '试用额度已用完。注册后可加入 LiteTavern Cloud Alpha 候补名单，或切换到自己的模型服务继续聊天。'
-        : null;
+  const noAvailableModel =
+    (!freeQuotaEnabled || platformExhausted) && configurations.length === 0;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1067,24 +1072,17 @@ function ChatPage({ character, messages, draft, sending, error, errorCode, freeQ
         )}
       </div>
       <footer className="reply-area">
-        {quotaMessage && error !== quotaMessage && (
+        {noAvailableModel && (
           <div className="quota-notice" role="status">
-            <span><CircleAlert size={16} />{quotaMessage}</span>
-            <button type="button" onClick={onProvider}>配置自己的模型服务</button>
-            <button type="button" onClick={onCloud}>查看 LiteTavern Cloud</button>
-            <a href={siteHref('/support?source=website&placement=quota_prompt')}>
-              自愿支持 LiteTavern
-            </a>
+            <span>
+              <CircleAlert size={16} />
+              当前没有可用模型。请配置自己的模型，或查看 LiteTavern 提供的模型额度。
+            </span>
+            <div className="quota-notice-actions">
+              <button type="button" onClick={onProvider}>配置自己的模型</button>
+              <button type="button" onClick={onPlatformQuota}>查看平台额度</button>
+            </div>
           </div>
-        )}
-        {(errorCode === 'FREE_QUOTA_EXHAUSTED' ||
-          errorCode === 'CLOUD_QUOTA_EXHAUSTED' ||
-          errorCode === 'CLOUD_QUOTA_DAILY_LIMIT' ||
-          errorCode === 'CLOUD_BUDGET_EXHAUSTED' ||
-          errorCode === 'FREE_SERVICE_DISABLED') && (
-          <button className="quota-config-link" type="button" onClick={onProvider}>
-            配置自己的模型服务
-          </button>
         )}
         {(suggestions.length > 0 || suggesting) && (
           <div className="reply-suggestions" role="group" aria-label="快捷回复">
@@ -1105,7 +1103,7 @@ function ChatPage({ character, messages, draft, sending, error, errorCode, freeQ
             onClick={() => onUsageMode('PLATFORM')}
             title={quotaLabel(cloud)}
           >
-            LiteTavern Cloud
+            平台额度
           </button>
           <button className={usageMode === 'BYOK' ? 'active' : ''} onClick={() => configurations.length ? onUsageMode('BYOK') : onProvider()}>自带模型</button>
           {usageMode === 'BYOK' && configurations.length > 0 && (
@@ -1251,8 +1249,8 @@ function SettingRow({ icon, title, description, value, onClick, href, disabled =
   return <button className="setting-row" onClick={onClick} disabled={disabled}>{content}</button>;
 }
 
-function CharacterSettingsPage({ character, configurations, onBack, onImport, onMigrate, onEdit, onProvider, onDelete }: {
-  character: Character; configurations: ModelConfiguration[]; onBack: () => void; onImport: () => void; onMigrate: () => void; onEdit: () => void; onProvider: () => void; onDelete: () => Promise<void>;
+function CharacterSettingsPage({ character, onBack, onImport, onEdit, onDelete }: {
+  character: Character; onBack: () => void; onImport: () => void; onEdit: () => void; onDelete: () => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -1285,13 +1283,8 @@ function CharacterSettingsPage({ character, configurations, onBack, onImport, on
             <label>角色数据</label>
             <section>
               <SettingRow icon={<Pencil />} title="编辑角色设定" description="修改名称、头像、描述与高级角色字段" onClick={onEdit} />
-              <SettingRow icon={<Upload />} title="导入角色卡" description="从本地文件更新角色设定与对话数据" onClick={onImport} />
+              <SettingRow icon={<Upload />} title="用角色卡更新设定" description="从本地文件更新当前角色的设定与对话数据" onClick={onImport} />
               <SettingRow icon={<Download />} title="导出角色卡" description="将当前角色卡按原始格式导出" href={`/v1/characters/${character.character_id}/export`} />
-              <SettingRow icon={<HeartHandshake />} title="迁移角色关系" description="把其他平台整理好的关系、资料与记忆导入这个角色" onClick={onMigrate} />
-            </section>
-            <label>模型配置</label>
-            <section>
-              <SettingRow icon={<KeyRound />} title="模型选择" description="选择该角色使用的对话模型" value={configurations[0]?.display_name || 'LiteTavern Cloud 额度'} onClick={onProvider} />
             </section>
             {character.is_owned && (
               <>

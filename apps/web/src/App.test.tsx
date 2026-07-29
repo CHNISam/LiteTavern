@@ -67,6 +67,73 @@ function cloudStatus(
 }
 
 describe('HSR message shell', () => {
+  it('loads quick replies from the Cloud suggestion endpoint for an existing chat', async () => {
+    const requested: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      requested.push(path);
+      if (path === '/v1/cloud/status') return json(cloudStatus());
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/identities/anonymous') {
+        return json({
+          user: {
+            user_id: 'user-1',
+            anonymous_id: 'anonymous-1',
+            identity_type: 'ANONYMOUS',
+            free_quota_remaining: 30,
+            free_quota_enabled: true
+          }
+        });
+      }
+      if (path === '/v1/analytics/events') {
+        return json({ accepted: 1, duplicates: 0 }, 202);
+      }
+      if (path === '/v1/characters') {
+        return json({
+          characters: [{
+            character_id: 'firefly-card',
+            name: '流萤',
+            profile_summary: '星核猎手成员',
+            personality_summary: '温柔而坚定',
+            first_message: '',
+            avatar_seed: '流萤',
+            is_owned: true,
+            last_message: null
+          }]
+        });
+      }
+      if (path === '/v1/model-configurations') {
+        return json({ configurations: [] });
+      }
+      if (path === '/v1/conversations') {
+        return json({ conversation_id: 'conversation-1' }, 201);
+      }
+      if (path === '/v1/conversations/conversation-1/messages') {
+        return json({
+          messages: [{
+            message_id: 'message-1',
+            role: 'ASSISTANT',
+            content_text: '要一起出发吗？',
+            status: 'COMPLETED'
+          }]
+        });
+      }
+      if (path === '/v1/conversations/conversation-1/reply-suggestions') {
+        return json({ suggestions: ['当然，一起走吧'] });
+      }
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole('button', { name: '当然，一起走吧' })
+    ).toBeInTheDocument();
+    expect(requested).toContain(
+      '/v1/conversations/conversation-1/reply-suggestions'
+    );
+  });
+
   it('shows the LiteTavern Cloud trial balance and updates it after a reply', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
@@ -111,12 +178,12 @@ describe('HSR message shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('Cloud 试用 30 次')).toBeInTheDocument();
+    expect(await screen.findByTitle('试用额度剩余 30 次')).toBeInTheDocument();
     const composer = screen.getByPlaceholderText('给流萤发送短信…');
     fireEvent.change(composer, { target: { value: '你好' } });
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
 
-    expect(await screen.findByText('Cloud 试用 29 次')).toBeInTheDocument();
+    expect(await screen.findByTitle('试用额度剩余 29 次')).toBeInTheDocument();
   });
 
   it('points an anonymous visitor at registration and BYOK when the trial is spent', async () => {
@@ -158,10 +225,11 @@ describe('HSR message shell', () => {
 
     expect(
       await screen.findByText(
-        '试用额度已用完。注册后可加入 LiteTavern Cloud Alpha 候补名单，或切换到自己的模型服务继续聊天。'
+        '当前没有可用模型。请配置自己的模型，或查看 LiteTavern 提供的模型额度。'
       )
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '配置自己的模型服务' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '配置自己的模型' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看平台额度' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
   });
 
@@ -211,7 +279,7 @@ describe('HSR message shell', () => {
     expect(
       await screen.findByText('官方免费服务暂时繁忙，请稍后再试。本次不会扣除免费次数。')
     ).toBeInTheDocument();
-    expect(screen.getByText('Cloud 试用 30 次')).toBeInTheDocument();
+    expect(screen.getByTitle('试用额度剩余 30 次')).toBeInTheDocument();
   });
 
   it('shows a clear BYOK path when the platform model channel is disabled', async () => {
@@ -247,14 +315,15 @@ describe('HSR message shell', () => {
 
     expect(
       await screen.findByText(
-        'LiteTavern Cloud 平台模型当前已关闭。你可以切换到自己的模型服务继续聊天。'
+        '当前没有可用模型。请配置自己的模型，或查看 LiteTavern 提供的模型额度。'
       )
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '配置自己的模型服务' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '配置自己的模型' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看平台额度' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
   });
 
-  it('shows the Alpha cycle as a percentage, not a token count', async () => {
+  it('shows the exact Alpha daily balance and 08:00 reset without upstream units', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
       if (path === '/v1/cloud/status') {
@@ -270,12 +339,21 @@ describe('HSR message shell', () => {
             },
             {
               source: 'ALPHA',
-              total: 300,
-              available: 204,
-              remaining_ratio: 0.68
+              total: 20,
+              available: 14,
+              remaining_ratio: 0.7
             }
           )
         );
+      }
+      if (path === '/v1/cloud/support') {
+        return json({
+          support: {
+            enabled: false, url: '', headline: '', body: '',
+            thanks_list_enabled: false, supporter_count: 0,
+            confirmation: 'MANUAL', thanks: []
+          }
+        });
       }
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') {
@@ -299,7 +377,10 @@ describe('HSR message shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('Cloud Alpha 68%')).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: '模型服务' }));
+    const panel = await screen.findByRole('dialog', { name: '模型服务' });
+    expect(within(panel).getByText('今日平台回复：剩余 14 / 20')).toBeInTheDocument();
+    expect(within(panel).getByText('每天 08:00 恢复')).toBeInTheDocument();
     // A raw token count is never shown to an ordinary user.
     expect(screen.queryByText(/token/i)).not.toBeInTheDocument();
   });
@@ -350,8 +431,8 @@ describe('HSR message shell', () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'LiteTavern Cloud 状态' }));
-    const panel = await screen.findByRole('dialog', { name: 'LiteTavern Cloud' });
+    fireEvent.click(await screen.findByRole('button', { name: '管理账号与同步' }));
+    const panel = await screen.findByRole('dialog', { name: '账号与同步' });
     expect(
       within(panel).getByText(
         '已加入 LiteTavern Cloud Alpha 候补名单。名额有限，我们会按候补顺序逐批开放，暂时无法承诺确切的开放日期。'
@@ -364,7 +445,7 @@ describe('HSR message shell', () => {
     expect(within(panel).queryByText(/排名/)).not.toBeInTheDocument();
     // A waitlisted user is not offered the Alpha entry point.
     expect(
-      within(panel).queryByRole('button', { name: /进入 Alpha/ })
+      within(panel).queryByRole('button', { name: /开始使用 Alpha/ })
     ).not.toBeInTheDocument();
     // The stage disclaimer is always present, and no plan or price is invented.
     expect(within(panel).getByText(/仍处于测试阶段/)).toBeInTheDocument();
@@ -425,15 +506,15 @@ describe('HSR message shell', () => {
     );
 
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: 'LiteTavern Cloud 状态' }));
-    const panel = await screen.findByRole('dialog', { name: 'LiteTavern Cloud' });
+    fireEvent.click(await screen.findByRole('button', { name: '管理账号与同步' }));
+    const panel = await screen.findByRole('dialog', { name: '账号与同步' });
 
     expect(
       within(panel).getByText(/你已获得 LiteTavern Cloud Alpha 资格，还没有开始使用/)
     ).toBeInTheDocument();
     expect(within(panel).getByText(/获得资格时间：/)).toBeInTheDocument();
     expect(
-      within(panel).getByRole('button', { name: '进入 Alpha 并开始使用' })
+      within(panel).getByRole('button', { name: '开始使用 Alpha 资格' })
     ).toBeInTheDocument();
   });
 
@@ -450,19 +531,17 @@ describe('HSR message shell', () => {
     );
 
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: 'LiteTavern Cloud 状态' }));
-    const panel = await screen.findByRole('dialog', { name: 'LiteTavern Cloud' });
+    fireEvent.click(await screen.findByRole('button', { name: '管理账号与同步' }));
+    const panel = await screen.findByRole('dialog', { name: '账号与同步' });
 
     const notice = within(panel).getByRole('alert');
     expect(notice).toHaveTextContent('访问已暂停：疑似异常调用');
     // A suspended user is not offered any Alpha-only entry point.
     expect(
-      within(panel).queryByRole('button', { name: /进入 Alpha/ })
+      within(panel).queryByRole('button', { name: /开始使用 Alpha/ })
     ).not.toBeInTheDocument();
-    // Their own model service still is: the product keeps working without the seat.
-    expect(
-      within(panel).getByRole('button', { name: /使用自己的模型服务/ })
-    ).toBeInTheDocument();
+    // Model service remains an independent top-level entry.
+    expect(screen.getByRole('button', { name: '模型服务' })).toBeInTheDocument();
   });
 
   it('falls back to the cached contact list when LiteTavern Cloud is unreachable', async () => {
@@ -484,6 +563,7 @@ describe('HSR message shell', () => {
     render(<App />);
 
     expect(await screen.findByText(/LiteTavern Cloud 暂时不可用/)).toBeInTheDocument();
+    expect(screen.getByText('同步异常')).toBeInTheDocument();
     // The character survives the outage, and nothing claims the data is gone.
     expect(screen.getAllByText('流萤').length).toBeGreaterThan(0);
     expect(screen.queryByText(/数据.*丢失[^。]/)).not.toBeInTheDocument();
@@ -500,7 +580,8 @@ describe('HSR message shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('button', { name: '导入流萤角色卡' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '新建角色' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '导入角色卡' })).not.toBeInTheDocument();
     expect(screen.queryByText('林雾')).not.toBeInTheDocument();
     expect(screen.queryByText('祁安')).not.toBeInTheDocument();
     expect(screen.queryByText('阿澄')).not.toBeInTheDocument();
@@ -533,8 +614,14 @@ describe('HSR message shell', () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '登录并同步' }));
-    expect(await screen.findByRole('dialog', { name: '登录并同步' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: '登录' }));
+    const accountPanel = await screen.findByRole('dialog', { name: '账号与同步' });
+    fireEvent.click(
+      within(accountPanel).getByRole('button', { name: '注册 LiteTavern Cloud 账号' })
+    );
+    expect(
+      await screen.findByRole('dialog', { name: '注册或登录 LiteTavern Cloud 账号' })
+    ).toBeInTheDocument();
     expect(criticalAction).toHaveBeenCalledWith(
       'login_started',
       'home',
@@ -567,8 +654,9 @@ describe('HSR message shell', () => {
     await waitFor(() => {
       expect(screen.getByText('角色设置', { selector: '.detail-title' })).toBeInTheDocument();
     });
-    expect(screen.getAllByText('导入角色卡').length).toBeGreaterThan(0);
-    expect(screen.getByText('模型选择')).toBeInTheDocument();
+    expect(screen.getByText('用角色卡更新设定')).toBeInTheDocument();
+    expect(screen.queryByText('模型选择')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '模型服务' })).toBeInTheDocument();
   });
 
   it('deletes the active character from settings and falls back to the empty state', async () => {
@@ -609,7 +697,7 @@ describe('HSR message shell', () => {
     await waitFor(() => {
       expect(requests.some((r) => r.path === '/v1/characters/firefly-card' && r.method === 'DELETE')).toBe(true);
     });
-    expect(await screen.findByRole('button', { name: '导入流萤角色卡' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '新建角色' })).toBeInTheDocument();
   });
 
   it('copies a sent message and edits it into a new multi-bubble turn', async () => {

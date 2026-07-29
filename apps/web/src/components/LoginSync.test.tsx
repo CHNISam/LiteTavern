@@ -68,7 +68,7 @@ describe('LoginSync', () => {
     await goToCodeStep();
 
     fireEvent.change(screen.getByPlaceholderText('______'), { target: { value: '123456' } });
-    fireEvent.click(screen.getByRole('button', { name: '验证并同步' }));
+    fireEvent.click(screen.getByRole('button', { name: '验证 LiteTavern Cloud 账号' }));
 
     await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith(registeredUser, 'REGISTERED'));
   });
@@ -89,7 +89,7 @@ describe('LoginSync', () => {
     render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} />);
     await goToCodeStep();
     fireEvent.change(screen.getByPlaceholderText('______'), { target: { value: '000000' } });
-    fireEvent.click(screen.getByRole('button', { name: '验证并同步' }));
+    fireEvent.click(screen.getByRole('button', { name: '验证 LiteTavern Cloud 账号' }));
 
     expect(await screen.findByText('验证码不正确，请重新输入。')).toBeInTheDocument();
   });

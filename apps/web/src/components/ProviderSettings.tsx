@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Check, ChevronLeft, ExternalLink, KeyRound, LoaderCircle, Plus, Trash2, X } from 'lucide-react';
 import { api, type ModelConfiguration, type Provider } from '../lib/api';
+import { quotaLabel, type CloudStatus } from '../lib/cloud';
 import { credentialStore, type CredentialSummary } from '../lib/credential-store';
 import { createId } from '../lib/id';
 
@@ -8,9 +9,23 @@ interface ProviderSettingsProps {
   open: boolean;
   onClose: () => void;
   onConfigurationsChanged: (configurations: ModelConfiguration[]) => void;
+  cloud?: CloudStatus | null;
+  freeQuotaEnabled?: boolean;
+  usageMode?: 'PLATFORM' | 'BYOK';
+  initialSection?: 'overview' | 'platform' | 'byok';
+  onUsageMode?: (mode: 'PLATFORM' | 'BYOK') => void;
 }
 
-export function ProviderSettings({ open, onClose, onConfigurationsChanged }: ProviderSettingsProps) {
+export function ProviderSettings({
+  open,
+  onClose,
+  onConfigurationsChanged,
+  cloud = null,
+  freeQuotaEnabled = true,
+  usageMode = 'PLATFORM',
+  initialSection = 'overview',
+  onUsageMode
+}: ProviderSettingsProps) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [configurations, setConfigurations] = useState<ModelConfiguration[]>([]);
   const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
@@ -21,17 +36,34 @@ export function ProviderSettings({ open, onClose, onConfigurationsChanged }: Pro
   const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   async function refresh() {
-    const [providerResponse, configurationResponse, localCredentials] = await Promise.all([
-      api<{ providers: Provider[] }>('/v1/providers'),
-      api<{ configurations: ModelConfiguration[] }>('/v1/model-configurations'),
-      credentialStore.list()
-    ]);
-    setProviders(providerResponse.providers);
-    setConfigurations(configurationResponse.configurations);
-    setCredentials(localCredentials);
-    onConfigurationsChanged(configurationResponse.configurations);
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [providerResponse, configurationResponse, localCredentials] = await Promise.all([
+        api<{ providers: Provider[] }>('/v1/providers'),
+        api<{ configurations: ModelConfiguration[] }>('/v1/model-configurations'),
+        credentialStore.list()
+      ]);
+      if (providerResponse.providers.length === 0) {
+        throw new Error('服务商目录为空，请检查 LiteTavern Cloud 配置。');
+      }
+      setProviders(providerResponse.providers);
+      setConfigurations(configurationResponse.configurations);
+      setCredentials(localCredentials);
+      onConfigurationsChanged(configurationResponse.configurations);
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? `无法加载服务商：${error.message}`
+          : '无法加载服务商，请稍后重试。'
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -126,11 +158,11 @@ export function ProviderSettings({ open, onClose, onConfigurationsChanged }: Pro
   if (!open) return null;
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="settings-panel" role="dialog" aria-modal="true" aria-label="模型与 API Key" onMouseDown={(event) => event.stopPropagation()}>
+      <section className="settings-panel" role="dialog" aria-modal="true" aria-label="模型服务" onMouseDown={(event) => event.stopPropagation()}>
         <header className="settings-header">
           <div>
-            <span className="eyebrow">模型连接</span>
-            <h2>{selected ? selected.name : '选择服务商'}</h2>
+            <span className="eyebrow">模型服务</span>
+            <h2>{selected ? selected.name : '管理平台额度与自带模型'}</h2>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="关闭"><X size={19} /></button>
         </header>
@@ -150,11 +182,72 @@ export function ProviderSettings({ open, onClose, onConfigurationsChanged }: Pro
           </form>
         ) : (
           <div className="provider-content">
+            <section className="model-service-overview" aria-label="模型服务状态">
+              <article className={initialSection === 'platform' ? 'is-focused' : ''}>
+                <span>平台模型</span>
+                <h3>LiteTavern 提供的平台模型额度</h3>
+                <strong>
+                  {freeQuotaEnabled && cloud?.platform_models_available !== false
+                    ? quotaLabel(cloud)
+                    : '当前不可用'}
+                </strong>
+                {cloud?.quota.source === 'ALPHA' && (
+                  <small>每天 08:00 恢复</small>
+                )}
+                <button
+                  type="button"
+                  disabled={
+                    !freeQuotaEnabled ||
+                    cloud?.platform_models_available === false ||
+                    cloud?.quota.source === 'NONE' ||
+                    cloud?.quota.available === 0
+                  }
+                  aria-pressed={usageMode === 'PLATFORM'}
+                  onClick={() => onUsageMode?.('PLATFORM')}
+                >
+                  {usageMode === 'PLATFORM' ? '当前使用平台额度' : '使用平台额度'}
+                </button>
+              </article>
+              <article className={initialSection === 'byok' ? 'is-focused' : ''}>
+                <span>独立接入</span>
+                <h3>用户自带模型 API</h3>
+                <dl>
+                  <dt>当前 Provider</dt>
+                  <dd>{configurations[0]?.display_name || '未配置'}</dd>
+                </dl>
+                {configurations.length > 0 && (
+                  <button
+                    type="button"
+                    aria-pressed={usageMode === 'BYOK'}
+                    onClick={() => onUsageMode?.('BYOK')}
+                  >
+                    {usageMode === 'BYOK' ? '当前使用自带模型' : '使用自带模型'}
+                  </button>
+                )}
+              </article>
+            </section>
+            {loading ? (
+              <div className="provider-empty-state" role="status">
+                <LoaderCircle className="spin" size={24} />
+                <strong>正在加载服务商…</strong>
+              </div>
+            ) : loadError ? (
+              <div className="provider-empty-state provider-load-error" role="alert">
+                <strong>{loadError}</strong>
+                <span>API Key 不受影响，仍只保存在当前浏览器。</span>
+                <button className="secondary-button" type="button" onClick={() => void refresh()}>
+                  重新加载
+                </button>
+              </div>
+            ) : (
+              <>
             {configurations.length > 0 && <section><h3>已连接</h3><div className="connected-list">{configurations.map((configuration) => {
               const local = credentials.find((item) => item.credentialId === configuration.credential_id);
               return <article className="connected-card" key={configuration.model_configuration_id}><div><strong>{configuration.display_name}</strong><span>{configuration.model_name}</span><small>{local?.maskedKey ?? '本浏览器未找到 Key'}</small></div><div className="row-actions"><button onClick={() => void replaceKey(configuration)}>更换 Key</button><button className="danger-icon" aria-label="删除配置" onClick={() => void remove(configuration)}><Trash2 size={16} /></button></div></article>;
             })}</div></section>}
             {([['CN', '国内服务商'], ['GLOBAL', '国际服务商'], ['LOCAL', '本地模型'], ['CUSTOM', '自定义厂商']] as const).map(([region, title]) => <section key={region}><h3>{title}</h3><div className="provider-grid">{grouped[region].map((provider) => <button className="provider-card" key={provider.id} onClick={() => choose(provider)}><span className="provider-mark">{provider.shortName.slice(0, 1)}</span><span><strong>{provider.shortName}</strong><small>{provider.id === 'custom-openai' ? '任意 OpenAI-compatible 服务' : provider.baseUrl.replace(/^https?:\/\//, '')}</small></span><Plus size={17} /></button>)}</div></section>)}
+              </>
+            )}
           </div>
         )}
       </section>

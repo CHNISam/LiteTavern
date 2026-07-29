@@ -5,4 +5,5 @@ interface ImportMetaEnv {
   readonly VITE_SUPPORT_AFDIAN_URL?: string;
   readonly VITE_SUPPORT_BILIBILI_URL?: string;
   readonly VITE_SUPPORT_DOUYIN_URL?: string;
+  readonly VITE_GITHUB_URL?: string;
 }

@@ -241,9 +241,7 @@ export function quotaLabel(status: CloudStatus | null): string {
   if (!status) return 'LiteTavern Cloud';
   const { quota } = status;
   if (quota.source === 'ALPHA') {
-    return `LiteTavern Cloud Alpha · 本期额度剩余 ${Math.round(
-      quota.remaining_ratio * 100
-    )}%`;
+    return `今日平台回复：剩余 ${quota.available} / ${quota.total}`;
   }
   if (quota.source === 'TRIAL') {
     return `试用额度剩余 ${quota.available} 次`;
@@ -267,9 +265,7 @@ export function membershipNotice(status: CloudStatus | null): string | null {
     case 'ALPHA_GRANTED':
       return '你已获得 LiteTavern Cloud Alpha 资格，还没有开始使用。进入 Alpha 后即可使用平台额度和云服务。';
     case 'ALPHA_ACTIVE':
-      return `LiteTavern Cloud Alpha · 本期额度剩余 ${Math.round(
-        status.quota.remaining_ratio * 100
-      )}%`;
+      return `今日平台回复：剩余 ${status.quota.available} / ${status.quota.total}。每天 08:00 恢复。`;
     case 'ALPHA_PAUSED':
       return status.alpha_status_reason
         ? `LiteTavern Cloud Alpha 访问已暂停：${status.alpha_status_reason}。你可以切换到自己的模型服务继续聊天。`

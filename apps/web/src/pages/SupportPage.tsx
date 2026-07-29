@@ -1,17 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  ArrowLeft,
   ArrowUpRight,
-  Check,
+  Code2,
+  Globe,
+  Heart,
   HeartHandshake,
-  MessageCircle,
+  MessagesSquare,
   QrCode,
   Server,
-  Sparkles
+  ShieldCheck,
+  Sparkles,
+  Zap
 } from 'lucide-react';
+import { PublicHeader } from '../components/PublicHeader';
 import { SiteFooter } from '../components/SiteFooter';
+import { SupporterClaimDialog } from '../components/SupporterClaimDialog';
+import { SupportOrbit } from '../components/SupportOrbit';
 import { analytics } from '../lib/analytics';
 import { readCachedStatus } from '../lib/cloud';
+import { githubUrl as resolveGithubUrl } from '../lib/project-links';
+import { preferredPublicTheme, storePublicTheme, type PublicTheme } from '../lib/public-theme';
 import {
   normalizeSupportPlacement,
   normalizeSupportSource,
@@ -21,7 +29,6 @@ import {
   type SupportPlacement,
   type SupportSource
 } from '../lib/support-config';
-import { siteHref } from '../public-routing';
 
 interface SupportAttribution {
   source: SupportSource;
@@ -37,6 +44,8 @@ export interface SupportTracker {
   pageView: (attribution: SupportAttribution) => void;
   methodClick: (attribution: SupportMethodAttribution) => void;
   qrView: (attribution: SupportMethodAttribution) => void;
+  claimOpened: (attribution: SupportAttribution) => void;
+  claimSubmitted: (attribution: SupportAttribution) => void;
 }
 
 let publicAnalyticsInitialization: Promise<void> | null = null;
@@ -76,6 +85,22 @@ const defaultTracker: SupportTracker = {
         isAuthenticated: attribution.is_authenticated
       })
     );
+  },
+  claimOpened(attribution) {
+    void initializePublicAnalytics().then(() =>
+      analytics.supporterClaimEvent('supporter_claim_opened', {
+        ...attribution,
+        isAuthenticated: attribution.is_authenticated
+      })
+    );
+  },
+  claimSubmitted(attribution) {
+    void initializePublicAnalytics().then(() =>
+      analytics.supporterClaimEvent('supporter_claim_submitted', {
+        ...attribution,
+        isAuthenticated: attribution.is_authenticated
+      })
+    );
   }
 };
 
@@ -109,12 +134,72 @@ const sourceContent: Record<
   }
 };
 
+const supportUses = [
+  {
+    icon: Server,
+    title: '服务器与基础设施',
+    body: '让服务稳定在线，你随时打开都能用。'
+  },
+  {
+    icon: Zap,
+    title: '模型调用与体验优化',
+    body: '更充足的模型额度，更少的等待与限制。'
+  },
+  {
+    icon: Globe,
+    title: '域名及必要服务',
+    body: '域名、证书与 CDN，保证访问顺畅安全。'
+  },
+  {
+    icon: Code2,
+    title: '持续开发与维护',
+    body: '新功能、问题修复与长期维护投入。'
+  }
+] as const;
+
+const supportThanks = [
+  {
+    icon: Sparkles,
+    title: '把进展交回给你',
+    body: '每个版本的更新日志都会写清楚这段时间做了什么、改了什么。'
+  },
+  {
+    icon: MessagesSquare,
+    title: '优先听见你的声音',
+    body: '支持者提出的问题与建议，我们会优先阅读并回复。'
+  },
+  {
+    icon: Heart,
+    title: '记住每一份心意',
+    body: '愿意留名的支持者会出现在后续的致谢名单里，也可以选择匿名。'
+  }
+] as const;
+
+const supportNotes = [
+  {
+    icon: ShieldCheck,
+    title: '完全自愿',
+    body: '支持与否完全由你决定，我们感谢每一份心意。'
+  },
+  {
+    icon: Sparkles,
+    title: '不影响使用',
+    body: '不支持也可以完整使用开源部分的所有功能。'
+  },
+  {
+    icon: HeartHandshake,
+    title: '用于项目发展',
+    body: '你的支持会用于项目的持续开发与维护。'
+  }
+] as const;
+
 interface SupportPageProps {
   source?: string | null;
   placement?: string | null;
   config?: SupportConfig;
   tracker?: SupportTracker;
   isAuthenticated?: boolean;
+  githubUrl?: string;
 }
 
 function platformUrl(config: SupportConfig, method?: 'bilibili' | 'douyin') {
@@ -128,7 +213,8 @@ export function SupportPage({
   placement: placementValue,
   config = supportConfig(),
   tracker = defaultTracker,
-  isAuthenticated = readCachedStatus()?.registered ?? false
+  isAuthenticated = readCachedStatus()?.registered ?? false,
+  githubUrl = resolveGithubUrl()
 }: SupportPageProps) {
   const source = normalizeSupportSource(sourceValue);
   const placement = normalizeSupportPlacement(
@@ -136,6 +222,8 @@ export function SupportPage({
   );
   const [qrFailed, setQrFailed] = useState(false);
   const [amount, setAmount] = useState('');
+  const [theme, setTheme] = useState<PublicTheme>(preferredPublicTheme);
+  const [claimOpen, setClaimOpen] = useState(false);
   const pageTracked = useRef(false);
   const qrTracked = useRef(false);
   const content = sourceContent[source];
@@ -175,33 +263,43 @@ export function SupportPage({
     tracker.qrView({ ...commonAttribution, method: 'wechat' });
   }
 
+  function openClaim() {
+    setClaimOpen(true);
+    tracker.claimOpened(commonAttribution);
+  }
+
+  function changeTheme(next: PublicTheme) {
+    setTheme(next);
+    storePublicTheme(next);
+  }
+
   const showQr = Boolean(config.wechatQrUrl) && !qrFailed;
 
   return (
-    <main className="public-page support-page">
+    <main className="public-page support-page" data-public-theme={theme}>
       <div className="public-glow public-glow-warm" />
       <div className="public-glow public-glow-cool" />
-      <header className="public-header">
-        <a className="public-brand" href={siteHref('/')}>
-          <MessageCircle size={22} />
-          <span>LiteTavern</span>
-        </a>
-        <a className="public-header-link" href={siteHref('/')}>
-          <ArrowLeft size={15} /> 返回 LiteTavern
-        </a>
-      </header>
+
+      <PublicHeader githubUrl={githubUrl} theme={theme} onThemeChange={changeTheme} />
 
       <div className="support-shell">
         <section className="support-hero">
-          <p className="public-eyebrow">VOLUNTARY SUPPORT</p>
-          <h1>支持 LiteTavern 持续开发</h1>
-          <p>
-            LiteTavern 的开源部分可以免费使用。
-          </p>
-          <p>
-            自愿支持将用于服务器、模型调用、域名及项目开发成本。支持完全自愿，
-            不影响任何已有功能，也不代表购买套餐、投资或获得收益承诺。
-          </p>
+          <div className="support-hero-copy">
+            <p className="public-eyebrow">VOLUNTARY SUPPORT</p>
+            <h1>
+              支持 <span className="hero-mark">LiteTavern</span> 持续开发
+            </h1>
+            <p>LiteTavern 是一个开源、免费的 AI 客户端与 Web 工具。</p>
+            <p>
+              你的每一份支持，都会变成更稳定的服务、更快的更新，
+              以及更多值得期待的可能性。
+            </p>
+            <p className="support-pledge">
+              <Heart size={16} />
+              支持不会消失在账单里，它会变成下一个版本里看得见的改进。
+            </p>
+          </div>
+          <SupportOrbit />
         </section>
 
         <section className="source-notice" aria-labelledby="source-title">
@@ -223,126 +321,195 @@ export function SupportPage({
           )}
         </section>
 
-        <div className="support-methods">
-          <section className="support-card support-card-primary" aria-labelledby="wechat-title">
-            <div className="support-card-heading">
-              <span className="support-icon"><QrCode size={20} /></span>
-              <div>
-                <p className="support-kicker">一次性支持</p>
-                <h2 id="wechat-title">使用微信扫码支持</h2>
-              </div>
-            </div>
-
-            {showQr ? (
-              <a
-                className="wechat-qr"
-                href={config.wechatQrUrl!}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="在新窗口打开微信二维码"
-                onClick={() => trackMethod('wechat')}
-              >
-                <img
-                  src={config.wechatQrUrl!}
-                  alt="微信收款二维码"
-                  onLoad={trackQrView}
-                  onError={() => setQrFailed(true)}
-                />
-              </a>
-            ) : (
-              <div className="support-unavailable" role="status">
-                <QrCode size={28} />
-                <strong>微信支持入口暂未开放</strong>
-                <span>配置完成后将在这里显示二维码。</span>
-              </div>
-            )}
-
-            <div className="amount-fieldset">
-              <span>建议金额</span>
-              <div className="amount-options" aria-label="建议支持金额">
-                {[5, 10, 20].map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    aria-pressed={amount === String(suggestion)}
-                    onClick={() => setAmount(String(suggestion))}
-                  >
-                    ¥{suggestion}
-                  </button>
-                ))}
-              </div>
-              <label>
-                <span>自定义支持金额</span>
-                <span className="custom-amount">
-                  <b>¥</b>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    inputMode="numeric"
-                    aria-label="自定义支持金额"
-                    placeholder="其他金额"
-                    value={amount}
-                    onChange={(event) => setAmount(event.target.value)}
-                  />
+        <section className="support-section" aria-labelledby="uses-title">
+          <h2 className="support-section-title" id="uses-title">
+            你的支持将用于
+          </h2>
+          <div className="support-grid support-grid-4">
+            {supportUses.map(({ icon: Icon, title, body }) => (
+              <article className="support-tile" key={title}>
+                <span className="support-icon">
+                  <Icon size={20} />
                 </span>
-              </label>
-              <small>金额仅供参考，请在微信支付页中确认；页面不会记录金额。</small>
-            </div>
+                <h3>{title}</h3>
+                <p>{body}</p>
+              </article>
+            ))}
+          </div>
+        </section>
 
-            <p className="support-voluntary">
-              <Check size={15} /> 完全自愿，不影响功能使用。
-            </p>
-          </section>
-
-          <section className="support-card" aria-labelledby="afdian-title">
-            <div className="support-card-heading">
-              <span className="support-icon"><HeartHandshake size={20} /></span>
-              <div>
-                <p className="support-kicker">持续支持</p>
-                <h2 id="afdian-title">通过爱发电支持</h2>
+        <section className="support-section" aria-labelledby="methods-title">
+          <h2 className="support-section-title" id="methods-title">
+            支持方式
+          </h2>
+          <div className="support-methods">
+            <section className="support-card support-card-primary" aria-labelledby="wechat-title">
+              <div className="support-card-heading">
+                <span className="support-icon">
+                  <QrCode size={20} />
+                </span>
+                <div>
+                  <p className="support-kicker">一次性支持</p>
+                  <h3 className="support-card-title" id="wechat-title">使用微信扫码支持</h3>
+                </div>
               </div>
-            </div>
-            <p className="support-card-copy">
-              适合希望按月或长期支持 LiteTavern 的用户。
-            </p>
-            {config.afdianUrl ? (
-              <a
-                className="support-button support-button-primary"
-                href={config.afdianUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackMethod('afdian')}
-              >
-                通过爱发电持续支持 <ArrowUpRight size={16} />
-              </a>
-            ) : (
-              <p className="support-inline-unavailable">爱发电支持入口暂未开放</p>
-            )}
-            <div className="support-divider" />
-            <h3>资金用途</h3>
-            <ul className="support-uses">
-              <li><Server size={15} />服务器与基础设施</li>
-              <li><Sparkles size={15} />模型调用与体验额度</li>
-              <li><MessageCircle size={15} />域名及必要服务</li>
-              <li><HeartHandshake size={15} />持续开发与维护</li>
-            </ul>
-          </section>
-        </div>
 
-        <section className="support-notes" aria-labelledby="notes-title">
-          <h2 id="notes-title">支持说明</h2>
-          <ul>
-            <li>支持完全自愿，不支持也不影响正常使用。</li>
-            <li>一次性支持不等于购买 Pro 套餐。</li>
-            <li>不承诺投资、分红或任何收益。</li>
-            <li>支持者身份与未来可能存在的套餐身份相互独立。</li>
-            <li>Founding Supporter 等身份本次不会自动授予，后续将另行设计。</li>
-          </ul>
+              {showQr ? (
+                <a
+                  className="wechat-qr"
+                  href={config.wechatQrUrl!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="在新窗口打开微信二维码"
+                  onClick={() => trackMethod('wechat')}
+                >
+                  <img
+                    src={config.wechatQrUrl!}
+                    alt="微信收款二维码"
+                    onLoad={trackQrView}
+                    onError={() => setQrFailed(true)}
+                  />
+                </a>
+              ) : (
+                <div className="support-unavailable" role="status">
+                  <QrCode size={28} />
+                  <strong>微信支持入口暂未开放</strong>
+                  <span>配置完成后将在这里显示二维码。</span>
+                </div>
+              )}
+
+              <div className="amount-fieldset">
+                <span>建议金额</span>
+                <div className="amount-options" aria-label="建议支持金额">
+                  {[5, 10, 20].map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      aria-pressed={amount === String(suggestion)}
+                      onClick={() => setAmount(String(suggestion))}
+                    >
+                      ¥{suggestion}
+                    </button>
+                  ))}
+                </div>
+                <label>
+                  <span>自定义支持金额</span>
+                  <span className="custom-amount">
+                    <b>¥</b>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputMode="numeric"
+                      aria-label="自定义支持金额"
+                      placeholder="其他金额"
+                      value={amount}
+                      onChange={(event) => setAmount(event.target.value)}
+                    />
+                  </span>
+                </label>
+                <small>金额仅供参考，请在微信支付页中确认；页面不会记录金额。</small>
+              </div>
+
+              <button type="button" className="claim-entry" onClick={openClaim}>
+                已经支持？认领 Founding Supporter 身份
+              </button>
+            </section>
+
+            <section className="support-card" aria-labelledby="afdian-title">
+              <div className="support-card-heading">
+                <span className="support-icon">
+                  <HeartHandshake size={20} />
+                </span>
+                <div>
+                  <p className="support-kicker">持续支持</p>
+                  <h3 className="support-card-title" id="afdian-title">通过爱发电支持</h3>
+                </div>
+              </div>
+              <p className="support-card-copy">
+                适合希望按月或长期支持 LiteTavern 的用户，也让我们更容易规划下一步。
+              </p>
+              {config.afdianUrl ? (
+                <a
+                  className="support-button support-button-primary"
+                  href={config.afdianUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => trackMethod('afdian')}
+                >
+                  通过爱发电持续支持 <ArrowUpRight size={16} />
+                </a>
+              ) : (
+                <p className="support-inline-unavailable">爱发电支持入口暂未开放</p>
+              )}
+              <div className="support-divider" />
+              <h4 className="support-card-subtitle">为什么选择持续支持</h4>
+              <ul className="support-uses">
+                <li>
+                  <Server size={15} />让服务器与额度有稳定的预期
+                </li>
+                <li>
+                  <Zap size={15} />优先投入到体验优化上
+                </li>
+                <li>
+                  <HeartHandshake size={15} />随时可以调整或取消
+                </li>
+              </ul>
+            </section>
+          </div>
+        </section>
+
+        <section className="support-section" aria-labelledby="thanks-title">
+          <h2 className="support-section-title" id="thanks-title">
+            我们怎么感谢你
+          </h2>
+          <div className="support-grid support-grid-3">
+            {supportThanks.map(({ icon: Icon, title, body }) => (
+              <article className="support-tile" key={title}>
+                <span className="support-icon">
+                  <Icon size={20} />
+                </span>
+                <h3>{title}</h3>
+                <p>{body}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="support-section" aria-labelledby="notes-title">
+          <h2 className="support-section-title" id="notes-title">
+            支持说明
+          </h2>
+          <div className="support-notes">
+            <ul>
+              {supportNotes.map(({ icon: Icon, title, body }) => (
+                <li key={title}>
+                  <span className="support-note-icon">
+                    <Icon size={17} />
+                  </span>
+                  <div>
+                    <strong>{title}</strong>
+                    <span>{body}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <p className="support-fineprint">
+              一次性支持不等于购买 Pro 套餐，也不承诺投资、分红或任何收益。
+              支持者身份与未来可能存在的套餐身份相互独立；Founding Supporter
+              等身份本次不会自动授予，后续将另行设计。
+            </p>
+          </div>
         </section>
       </div>
 
       <SiteFooter />
+
+      <SupporterClaimDialog
+        open={claimOpen}
+        onClose={() => setClaimOpen(false)}
+        onSubmitted={() => tracker.claimSubmitted(commonAttribution)}
+      />
     </main>
   );
 }

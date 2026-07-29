@@ -153,6 +153,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 export interface TurnPlan {
   turn_id: string;
   messages: string[];
+  suggestions?: string[];
   free_quota_remaining?: number;
   /** Present for platform-paid turns: which pool paid and what is left of it. */
   cloud_quota?: {
