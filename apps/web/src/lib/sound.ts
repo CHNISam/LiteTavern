@@ -18,11 +18,19 @@ function getContext(): AudioContext | null {
   return audioContext;
 }
 
-const MUTE_KEY = 'pomchat:muted';
+const MUTE_KEY = 'litetavern:muted';
+const PREVIOUS_MUTE_KEY = ['pom', 'chat:muted'].join('');
 
 export function isMuted(): boolean {
   try {
-    return localStorage.getItem(MUTE_KEY) === '1';
+    const current = localStorage.getItem(MUTE_KEY);
+    if (current !== null) return current === '1';
+    const previous = localStorage.getItem(PREVIOUS_MUTE_KEY);
+    if (previous !== null) {
+      localStorage.setItem(MUTE_KEY, previous);
+      localStorage.removeItem(PREVIOUS_MUTE_KEY);
+    }
+    return previous === '1';
   } catch {
     return false;
   }

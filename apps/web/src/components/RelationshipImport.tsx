@@ -361,7 +361,7 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
                   aria-label="粘贴迁移 JSON"
                   rows={10}
                   value={rawText}
-                  placeholder='{"schema_version": "pomchat_relationship_import_v1", ...}'
+                  placeholder='{"schema_version": "litetavern_relationship_import_v1", ...}'
                   onChange={(event) => { setRawText(event.target.value); setFileName(null); }}
                 />
               </label>

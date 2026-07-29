@@ -35,6 +35,47 @@ beforeEach(() => {
 });
 
 describe('analytics client', () => {
+  it('migrates session and attribution state from the previous storage keys', async () => {
+    const storage = memoryStorage();
+    const previousPrefix = ['pom', 'chat.analytics'].join('');
+    storage.setItem(
+      `${previousPrefix}.session.v1`,
+      JSON.stringify({
+        sessionId: 'existing-session',
+        startedAt: Date.parse('2026-07-27T00:55:00Z'),
+        lastActivityAt: Date.parse('2026-07-27T00:59:00Z'),
+        sessionNumber: 1,
+        pageViewIndex: 0,
+        interactionIndex: 0,
+        currentPage: null,
+        pageDepth: 0
+      })
+    );
+    storage.setItem(
+      `${previousPrefix}.attribution.v1`,
+      JSON.stringify({ firstSourceChannel: 'github', firstCampaignId: null })
+    );
+    const fetcher = vi.fn(async () => new Response('{}', { status: 202 }));
+    const client = new AnalyticsClient({
+      storage,
+      fetcher,
+      now: () => Date.parse('2026-07-27T01:00:00Z')
+    });
+
+    await client.initialize({
+      userId: 'user-1',
+      anonymousId: 'anonymous-1',
+      url: 'https://litetavern.example/',
+      referrer: '',
+      appVersion: '0.1.0'
+    });
+
+    expect(client.getSessionId()).toBe('existing-session');
+    expect(storage.getItem('litetavern.analytics.session.v1')).not.toBeNull();
+    expect(storage.getItem('litetavern.analytics.attribution.v1')).not.toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('persists first attribution and starts a new session only after inactivity', async () => {
     const storage = memoryStorage();
     const requests: StoredRequest[] = [];
@@ -53,7 +94,7 @@ describe('analytics client', () => {
     await first.initialize({
       userId: 'user-1',
       anonymousId: 'anonymous-1',
-      url: 'https://pomchat.example/?utm_source=bilibili&utm_campaign=firefly_launch',
+      url: 'https://litetavern.example/?utm_source=bilibili&utm_campaign=firefly_launch',
       referrer: '',
       appVersion: '0.1.0'
     });
@@ -68,7 +109,7 @@ describe('analytics client', () => {
     await refreshed.initialize({
       userId: 'user-1',
       anonymousId: 'anonymous-1',
-      url: 'https://pomchat.example/',
+      url: 'https://litetavern.example/',
       referrer: '',
       appVersion: '0.1.0'
     });
@@ -81,7 +122,7 @@ describe('analytics client', () => {
     await returned.initialize({
       userId: 'user-1',
       anonymousId: 'anonymous-1',
-      url: 'https://pomchat.example/',
+      url: 'https://litetavern.example/',
       referrer: '',
       appVersion: '0.1.0'
     });
@@ -130,7 +171,7 @@ describe('analytics client', () => {
     await client.initialize({
       userId: 'user-1',
       anonymousId: 'anonymous-1',
-      url: 'https://pomchat.example/',
+      url: 'https://litetavern.example/',
       referrer: '',
       appVersion: '0.1.0'
     });

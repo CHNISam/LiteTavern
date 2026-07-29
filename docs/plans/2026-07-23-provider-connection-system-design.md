@@ -1,4 +1,4 @@
-# PomChat Provider Connection System 重构设计
+# LiteTavern Provider Connection System 重构设计
 
 > 日期：2026-07-23
 > 状态：设计完成，尚未开始生产代码改造
@@ -6,7 +6,7 @@
 
 ## Clarified Goal
 
-将 PomChat 当前固定的“Provider + API Key + Base URL + Model ID”接入方式，逐步迁移为以 `Provider → AuthMethod → Connection → RuntimeAdapter` 为核心的本机连接系统。
+将 LiteTavern 当前固定的“Provider + API Key + Base URL + Model ID”接入方式，逐步迁移为以 `Provider → AuthMethod → Connection → RuntimeAdapter` 为核心的本机连接系统。
 
 普通用户优先看到“使用已有账号”“使用本机已登录服务”“使用本地模型”等低门槛选项；API Key、自定义地址和模型 ID 保留为高级方式。模型请求必须通过具体 `connectionId` 路由，敏感凭证只存在于执行请求的本机可信运行时。
 
@@ -32,7 +32,7 @@
 
 - 云端托管、同步或备份用户凭证。
 - 跨设备凭证同步。
-- PomChat 正式账号体系。
+- LiteTavern 正式账号体系。
 - 电脑关闭后的后台持续运行。
 - 一次性实现全部 Provider 和全部 AuthMethod。
 - Provider 插件市场或运行时动态加载第三方代码。
@@ -42,11 +42,11 @@
 
 1. 本机 Fastify 进程是首期可信运行时；浏览器只负责展示和发起连接，不再长期持有 Secret。
 2. Secret 不进入 PGlite、HTTP 响应、日志、错误、埋点、URL、命令行参数或浏览器持久化存储。
-3. CredentialStore 不得静默回退到明文文件。操作系统安全存储不可用时，相关 AuthMethod 应显示不可用，并允许 CLI/local 等无 PomChat Secret 的方式继续工作。
+3. CredentialStore 不得静默回退到明文文件。操作系统安全存储不可用时，相关 AuthMethod 应显示不可用，并允许 CLI/local 等无 LiteTavern Secret 的方式继续工作。
 4. Provider、AuthMethod 和 RuntimeAdapter 是不同维度。OAuth Token、Setup Token、API Key 和 CLI Profile 不可互换。
 5. `usage_mode` 暂时保留用于平台额度与用户连接的账本隔离，但不再承担 RuntimeAdapter 路由职责。
 6. 继续使用模块化单体，不引入独立认证服务、消息队列或云端凭证服务。
-7. 首期安全假设为“单个操作系统用户启动自己的 PomChat 本机运行时”；不扩展为多租户主机。
+7. 首期安全假设为“单个操作系统用户启动自己的 LiteTavern 本机运行时”；不扩展为多租户主机。
 8. 当前数据库只有一段 `CREATE TABLE IF NOT EXISTS` SQL，没有版本化迁移能力。改变表结构前必须先建立迁移版本机制。
 
 ## Verified Provider Constraints
@@ -57,7 +57,7 @@ OpenAI 官方文档明确区分 ChatGPT 订阅登录与 API Key 按量计费。C
 
 因此首期可以用它验证订阅账号 AuthMethod，但必须使用独立的 `openai-codex-app-server` RuntimeAdapter，不能把 Codex OAuth Token 填进标准 OpenAI API Adapter。
 
-限制：Codex SDK/App Server 是 coding-focused Agent 运行时。它可以验证连接架构，但在完成角色聊天质量、模型范围和使用条款验证前，不应无条件标记为 PomChat 的默认最佳聊天通道。
+限制：Codex SDK/App Server 是 coding-focused Agent 运行时。它可以验证连接架构，但在完成角色聊天质量、模型范围和使用条款验证前，不应无条件标记为 LiteTavern 的默认最佳聊天通道。
 
 来源：
 
@@ -73,7 +73,7 @@ Anthropic 官方文档允许 Claude Code 用户使用订阅 OAuth，也提供 `c
 
 - 首期支持 Anthropic API Key。
 - 保留 `cli` 和 `token` 公共抽象。
-- 不把 Claude CLI/Setup Token 作为 PomChat 首期真实订阅通道。
+- 不把 Claude CLI/Setup Token 作为 LiteTavern 首期真实订阅通道。
 - 除非后续获得 Anthropic 明确授权，不实现该路径。
 
 来源：
@@ -130,7 +130,7 @@ Ollama 提供本机 API 和部分 OpenAI-compatible 接口。它适合验证无 
 
 当前契约无法表示：
 
-- 外部 CLI Profile，不由 PomChat读取 Secret。
+- 外部 CLI Profile，不由 LiteTavern读取 Secret。
 - OAuth access/refresh/expiry/account。
 - Device Code 的待确认流程。
 - 无凭证本地模型。
@@ -164,7 +164,7 @@ Ollama 提供本机 API 和部分 OpenAI-compatible 接口。它适合验证无 
 这与新的“本机可信运行时持有凭证”决策冲突。当前 README、旧计划和测试仍把 IndexedDB 当作正确标准：
 
 - `README.md:34`
-- `docs/plans/2026-07-22-feat-pomchat-v0-1-0-plan.md:34,126,139`
+- `docs/plans/2026-07-22-feat-litetavern-v0-1-0-plan.md:34,126,139`
 - `apps/web/src/lib/credential-store.test.ts:15-28`
 - `packages/database/src/database.test.ts:51-65`
 
@@ -255,7 +255,7 @@ API 的 `apps/api/src/modules/generation-routes.ts:110-147`：
 
 ```mermaid
 flowchart LR
-  UI[Web / PWA UI] -->|connectionId, model choice| API[Local PomChat Runtime]
+  UI[Web / PWA UI] -->|connectionId, model choice| API[Local LiteTavern Runtime]
   API --> CR[ConnectionRepository]
   API --> PR[ProviderRegistry]
   API --> RR[RuntimeAdapterRegistry]
@@ -322,7 +322,7 @@ interface AuthMethodDefinition {
     modelScope: string;
   };
   runtimeAdapterId: string;
-  credentialOwner: "pomchat" | "external" | "none";
+  credentialOwner: "litetavern" | "external" | "none";
   connectionConfigSchema: ZodType;
   credentialSchema?: ZodType;
   probe?: () => Promise<AuthMethodAvailability>;
@@ -365,7 +365,7 @@ interface ProviderConnection {
 
 同一个 Provider 可拥有任意多个 Connection。Connection ID 是模型调用路由键，不再把 Provider ID 当成账号或运行通道。
 
-首期 Connection 归属于当前操作系统用户的本机 PomChat Runtime，不上传云端。为避免扩大身份范围，暂不引入 PomChat Account。
+首期 Connection 归属于当前操作系统用户的本机 LiteTavern Runtime，不上传云端。为避免扩大身份范围，暂不引入 LiteTavern Account。
 
 ### 4. Credential Metadata 与 Secret 分离
 
@@ -396,7 +396,7 @@ Token:
   { token }
 
 External CLI:
-  无 PomChat Secret，只保存外部 profile locator
+  无 LiteTavern Secret，只保存外部 profile locator
 
 Local:
   无 Secret
@@ -494,11 +494,11 @@ adapterRegistry.get(authMethod.runtimeAdapterId)
 | --- | --- | --- | --- | --- |
 | OpenAI | `codex-device-code` | Codex/OS store | `openai-codex-app-server` | 使用符合条件的 ChatGPT/Codex 订阅；模型和限制与 API 不同 |
 | OpenAI | `codex-cli` | external CLI | `openai-codex-app-server` | 复用本机已登录 Codex；依赖本机 Codex |
-| OpenAI | `api-key` | PomChat OS store | `openai-api` | OpenAI Platform 按量计费 |
-| Anthropic | `api-key` | PomChat OS store | `anthropic-api` | Anthropic Console 按量计费 |
+| OpenAI | `api-key` | LiteTavern OS store | `openai-api` | OpenAI Platform 按量计费 |
+| Anthropic | `api-key` | LiteTavern OS store | `anthropic-api` | Anthropic Console 按量计费 |
 | Google Vertex | `gcloud-adc` | external ADC | `vertex-ai` | 使用 Google Cloud 项目、IAM、配额和计费 |
 | Ollama | `local` | none | `ollama` | 本机算力；需启动 Ollama |
-| Custom | `openai-compatible` | optional PomChat OS store | `openai-compatible` | 高级方式；费用和模型由目标服务决定 |
+| Custom | `openai-compatible` | optional LiteTavern OS store | `openai-compatible` | 高级方式；费用和模型由目标服务决定 |
 
 `codex-device-code` 和 `codex-cli` 可共享同一 RuntimeAdapter，但它们的 onboarding、credential ownership 和可用性探测不同。
 
@@ -785,11 +785,11 @@ UI 实施时必须遵循项目设计技能与原型还原门禁；本设计不�
 
 ### External Credential
 
-- 已登录 Codex CLI 可被 probe，但 PomChat 不复制其 Secret。
+- 已登录 Codex CLI 可被 probe，但 LiteTavern 不复制其 Secret。
 - Codex CLI 退出登录后 Connection 变为 reconnect_required 或 unavailable。
 - gcloud ADC 存在时 Vertex Connection 可验证。
 - ADC 缺失时返回安装/登录操作，不读取任意用户文件内容。
-- 外部工具自行刷新时 PomChat 重新探测，不写回其 Credential Store。
+- 外部工具自行刷新时 LiteTavern 重新探测，不写回其 Credential Store。
 
 ### Database Migration
 
@@ -842,10 +842,10 @@ UI 实施时必须遵循项目设计技能与原型还原门禁；本设计不�
 实施阶段每批至少运行：
 
 ```powershell
-npm.cmd run test --workspace @pomchat/contracts
-npm.cmd run test --workspace @pomchat/database
-npm.cmd run test --workspace @pomchat/api
-npm.cmd run test --workspace @pomchat/web
+npm.cmd run test --workspace @litetavern/contracts
+npm.cmd run test --workspace @litetavern/database
+npm.cmd run test --workspace @litetavern/api
+npm.cmd run test --workspace @litetavern/web
 npm.cmd run typecheck
 npm.cmd run lint
 npm.cmd run build
@@ -921,7 +921,7 @@ npm.cmd run check
 实现前仍需完成两个限定技术 Spike：
 
 1. 选定首个正式支持的操作系统及对应 OS keyring binding；这不改变 CredentialStore 合同。
-2. 用短提示验证 Codex App Server 是否能满足 PomChat 角色聊天的最低文本质量和控制要求；若不满足，只影响该 AuthMethod 的首期可用性，不影响公共架构。
+2. 用短提示验证 Codex App Server 是否能满足 LiteTavern 角色聊天的最低文本质量和控制要求；若不满足，只影响该 AuthMethod 的首期可用性，不影响公共架构。
 
 ## 当前实施说明（2026-07-23）
 

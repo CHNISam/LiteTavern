@@ -71,7 +71,7 @@ const ownedCharacter: Character = {
 };
 
 function validJson() {
-  return JSON.stringify({ schema_version: 'pomchat_relationship_import_v1' });
+  return JSON.stringify({ schema_version: 'litetavern_relationship_import_v1' });
 }
 
 afterEach(() => {

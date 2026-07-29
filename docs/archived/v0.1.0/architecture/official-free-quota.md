@@ -1,4 +1,4 @@
-# PomChat v0.1.0 官方免费额度
+# LiteTavern v0.1.0 官方免费额度
 
 ## 数据模型
 
@@ -69,6 +69,6 @@ Provider，因此没有暴露可由浏览器提交任意 subject 的公共认领
 3. 在 Cloudflare 创建仅允许 Workers AI 调用的 API Token，设置
    `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_MODEL`。
 4. 保持 `FREE_PROVIDER_PRIMARY=groq`、`FREE_PROVIDER_FALLBACK=cloudflare`。
-5. 启动 API；凭证只由服务端读取，浏览器只访问 PomChat `/v1` 接口。
+5. 启动 API；凭证只由服务端读取，浏览器只访问 LiteTavern `/v1` 接口。
 
 真实凭证不得写入 Git、前端、响应或日志。

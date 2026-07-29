@@ -1,9 +1,9 @@
 ---
 date: 2026-07-22
-topic: pomchat-v0-1-0
+topic: litetavern-v0-1-0
 ---
 
-# PomChat v0.1.0
+# LiteTavern v0.1.0
 
 ## What We're Building
 
@@ -21,17 +21,17 @@ topic: pomchat-v0-1-0
 - 用户自带的 BYOK API Key 仅保存在当前浏览器 IndexedDB；前端只显示掩码，不回显完整 Key。
 - Provider 普通配置持久化在服务端，通过浏览器本地 `credential_id` 关联 Key；缺少本地凭证时明确显示待重新连接。
 - 服务端仅在验证和 BYOK 模型生成过程中临时接收用户 Key，不持久化、不缓存、不写日志、错误或埋点。
-- PomChat 官方额度使用服务端环境独立配置的 `PLATFORM_MANAGED` Provider 凭证；该凭证不存业务数据库、不返回前端，也不得与 BYOK 凭证互相回退或复用。
+- LiteTavern 官方额度使用服务端环境独立配置的 `PLATFORM_MANAGED` Provider 凭证；该凭证不存业务数据库、不返回前端，也不得与 BYOK 凭证互相回退或复用。
 - 每次生成显式选择 `PLATFORM` 或 `BYOK`，两种模式使用独立 CredentialResolver、额度校验和 UsageLedger 路径。
-- 暂不实现跨设备同步、云端托管、`POMCHAT_MASTER_KEY` 或 KMS。
-- UI 延续原型的双栏、浅色内容面板和深色氛围背景，但不复制原型中的第三方游戏素材；使用 PomChat 自有图形和渐变头像。
+- 暂不实现跨设备同步、云端托管、`LITETAVERN_MASTER_KEY` 或 KMS。
+- UI 延续原型的双栏、浅色内容面板和深色氛围背景，但不复制原型中的第三方游戏素材；使用 LiteTavern 自有图形和渐变头像。
 - 高频聊天和键盘操作不添加阻塞动效；弹窗、抽屉和按压反馈使用 300ms 内的可中断过渡，并支持 reduced motion。
 
 ## Resolved Questions
 
 - **Provider 是否可只做 Mock 或单一厂商？** 不可。必须提供多厂商且重点覆盖国内主要平台。
 - **API Key 是否存服务端？** 不存。只在当前浏览器 IndexedDB 保存。
-- **浏览器本地规则是否适用于 PomChat 官方额度？** 不适用。只约束用户 BYOK；官方 Provider 凭证由服务端独立配置。
+- **浏览器本地规则是否适用于 LiteTavern 官方额度？** 不适用。只约束用户 BYOK；官方 Provider 凭证由服务端独立配置。
 - **两套凭证能否自动回退或混用？** 不能。调用模式、凭证和计费账本必须完全隔离。
 - **是否为未来跨设备同步预建 KMS/云凭证系统？** 否，按 YAGNI 延后。
 
@@ -50,4 +50,4 @@ topic: pomchat-v0-1-0
 
 ## Next Steps
 
-→ Execute `docs/plans/2026-07-22-feat-pomchat-v0-1-0-plan.md`.
+→ Execute `docs/plans/2026-07-22-feat-litetavern-v0-1-0-plan.md`.

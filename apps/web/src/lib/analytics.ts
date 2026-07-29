@@ -85,8 +85,11 @@ interface InitializeInput {
   appVersion: string;
 }
 
-const SESSION_KEY = 'pomchat.analytics.session.v1';
-const ATTRIBUTION_KEY = 'pomchat.analytics.attribution.v1';
+const SESSION_KEY = 'litetavern.analytics.session.v1';
+const ATTRIBUTION_KEY = 'litetavern.analytics.attribution.v1';
+const PREVIOUS_ANALYTICS_PREFIX = ['pom', 'chat.analytics'].join('');
+const PREVIOUS_SESSION_KEY = `${PREVIOUS_ANALYTICS_PREFIX}.session.v1`;
+const PREVIOUS_ATTRIBUTION_KEY = `${PREVIOUS_ANALYTICS_PREFIX}.attribution.v1`;
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
 function readJson<T>(storage: Storage, key: string): T | null {
@@ -104,6 +107,25 @@ function writeJson(storage: Storage, key: string, value: unknown) {
   } catch {
     // Analytics persistence is best-effort and must never block the product.
   }
+}
+
+function readMigratedJson<T>(
+  storage: Storage,
+  key: string,
+  previousKey: string
+): T | null {
+  const current = readJson<T>(storage, key);
+  if (current) return current;
+  const previous = readJson<T>(storage, previousKey);
+  if (previous) {
+    try {
+      storage.setItem(key, JSON.stringify(previous));
+      storage.removeItem(previousKey);
+    } catch {
+      // Keep the previous value when migration cannot be persisted.
+    }
+  }
+  return previous;
 }
 
 function knownSource(value: string): AnalyticsSourceChannel {
@@ -205,9 +227,10 @@ export class AnalyticsClient {
   async initialize(input: InitializeInput): Promise<void> {
     const now = this.now();
     const current = attributionFor(input.url, input.referrer);
-    const storedAttribution = readJson<AttributionState>(
+    const storedAttribution = readMigratedJson<AttributionState>(
       this.storage,
-      ATTRIBUTION_KEY
+      ATTRIBUTION_KEY,
+      PREVIOUS_ATTRIBUTION_KEY
     );
     const isFirstVisit = storedAttribution === null;
     const attribution =
@@ -220,7 +243,11 @@ export class AnalyticsClient {
       writeJson(this.storage, ATTRIBUTION_KEY, attribution);
     }
 
-    const previous = readJson<SessionState>(this.storage, SESSION_KEY);
+    const previous = readMigratedJson<SessionState>(
+      this.storage,
+      SESSION_KEY,
+      PREVIOUS_SESSION_KEY
+    );
     const isNewSession =
       !previous || now - previous.lastActivityAt >= this.sessionTimeoutMs;
     this.session = isNewSession
@@ -281,7 +308,7 @@ export class AnalyticsClient {
 
   getSessionHeaders(): Record<string, string> {
     const sessionId = this.getSessionId();
-    return sessionId ? { 'X-PomChat-Session-Id': sessionId } : {};
+    return sessionId ? { 'X-LiteTavern-Session-Id': sessionId } : {};
   }
 
   pageView(

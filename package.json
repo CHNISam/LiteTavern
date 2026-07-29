@@ -1,5 +1,5 @@
 {
-  "name": "pomchat",
+  "name": "litetavern",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     "apps/web"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace @pomchat/web",
+    "dev": "npm run dev --workspace @litetavern/web",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage --workspaces --if-present",

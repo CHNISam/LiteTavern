@@ -6,10 +6,10 @@
  * chat log never reaches LiteTavern Cloud.
  */
 
-export const RELATIONSHIP_IMPORT_SCHEMA_VERSION = 'pomchat_relationship_import_v1';
+export const RELATIONSHIP_IMPORT_SCHEMA_VERSION = 'litetavern_relationship_import_v1';
 
 const OUTPUT_TEMPLATE = `{
-  "schema_version": "pomchat_relationship_import_v1",
+  "schema_version": "litetavern_relationship_import_v1",
   "character": {
     "name": "",
     "description": "",
@@ -100,7 +100,7 @@ export const MERGE_MIGRATION_PROMPT = `下面是针对同一名角色、同一�
 7. importance 取综合判断值，不要简单相加。
 8. 不得编造任何分批结果中不存在的内容。
 9. 最终只输出合法 JSON，不要输出 Markdown 代码块或解释。
-10. schema_version 必须是 pomchat_relationship_import_v1。`;
+10. schema_version 必须是 litetavern_relationship_import_v1。`;
 
 /** Buckets keep memory volume in analytics without revealing anything about content. */
 export function memoryCountBucket(count: number): string {
