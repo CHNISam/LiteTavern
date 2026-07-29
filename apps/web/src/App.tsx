@@ -43,6 +43,13 @@ import { publicRouteForPath } from './public-routing';
 
 type View = 'chat' | 'profile' | 'memories' | 'settings';
 
+/**
+ * Reply suggestions are a paid model call, so they are never issued on the raw
+ * click. A reader flicking through contacts settles within a few hundred
+ * milliseconds; only the conversation they land on is worth spending on.
+ */
+const SUGGESTION_DEBOUNCE_MS = 350;
+
 function analyticsErrorCode(code: string): string {
   if (
     code === 'FREE_QUOTA_EXHAUSTED' ||
@@ -140,11 +147,18 @@ function ProductApp() {
   const conversationIdRef = useRef<string | null>(null);
   const activeRef = useRef<Character | null>(null);
   const suggestAbortRef = useRef<AbortController | null>(null);
+  // Identifies the conversation state the current suggestions were (or are being)
+  // fetched for. Re-requesting the same key would buy an identical answer twice.
+  const suggestionKeyRef = useRef<string>('');
+  const suggestionTimerRef = useRef<number>(0);
+  // Monotonic token for character opens: only the newest open may write state, so a
+  // slow earlier request can never resurrect a contact the reader has left.
+  const openTokenRef = useRef(0);
   // Multi-bubble turn playback. The controller is a stable singleton so a new turn
   // (or a tab-visibility change) can interrupt/pause the one in flight.
   const playbackRef = useRef<TurnPlaybackController | null>(null);
   const turnIdRef = useRef<string>('');
-  const loadSuggestionsRef = useRef<(id: string) => void>(() => {});
+  const scheduleSuggestionsRef = useRef<(id: string, key: string) => void>(() => {});
 
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
   useEffect(() => { activeRef.current = active; }, [active]);
@@ -170,7 +184,9 @@ function ProductApp() {
       onStateChange: (state) => setSending(state === 'GENERATING'),
       onDone: () => {
         const conv = conversationIdRef.current;
-        if (conv) loadSuggestionsRef.current(conv);
+        // Skipped outright when the turn already carried its own suggestions:
+        // `submit` claims this key, so one turn never costs two model calls.
+        if (conv) scheduleSuggestionsRef.current(conv, `turn:${turnIdRef.current}`);
       },
       onError: (reason) => {
         setTyping(false);
@@ -203,6 +219,7 @@ function ProductApp() {
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
+      window.clearTimeout(suggestionTimerRef.current);
       suggestAbortRef.current?.abort();
       controller.interrupt();
     };
@@ -215,6 +232,10 @@ function ProductApp() {
   ) {
     // Abandon any in-flight turn so its bubbles never land in the new conversation.
     playbackRef.current?.interrupt();
+    const token = ++openTokenRef.current;
+    // A pending suggestion request belongs to the conversation being left.
+    window.clearTimeout(suggestionTimerRef.current);
+    suggestAbortRef.current?.abort();
     setTyping(false);
     setActive(character);
     setView(nextView);
@@ -224,6 +245,10 @@ function ProductApp() {
     const created = await api<{ conversation_id: string }>('/v1/conversations', {
       method: 'POST', body: JSON.stringify({ character_id: character.character_id })
     });
+    // The reader has already moved on; writing this state back would drag them
+    // to a contact they left, so the response is recorded and otherwise dropped.
+    cacheConversationId(character.character_id, created.conversation_id);
+    if (token !== openTokenRef.current) return;
     conversationIdRef.current = created.conversation_id;
     setConversationId(created.conversation_id);
     if (trackSelection) {
@@ -233,11 +258,14 @@ function ProductApp() {
         result: 'success'
       });
     }
-    cacheConversationId(character.character_id, created.conversation_id);
     const loaded = await fetchMessages(created.conversation_id);
-    setMessages(loaded);
     cacheMessages(created.conversation_id, loaded);
-    if (loaded.length > 0) void loadSuggestions(created.conversation_id);
+    if (token !== openTokenRef.current) return;
+    setMessages(loaded);
+    const lastMessage = loaded[loaded.length - 1];
+    if (lastMessage) {
+      scheduleSuggestions(created.conversation_id, `open:${created.conversation_id}:${lastMessage.message_id}`);
+    }
   }
 
   /**
@@ -247,6 +275,8 @@ function ProductApp() {
    */
   function openCharacterOffline(character: Character) {
     playbackRef.current?.interrupt();
+    openTokenRef.current += 1;
+    window.clearTimeout(suggestionTimerRef.current);
     setTyping(false);
     setActive(character);
     setView('chat');
@@ -437,7 +467,13 @@ function ProductApp() {
     };
   }
 
-  async function loadSuggestions(targetConversationId: string) {
+  /**
+   * Requests suggestions for one specific conversation state. `key` names that
+   * state, so the same answer is never bought twice.
+   */
+  async function loadSuggestions(targetConversationId: string, key: string) {
+    // The reader moved on while the debounce was pending.
+    if (conversationIdRef.current !== targetConversationId) return;
     suggestAbortRef.current?.abort();
     const controller = new AbortController();
     suggestAbortRef.current = controller;
@@ -456,12 +492,11 @@ function ProductApp() {
         setSuggestions(response.suggestions.slice(0, 3));
       }
     } catch (reason) {
-      if (
-        (reason as Error)?.name !== 'AbortError' &&
-        conversationIdRef.current === targetConversationId
-      ) {
-        setSuggestions([]);
-      }
+      if ((reason as Error)?.name === 'AbortError') return;
+      // A failed request bought nothing, so the key is released and the next
+      // message (or a reopen) may try again.
+      if (suggestionKeyRef.current === key) suggestionKeyRef.current = '';
+      if (conversationIdRef.current === targetConversationId) setSuggestions([]);
     } finally {
       if (suggestAbortRef.current === controller) {
         suggestAbortRef.current = null;
@@ -470,8 +505,22 @@ function ProductApp() {
     }
   }
 
+  /**
+   * Claims a conversation state and, after a short settle, pays for suggestions
+   * for it. Already-claimed states return immediately — that is what stops one
+   * turn costing two model calls and a restless clicker costing one per click.
+   */
+  function scheduleSuggestions(targetConversationId: string, key: string) {
+    if (suggestionKeyRef.current === key) return;
+    suggestionKeyRef.current = key;
+    window.clearTimeout(suggestionTimerRef.current);
+    suggestionTimerRef.current = window.setTimeout(() => {
+      void loadSuggestions(targetConversationId, key);
+    }, SUGGESTION_DEBOUNCE_MS);
+  }
+
   useEffect(() => {
-    loadSuggestionsRef.current = loadSuggestions;
+    scheduleSuggestionsRef.current = scheduleSuggestions;
   });
 
   // `editOfMessageId` re-sends an earlier user message: that message and everything
@@ -561,7 +610,14 @@ function ProductApp() {
           current ? { ...current, quota: { ...current.quota, ...plan.cloud_quota } } : current
         );
       }
-      setSuggestions((plan.suggestions ?? []).slice(0, 3));
+      // A turn that answered with its own suggestions has already been paid for;
+      // claiming the key makes the `onDone` follow-up a no-op.
+      if (plan.suggestions?.length) {
+        suggestionKeyRef.current = `turn:${plan.turn_id}`;
+        setSuggestions(plan.suggestions.slice(0, 3));
+      } else {
+        setSuggestions([]);
+      }
       return plan.messages;
     });
   }
@@ -642,7 +698,16 @@ function ProductApp() {
       characters={characters}
       active={active}
       tone={view === 'chat' ? 'dark' : 'light'}
-      onSelect={(character) => void openCharacter(character, 'chat', true)}
+      onSelect={(character) => {
+        // Re-selecting the open contact is a view change, not a reload: the old
+        // behaviour re-created the conversation and re-bought reply suggestions
+        // on every click.
+        if (character.character_id === active?.character_id && conversationId) {
+          setView('chat');
+          return;
+        }
+        void openCharacter(character, 'chat', true);
+      }}
       onCreate={openCharacterCreate}
     />
   );
