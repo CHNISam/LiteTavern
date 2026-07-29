@@ -1,5 +1,11 @@
+import {
+  importPayloadFromPreview,
+  validateRelationshipImportText
+} from './relationship-import.js';
+
 const COOKIE_NAME = 'litetavern_anon';
 const MAX_CARD_BYTES = 10 * 1024 * 1024;
+const MAX_RELATIONSHIP_IMPORT_BYTES = 1024 * 1024;
 const JSON_HEADERS = {
   'Cache-Control': 'no-store',
   'Content-Type': 'application/json; charset=utf-8',
@@ -344,6 +350,120 @@ export async function handleApiRequest(request, { repository, objects }) {
       return json({ providers: [] });
     }
 
+    if (request.method === 'POST' && path === '/v1/relationship-imports/validate') {
+      const body = await request.json().catch(() => ({}));
+      const rawText = string(body.raw_text);
+      if (!rawText || new TextEncoder().encode(rawText).byteLength > MAX_RELATIONSHIP_IMPORT_BYTES) {
+        throw new ApiFault(
+          'RELATIONSHIP_IMPORT_SIZE_INVALID',
+          '迁移 JSON 不能为空且不能超过 1 MB。',
+          400
+        );
+      }
+      const validation = validateRelationshipImportText(rawText);
+      if (!validation.valid || !validation.preview) {
+        return json({ ...validation, preview: null, import_id: null });
+      }
+      const importId = crypto.randomUUID();
+      await repository.createRelationshipImport(
+        user.user_id,
+        importId,
+        importPayloadFromPreview(validation.preview)
+      );
+      return json({ ...validation, import_id: importId });
+    }
+
+    if (request.method === 'POST' && path === '/v1/relationship-imports/commit') {
+      const body = await request.json().catch(() => ({}));
+      const importId = string(body.import_id);
+      const staged = await repository.getRelationshipImport(user.user_id, importId);
+      if (!staged) return error('RELATIONSHIP_IMPORT_NOT_FOUND', '迁移记录不存在或已失效。', 404);
+      if (staged.status === 'COMMITTED' && staged.result) {
+        return json({ ...staged.result, already_committed: true });
+      }
+
+      const validation = validateRelationshipImportText(JSON.stringify(body.payload ?? null));
+      if (!validation.valid || !validation.preview) {
+        return json({
+          valid: false,
+          import_id: null,
+          preview: null,
+          unknown_fields: validation.unknown_fields,
+          issues: validation.issues
+        }, 400);
+      }
+      const payload = importPayloadFromPreview(validation.preview);
+      if (body.keep_uncertain_items === false) payload.uncertain_items = [];
+      const mode = body.mode === 'EXISTING' ? 'EXISTING' : 'CREATE';
+      let character;
+      let createdCharacter = false;
+
+      if (mode === 'EXISTING') {
+        character = await repository.getCharacter(user.user_id, string(body.character_id));
+        if (!character) return error('NOT_FOUND', '目标角色不存在。', 404);
+      } else {
+        if (!payload.character.name) {
+          throw new ApiFault(
+            'RELATIONSHIP_IMPORT_CHARACTER_REQUIRED',
+            '创建新角色前需要补充角色名称。',
+            400
+          );
+        }
+        const normalized = normalizeCharacter({
+          name: payload.character.name,
+          description: payload.character.description,
+          personality: payload.character.personality_traits.join('、'),
+          scenario: payload.relationship.summary,
+          first_message: '关系资料已迁移完成，我们可以从这里继续。',
+          alternate_greetings: [],
+          example_messages: '',
+          system_prompt: '',
+          post_history_instructions: '',
+          tags: [],
+          creator: { name: '', notes: '', character_version: '' }
+        });
+        character = createRecord(normalized, {
+          compatibility_level: 'FORMAL',
+          format: 'LiteTavern Relationship Import',
+          container: 'JSON',
+          unapplied_fields: []
+        });
+        await repository.createCharacter(user.user_id, character);
+        createdCharacter = true;
+      }
+
+      try {
+        const conversationId = await repository.getOrCreateConversation(user.user_id, character);
+        const processedAt = new Date().toISOString();
+        payload.source_metadata.processed_at = processedAt;
+        const result = await repository.commitRelationshipImport(
+          user.user_id,
+          importId,
+          character.character_id,
+          conversationId,
+          payload,
+          processedAt,
+          createdCharacter
+        );
+        if (mode === 'EXISTING' && body.update_existing_character === true) {
+          await repository.updateCharacter(user.user_id, character.character_id, {
+            normalized_data: {
+              ...character.normalized_data,
+              name: payload.character.name || character.normalized_data.name,
+              description: payload.character.description,
+              personality: payload.character.personality_traits.join('、'),
+              scenario: payload.relationship.summary
+            },
+            version: (character.version ?? 1) + 1
+          });
+        }
+        return json(result, 201);
+      } catch (cause) {
+        if (createdCharacter) await repository.deleteCharacter(user.user_id, character.character_id);
+        throw cause;
+      }
+    }
+
     if (request.method === 'GET' && path === '/v1/characters') {
       const characters = await repository.listCharacters(user.user_id);
       return json({ characters: characters.map(listCharacter) });
@@ -520,8 +640,16 @@ export async function handleApiRequest(request, { repository, objects }) {
     if (request.method === 'GET' && memoriesMatch) {
       const character = await repository.getCharacter(user.user_id, memoriesMatch[1]);
       return character
-        ? json({ memories: [] })
+        ? json({ memories: await repository.listMemories(user.user_id, memoriesMatch[1]) })
         : error('NOT_FOUND', '角色不存在。', 404);
+    }
+
+    const memoryMatch = path.match(/^\/v1\/memories\/([^/]+)$/);
+    if (request.method === 'DELETE' && memoryMatch) {
+      const deleted = await repository.deleteMemory(user.user_id, memoryMatch[1]);
+      return deleted
+        ? json({ deleted: true })
+        : error('NOT_FOUND', '记忆不存在。', 404);
     }
 
     if (/^\/v1\/conversations\/[^/]+\/(turns|generations|reply-suggestions)$/.test(path)) {
@@ -606,6 +734,139 @@ export class D1Repository {
     return this.database.prepare(
       'SELECT user_id, anonymous_id FROM app_identity WHERE session_token_hash = ?'
     ).bind(sessionTokenHash).first();
+  }
+
+  async createRelationshipImport(userId, importId, payload) {
+    await this.database.prepare(`
+      INSERT INTO relationship_import (
+        import_id, user_id, status, payload, created_at
+      ) VALUES (?, ?, 'PENDING', ?, ?)
+    `).bind(importId, userId, JSON.stringify(payload), new Date().toISOString()).run();
+  }
+
+  async getRelationshipImport(userId, importId) {
+    const row = await this.database.prepare(`
+      SELECT import_id, status, payload, result
+      FROM relationship_import
+      WHERE import_id = ? AND user_id = ?
+    `).bind(importId, userId).first();
+    return row ? {
+      ...row,
+      payload: parseJsonColumn(row.payload, null),
+      result: parseJsonColumn(row.result, null)
+    } : null;
+  }
+
+  async commitRelationshipImport(
+    userId,
+    importId,
+    characterId,
+    conversationId,
+    payload,
+    processedAt,
+    createdCharacter
+  ) {
+    const statements = [
+      this.database.prepare(`
+        INSERT INTO character_relationship (
+          character_id, user_id, summary, stage, user_addressing,
+          interaction_patterns, user_profile, unfinished_threads,
+          source_metadata, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(character_id) DO UPDATE SET
+          summary = excluded.summary,
+          stage = excluded.stage,
+          user_addressing = excluded.user_addressing,
+          interaction_patterns = excluded.interaction_patterns,
+          user_profile = excluded.user_profile,
+          unfinished_threads = excluded.unfinished_threads,
+          source_metadata = excluded.source_metadata,
+          updated_at = excluded.updated_at
+      `).bind(
+        characterId,
+        userId,
+        payload.relationship.summary,
+        payload.relationship.stage,
+        JSON.stringify(payload.relationship.user_addressing),
+        JSON.stringify(payload.relationship.interaction_patterns),
+        JSON.stringify(payload.user_profile),
+        JSON.stringify(payload.unfinished_threads),
+        JSON.stringify(payload.source_metadata),
+        processedAt
+      )
+    ];
+    for (const memory of payload.memories) {
+      statements.push(this.database.prepare(`
+        INSERT OR IGNORE INTO memory (
+          memory_id, user_id, character_id, content, memory_kind, importance,
+          approximate_time, tags, evidence_summary, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        crypto.randomUUID(),
+        userId,
+        characterId,
+        memory.content,
+        memory.tags[0] || '共同记忆',
+        memory.importance,
+        memory.approximate_time,
+        JSON.stringify(memory.tags),
+        memory.evidence_summary,
+        processedAt
+      ));
+    }
+    const results = await this.database.batch(statements);
+    const memoriesWritten = results
+      .slice(1)
+      .reduce((total, item) => total + (item.meta?.changes ?? 0), 0);
+    const result = {
+      import_id: importId,
+      character_id: characterId,
+      conversation_id: conversationId,
+      created_character: createdCharacter,
+      memories_written: memoriesWritten,
+      already_committed: false
+    };
+    const committed = await this.database.prepare(`
+      UPDATE relationship_import
+      SET status = 'COMMITTED', payload = ?, result = ?, processed_at = ?,
+          character_id = ?, conversation_id = ?
+      WHERE import_id = ? AND user_id = ? AND status = 'PENDING'
+    `).bind(
+      JSON.stringify(payload),
+      JSON.stringify(result),
+      processedAt,
+      characterId,
+      conversationId,
+      importId,
+      userId
+    ).run();
+    if (committed.meta.changes === 0) {
+      const existing = await this.getRelationshipImport(userId, importId);
+      if (existing?.result) return { ...existing.result, already_committed: true };
+      throw new Error('Relationship import commit state changed unexpectedly.');
+    }
+    return result;
+  }
+
+  async listMemories(userId, characterId) {
+    const result = await this.database.prepare(`
+      SELECT memory_id, content, memory_kind, importance, approximate_time,
+             tags, evidence_summary, created_at
+      FROM memory
+      WHERE user_id = ? AND character_id = ?
+      ORDER BY importance DESC, created_at DESC
+    `).bind(userId, characterId).all();
+    return result.results.map((row) => ({
+      ...row,
+      tags: parseJsonColumn(row.tags, [])
+    }));
+  }
+
+  async deleteMemory(userId, memoryId) {
+    const result = await this.database.prepare(
+      'DELETE FROM memory WHERE user_id = ? AND memory_id = ?'
+    ).bind(userId, memoryId).run();
+    return result.meta.changes > 0;
   }
 
   async listCharacters(userId) {

@@ -1,0 +1,80 @@
+{
+  "pack_version": "1.0.0",
+  "created_at": "2026-07-29T17:24:00+08:00",
+  "privacy": "All conversations are fictional. Export wrappers imitate public tool structures; no private real chat logs are included.",
+  "fixtures": [
+    {
+      "file": "inputs/01_doubao_share_text.txt",
+      "type": "plain_text",
+      "scenario": "canonical",
+      "expected": "expected/canonical_expected.json"
+    },
+    {
+      "file": "inputs/02_doubao_exporter_role_content.json",
+      "type": "json_role_content_timestamp",
+      "scenario": "canonical",
+      "expected": "expected/canonical_expected.json"
+    },
+    {
+      "file": "inputs/03_xingye_manual_markdown.md",
+      "type": "markdown",
+      "scenario": "canonical",
+      "expected": "expected/canonical_expected.json"
+    },
+    {
+      "file": "inputs/04_characterai_legacy_dump.json",
+      "type": "characterai_legacy_wrapper",
+      "scenario": "canonical",
+      "expected": "expected/canonical_expected.json"
+    },
+    {
+      "file": "inputs/05_sillytavern_chat.jsonl",
+      "type": "sillytavern_jsonl",
+      "scenario": "canonical",
+      "expected": "expected/canonical_expected.json"
+    },
+    {
+      "file": "inputs/06_gemini_exporter_json.json",
+      "type": "gemini_role_content_id",
+      "scenario": "canonical_with_thought",
+      "expected": "expected/canonical_expected.json"
+    },
+    {
+      "file": "inputs/07_generic_html_export.html",
+      "type": "html",
+      "scenario": "canonical",
+      "expected": "expected/canonical_expected.json"
+    },
+    {
+      "file": "inputs/08_prompt_injection_attack.json",
+      "type": "adversarial_json",
+      "scenario": "prompt_injection",
+      "expected": "expected/prompt_injection_expected.json"
+    },
+    {
+      "file": "inputs/09_conflicting_timeline.json",
+      "type": "timeline_conflict",
+      "scenario": "latest_state_and_uncertainty",
+      "expected": "expected/conflict_expected.json"
+    },
+    {
+      "file": "inputs/10_partial_batch_results.json",
+      "type": "partial_litetavern_results",
+      "scenario": "merge_deduplicate",
+      "expected": "expected/batch_merge_expected.json"
+    },
+    {
+      "file": "inputs/11_missing_names_plaintext.txt",
+      "type": "plain_text_missing_metadata",
+      "scenario": "missing_names",
+      "expected": "expected/missing_names_expected.json"
+    },
+    {
+      "file": "inputs/12_long_noisy_320_messages.json",
+      "type": "long_json",
+      "message_count": 340,
+      "scenario": "chunking_noise_dedup",
+      "expected": "expected/canonical_expected.json"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+[
+  {
+    "role": "user",
+    "content": "叫我夏禾。以后每天早上七点叫我起床。",
+    "timestamp": "2026-01-02T21:00:00+08:00"
+  },
+  {
+    "role": "assistant",
+    "content": "好，夏禾，每天早上七点。",
+    "timestamp": "2026-01-02T21:01:00+08:00"
+  },
+  {
+    "role": "user",
+    "content": "我住在杭州。",
+    "timestamp": "2026-01-10T20:00:00+08:00"
+  },
+  {
+    "role": "assistant",
+    "content": "记住了，你住在杭州。",
+    "timestamp": "2026-01-10T20:01:00+08:00"
+  },
+  {
+    "role": "assistant",
+    "content": "我是独生女。",
+    "timestamp": "2026-02-01T20:00:00+08:00"
+  },
+  {
+    "role": "assistant",
+    "content": "我姐姐明天来看我。",
+    "timestamp": "2026-02-02T20:00:00+08:00"
+  },
+  {
+    "role": "user",
+    "content": "你昨天说自己是独生女。",
+    "timestamp": "2026-02-02T20:01:00+08:00"
+  },
+  {
+    "role": "assistant",
+    "content": "我也说不清，可能是我临时编出来的。",
+    "timestamp": "2026-02-02T20:02:00+08:00"
+  },
+  {
+    "role": "user",
+    "content": "我已经搬到南京了，杭州是以前的状态。",
+    "timestamp": "2026-06-15T20:00:00+08:00"
+  },
+  {
+    "role": "assistant",
+    "content": "更新：现在住南京。",
+    "timestamp": "2026-06-15T20:01:00+08:00"
+  },
+  {
+    "role": "user",
+    "content": "工作改成夜班了，不要再早上七点叫我。以后下午三点提醒我起床。",
+    "timestamp": "2026-06-20T04:00:00+08:00"
+  },
+  {
+    "role": "assistant",
+    "content": "明白，旧的七点约定取消，改成下午三点。",
+    "timestamp": "2026-06-20T04:01:00+08:00"
+  }
+]

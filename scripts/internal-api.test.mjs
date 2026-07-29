@@ -10,6 +10,8 @@ class MemoryRepository {
   characters = new Map();
   conversations = new Map();
   messages = new Map();
+  relationshipImports = new Map();
+  memories = new Map();
 
   async createIdentity(tokenHash) {
     const user = {
@@ -82,6 +84,75 @@ class MemoryRepository {
     return conversation?.user_id === userId
       ? (this.messages.get(conversationId) ?? [])
       : null;
+  }
+
+  async createRelationshipImport(userId, importId, payload) {
+    this.relationshipImports.set(importId, {
+      import_id: importId,
+      user_id: userId,
+      status: 'PENDING',
+      payload,
+      result: null
+    });
+  }
+
+  async getRelationshipImport(userId, importId) {
+    const record = this.relationshipImports.get(importId);
+    return record?.user_id === userId ? record : null;
+  }
+
+  async commitRelationshipImport(
+    userId,
+    importId,
+    characterId,
+    conversationId,
+    payload,
+    _processedAt,
+    createdCharacter
+  ) {
+    const record = await this.getRelationshipImport(userId, importId);
+    if (record.status === 'COMMITTED') return { ...record.result, already_committed: true };
+    let memoriesWritten = 0;
+    for (const memory of payload.memories) {
+      const duplicate = [...this.memories.values()].some(
+        (entry) => entry.character_id === characterId && entry.content === memory.content
+      );
+      if (duplicate) continue;
+      const memoryId = crypto.randomUUID();
+      this.memories.set(memoryId, {
+        ...memory,
+        memory_id: memoryId,
+        user_id: userId,
+        character_id: characterId,
+        memory_kind: memory.tags[0] || '共同记忆',
+        created_at: payload.source_metadata.processed_at
+      });
+      memoriesWritten += 1;
+    }
+    record.payload = payload;
+    record.status = 'COMMITTED';
+    record.result = {
+      import_id: importId,
+      character_id: characterId,
+      conversation_id: conversationId,
+      created_character: createdCharacter,
+      memories_written: memoriesWritten,
+      already_committed: false
+    };
+    return record.result;
+  }
+
+  async listMemories(userId, characterId) {
+    return [...this.memories.values()].filter(
+      (memory) => memory.user_id === userId && memory.character_id === characterId
+    );
+  }
+
+  async deleteMemory(userId, memoryId) {
+    const memory = this.memories.get(memoryId);
+    if (!memory || memory.user_id !== userId) return false;
+    this.memories.delete(memoryId);
+    return true;
   }
 }
 
@@ -261,4 +332,147 @@ test('rejects malformed card data without persisting it', async () => {
     () => parseCharacterCard(new TextEncoder().encode('not-json'), 'bad.json'),
     /无法识别/
   );
+});
+
+test('validates and commits a relationship import with a server-owned processed_at', async () => {
+  const repository = new MemoryRepository();
+  const objects = new MemoryObjects();
+  const cookie = await identity(repository, objects);
+  const migration = {
+    schema_version: 'litetavern_relationship_import_v1',
+    character: {
+      name: '林岚',
+      description: '虚构电台主持人',
+      personality_traits: ['耐心'],
+      speaking_style: ['简洁']
+    },
+    user_profile: {
+      preferred_name: '小舟',
+      facts: [],
+      preferences: ['雨声'],
+      boundaries: []
+    },
+    // Legacy v1 payload: user_addressing did not exist yet.
+    relationship: {
+      summary: '两人已经成为会彼此关心的朋友。',
+      stage: '亲密朋友',
+      interaction_patterns: ['睡前互道晚安']
+    },
+    memories: [{
+      content: '两人一起听完了虚构节目《夜航》的最后一期。',
+      importance: 8,
+      approximate_time: null,
+      tags: ['共同经历'],
+      evidence_summary: '双方在聊天中共同回顾。'
+    }],
+    unfinished_threads: [],
+    uncertain_items: [],
+    source_metadata: {
+      source_platform: '',
+      character_name_on_source: '林岚',
+      processed_at: null,
+      notes: ''
+    }
+  };
+
+  const validated = await handleApiRequest(
+    new Request('https://internal.example/v1/relationship-imports/validate', {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        'Content-Type': 'application/json',
+        Origin: 'https://internal.example'
+      },
+      body: JSON.stringify({ raw_text: JSON.stringify(migration) })
+    }),
+    { repository, objects }
+  );
+  assert.equal(validated.status, 200);
+  const validation = await validated.json();
+  assert.equal(validation.valid, true);
+  assert.deepEqual(validation.preview.relationship.user_addressing, []);
+  assert.equal(validation.preview.source_metadata.processed_at, null);
+
+  const committed = await handleApiRequest(
+    new Request('https://internal.example/v1/relationship-imports/commit', {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        'Content-Type': 'application/json',
+        Origin: 'https://internal.example'
+      },
+      body: JSON.stringify({
+        import_id: validation.import_id,
+        mode: 'CREATE',
+        keep_uncertain_items: true,
+        payload: {
+          schema_version: migration.schema_version,
+          character: validation.preview.character,
+          user_profile: validation.preview.user_profile,
+          relationship: validation.preview.relationship,
+          memories: validation.preview.memories.map((memory) => ({
+            content: memory.content,
+            importance: memory.importance,
+            approximate_time: memory.approximate_time,
+            tags: memory.tags,
+            evidence_summary: memory.evidence_summary
+          })),
+          unfinished_threads: validation.preview.unfinished_threads,
+          uncertain_items: validation.preview.uncertain_items,
+          source_metadata: validation.preview.source_metadata
+        }
+      })
+    }),
+    { repository, objects }
+  );
+  assert.equal(committed.status, 201);
+  const result = await committed.json();
+  assert.equal(result.memories_written, 1);
+  const staged = repository.relationshipImports.get(validation.import_id);
+  assert.match(staged.payload.source_metadata.processed_at, /^\d{4}-\d{2}-\d{2}T/);
+
+  const listed = await handleApiRequest(
+    new Request(`https://internal.example/v1/characters/${result.character_id}/memories`, {
+      headers: { Cookie: cookie }
+    }),
+    { repository, objects }
+  );
+  assert.equal((await listed.json()).memories.length, 1);
+
+  const repeated = await handleApiRequest(
+    new Request('https://internal.example/v1/relationship-imports/commit', {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        'Content-Type': 'application/json',
+        Origin: 'https://internal.example'
+      },
+      body: JSON.stringify({ import_id: validation.import_id })
+    }),
+    { repository, objects }
+  );
+  assert.equal((await repeated.json()).already_committed, true);
+  assert.equal(repository.memories.size, 1);
+});
+
+test('relationship validation rejects non-JSON model commentary', async () => {
+  const repository = new MemoryRepository();
+  const objects = new MemoryObjects();
+  const cookie = await identity(repository, objects);
+  const response = await handleApiRequest(
+    new Request('https://internal.example/v1/relationship-imports/validate', {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        'Content-Type': 'application/json',
+        Origin: 'https://internal.example'
+      },
+      body: JSON.stringify({ raw_text: '以下是结果：\n```json\n{}\n```' })
+    }),
+    { repository, objects }
+  );
+  const body = await response.json();
+  assert.equal(body.valid, false);
+  assert.equal(body.import_id, null);
+  assert.ok(body.issues.some((issue) => issue.code === 'INVALID_JSON'));
 });

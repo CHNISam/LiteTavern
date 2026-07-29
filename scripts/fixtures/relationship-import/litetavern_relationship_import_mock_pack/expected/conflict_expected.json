@@ -1,0 +1,66 @@
+{
+  "schema_version": "litetavern_relationship_import_v1",
+  "character": {
+    "name": "",
+    "description": "",
+    "personality_traits": [],
+    "speaking_style": []
+  },
+  "user_profile": {
+    "preferred_name": "夏禾",
+    "facts": [
+      "目前住在南京",
+      "目前从事夜班工作"
+    ],
+    "preferences": [],
+    "boundaries": []
+  },
+  "relationship": {
+    "summary": "双方曾约定早上七点叫醒用户；用户搬家并改为夜班后，旧约定被明确取消，当前改为下午三点提醒起床。",
+    "stage": "",
+    "user_addressing": [
+      "夏禾"
+    ],
+    "interaction_patterns": [
+      "根据用户最新作息调整提醒时间"
+    ]
+  },
+  "memories": [
+    {
+      "content": "用户目前住在南京，杭州是过去的居住状态。",
+      "importance": 6,
+      "approximate_time": "2026-06-15",
+      "tags": [
+        "居住地",
+        "状态更新"
+      ],
+      "evidence_summary": "用户明确说明已从杭州搬到南京，助手确认更新。"
+    },
+    {
+      "content": "旧的早上七点叫醒约定已经取消，当前约定为下午三点提醒用户起床。",
+      "importance": 7,
+      "approximate_time": "2026-06-20",
+      "tags": [
+        "约定",
+        "作息",
+        "状态更新"
+      ],
+      "evidence_summary": "用户因改为夜班明确取消旧时间并指定新时间，助手确认。"
+    }
+  ],
+  "unfinished_threads": [
+    "按当前约定在下午三点提醒用户起床。"
+  ],
+  "uncertain_items": [
+    {
+      "content": "角色是否有姐姐或是否为独生女。",
+      "reason": "角色连续给出互相冲突的陈述，并表示其中可能是临时编造，无法依据时间变化解释。"
+    }
+  ],
+  "source_metadata": {
+    "source_platform": "synthetic_json_fixture",
+    "character_name_on_source": "",
+    "processed_at": null,
+    "notes": ""
+  }
+}

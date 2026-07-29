@@ -6,7 +6,7 @@ import { ApiError, api, type Character } from '../lib/api';
 import { analytics } from '../lib/analytics';
 import { copyText } from '../lib/clipboard';
 import {
-  DIRECT_MIGRATION_PROMPT, MERGE_MIGRATION_PROMPT, memoryCountBucket
+  UNIFIED_RELATIONSHIP_MIGRATION_PROMPT, memoryCountBucket
 } from '../lib/migration-prompts';
 
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -43,14 +43,19 @@ interface PreviewData {
     preferences: string[];
     boundaries: string[];
   };
-  relationship: { summary: string; stage: string; interaction_patterns: string[] };
+  relationship: {
+    summary: string;
+    stage: string;
+    user_addressing: string[];
+    interaction_patterns: string[];
+  };
   memories: PreviewMemory[];
   unfinished_threads: string[];
   uncertain_items: { content: string; reason: string }[];
   source_metadata: {
     source_platform: string;
     character_name_on_source: string;
-    processed_at: string;
+    processed_at: string | null;
     notes: string;
   };
 }
@@ -251,14 +256,20 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
           update_existing_character: mode === 'EXISTING' && updateExisting,
           keep_uncertain_items: keepUncertain,
           payload: {
-            ...draft,
+            character: draft.character,
+            user_profile: draft.user_profile,
+            relationship: draft.relationship,
             memories: selectedMemories.map((memory) => ({
               content: memory.content,
               importance: memory.importance,
               approximate_time: memory.approximate_time,
               tags: memory.tags,
               evidence_summary: memory.evidence_summary
-            }))
+            })),
+            unfinished_threads: draft.unfinished_threads,
+            uncertain_items: draft.uncertain_items,
+            source_metadata: draft.source_metadata,
+            schema_version: 'litetavern_relationship_import_v1'
           }
         })
       });
@@ -325,14 +336,9 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
               </ol>
               <div className="migration-actions">
                 <CopyButton
-                  label="复制直接迁移 Prompt"
-                  text={DIRECT_MIGRATION_PROMPT}
-                  onCopied={() => track('relationship_import_prompt_copied', 'success', { prompt_kind: 'direct' })}
-                />
-                <CopyButton
-                  label="复制分批合并 Prompt"
-                  text={MERGE_MIGRATION_PROMPT}
-                  onCopied={() => track('relationship_import_prompt_copied', 'success', { prompt_kind: 'merge' })}
+                  label="复制迁移已有关系 Prompt"
+                  text={UNIFIED_RELATIONSHIP_MIGRATION_PROMPT}
+                  onCopied={() => track('relationship_import_prompt_copied', 'success', { prompt_kind: 'unified' })}
                 />
               </div>
               <button className="primary-button" onClick={() => setStep('input')}>进入导入</button>
@@ -399,7 +405,7 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
 
                   <div className="editor-section">
                     <h3>你的资料</h3>
-                    <label>角色对你的称呼<input aria-label="角色对你的称呼" value={draft.user_profile.preferred_name} onChange={(event) => editDraft({ user_profile: { ...draft.user_profile, preferred_name: event.target.value } })} /></label>
+                    <label>希望使用的名字<input aria-label="希望使用的名字" value={draft.user_profile.preferred_name} onChange={(event) => editDraft({ user_profile: { ...draft.user_profile, preferred_name: event.target.value } })} /></label>
                     <ListField label="用户事实" items={draft.user_profile.facts} onChange={(next) => editDraft({ user_profile: { ...draft.user_profile, facts: next } })} />
                     <ListField label="用户偏好" items={draft.user_profile.preferences} onChange={(next) => editDraft({ user_profile: { ...draft.user_profile, preferences: next } })} />
                     <ListField label="互动边界" items={draft.user_profile.boundaries} onChange={(next) => editDraft({ user_profile: { ...draft.user_profile, boundaries: next } })} />
@@ -409,6 +415,7 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
                     <h3>关系</h3>
                     <label>关系摘要<textarea aria-label="关系摘要" rows={4} value={draft.relationship.summary} onChange={(event) => editDraft({ relationship: { ...draft.relationship, summary: event.target.value } })} /></label>
                     <label>当前关系阶段<input aria-label="当前关系阶段" value={draft.relationship.stage} onChange={(event) => editDraft({ relationship: { ...draft.relationship, stage: event.target.value } })} /></label>
+                    <ListField label="角色对你的稳定称呼" items={draft.relationship.user_addressing} onChange={(next) => editDraft({ relationship: { ...draft.relationship, user_addressing: next } })} />
                     <ListField label="互动模式" items={draft.relationship.interaction_patterns} onChange={(next) => editDraft({ relationship: { ...draft.relationship, interaction_patterns: next } })} />
                     <ListField label="未完成事项" items={draft.unfinished_threads} onChange={(next) => editDraft({ unfinished_threads: next })} />
                   </div>

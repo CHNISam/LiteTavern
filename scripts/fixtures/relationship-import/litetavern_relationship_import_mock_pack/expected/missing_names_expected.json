@@ -1,0 +1,55 @@
+{
+  "schema_version": "litetavern_relationship_import_v1",
+  "character": {
+    "name": "",
+    "description": "",
+    "personality_traits": [],
+    "speaking_style": []
+  },
+  "user_profile": {
+    "preferred_name": "队长",
+    "facts": [
+      "正在准备研究生复试",
+      "英语自我介绍是当前复试准备难点"
+    ],
+    "preferences": [
+      "普通情况优先使用文字沟通"
+    ],
+    "boundaries": [
+      "除紧急情况外，不希望被建议突然打电话"
+    ]
+  },
+  "relationship": {
+    "summary": "双方处于共同练习复试英语自我介绍的早期陪伴阶段。",
+    "stage": "初步熟悉",
+    "user_addressing": [
+      "队长"
+    ],
+    "interaction_patterns": [
+      "每晚进行十分钟英语练习"
+    ]
+  },
+  "memories": [
+    {
+      "content": "双方约定每晚练习十分钟研究生复试英语自我介绍。",
+      "importance": 7,
+      "approximate_time": null,
+      "tags": [
+        "复试",
+        "英语",
+        "约定"
+      ],
+      "evidence_summary": "助手提出每晚练十分钟，用户完成当天练习并确认明天继续。"
+    }
+  ],
+  "unfinished_threads": [
+    "明天继续十分钟英语自我介绍练习。"
+  ],
+  "uncertain_items": [],
+  "source_metadata": {
+    "source_platform": "",
+    "character_name_on_source": "",
+    "processed_at": null,
+    "notes": "输入没有平台名和角色名，不得猜测补全。"
+  }
+}

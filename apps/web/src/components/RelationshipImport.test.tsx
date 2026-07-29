@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RelationshipImport } from './RelationshipImport';
-import { DIRECT_MIGRATION_PROMPT } from '../lib/migration-prompts';
+import { UNIFIED_RELATIONSHIP_MIGRATION_PROMPT } from '../lib/migration-prompts';
 import type { Character } from '../lib/api';
 
 function json(body: unknown, status = 200) {
@@ -30,7 +30,12 @@ const preview = {
     preferences: [],
     boundaries: []
   },
-  relationship: { summary: SUMMARY, stage: '暧昧期', interaction_patterns: ['深夜互道晚安'] },
+  relationship: {
+    summary: SUMMARY,
+    stage: '暧昧期',
+    user_addressing: ['小满'],
+    interaction_patterns: ['深夜互道晚安']
+  },
   memories: [
     {
       key: 'm0',
@@ -54,7 +59,7 @@ const preview = {
   source_metadata: {
     source_platform: 'doubao',
     character_name_on_source: '星遥',
-    processed_at: '2026-07-27',
+    processed_at: null,
     notes: ''
   },
   counts: { memories: 2, uncertain_items: 1, unfinished_threads: 1, duplicate_memories: 0 }
@@ -102,7 +107,7 @@ async function goToPreview() {
 }
 
 describe('RelationshipImport', () => {
-  it('offers both migration prompts for copying', async () => {
+  it('offers exactly one unified migration prompt for copying', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     mockApi({});
@@ -115,11 +120,11 @@ describe('RelationshipImport', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /复制直接迁移 Prompt/ }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(DIRECT_MIGRATION_PROMPT));
-    fireEvent.click(screen.getByRole('button', { name: /复制分批合并 Prompt/ }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
-    expect(String(writeText.mock.calls[1]?.[0])).toContain('合并规则');
+    fireEvent.click(screen.getByRole('button', { name: /复制迁移已有关系 Prompt/ }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(UNIFIED_RELATIONSHIP_MIGRATION_PROMPT)
+    );
+    expect(screen.queryByRole('button', { name: /分批|合并/ })).not.toBeInTheDocument();
   });
 
   it('rejects a file that is not .json without reading it', async () => {
