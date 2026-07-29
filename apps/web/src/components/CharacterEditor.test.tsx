@@ -145,4 +145,46 @@ describe('CharacterEditor', () => {
     expect(await screen.findByText(/角色资料已保存，但头像上传失败/)).toBeInTheDocument();
     expect(screen.getByDisplayValue('角色')).toBeInTheDocument();
   });
+
+  /**
+   * The cropper hands back a producer rather than a finished Blob, so the crop
+   * that gets encoded is the one on screen when the user saves — including an
+   * adjustment made immediately before pressing the button.
+   */
+  it('encodes the avatar from the crop as it stands at save time', async () => {
+    const { processAvatarImage } = await import('../lib/avatar-image');
+    // The module mock is shared across the file; restoreAllMocks does not reset it.
+    vi.mocked(processAvatarImage).mockClear();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const path = String(input);
+      if (path === '/v1/characters' && init?.method === 'POST') {
+        return json({ character_id: 'new-card' }, 201);
+      }
+      if (path === '/v1/characters/new-card/avatar') return json({ uploaded: true });
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+    const onSaved = vi.fn().mockResolvedValue(undefined);
+    render(<CharacterEditor open onClose={() => undefined} onSaved={onSaved} />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: '名称' }), {
+      target: { value: '有头像' }
+    });
+    fireEvent.change(screen.getByLabelText('选择头像'), {
+      target: { files: [new File(['avatar'], 'avatar.png', { type: 'image/png' })] }
+    });
+    const preview = await screen.findByAltText('头像预览');
+    // jsdom reports no intrinsic size, so the natural dimensions are supplied.
+    Object.defineProperty(preview, 'naturalWidth', { value: 900, configurable: true });
+    Object.defineProperty(preview, 'naturalHeight', { value: 600, configurable: true });
+    fireEvent.load(preview);
+
+    fireEvent.change(await screen.findByLabelText('缩放'), { target: { value: '2' } });
+    // Nothing is encoded while adjusting.
+    expect(processAvatarImage).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '保存角色' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(processAvatarImage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(processAvatarImage).mock.calls[0]![1]).toMatchObject({ zoom: 2 });
+  });
 });

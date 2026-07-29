@@ -1156,42 +1156,84 @@ button { color: inherit; }
 .creator-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .editor-save-button { position: sticky; bottom: 0; margin-top: 2px; }
 
-.avatar-cropper {
-  padding: 14px; border: 1px dashed rgba(216, 186, 120, 0.3); border-radius: 12px;
-  background: rgba(216, 186, 120, 0.035); outline: 0;
+/* The picker used to be a dashed panel holding two previews of the same picture,
+   three sliders and an "apply crop" button. It is now one viewport — the frame
+   you drag is the frame that gets saved — plus zoom. */
+.editor-identity { display: flex; align-items: flex-start; gap: 16px; }
+.editor-name { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 7px; color: #b5bac5; font-size: 12px; }
+.editor-name input {
+  width: 100%; padding: 11px 12px; border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px; outline: 0; color: #f2f3f6; background: #252a36; font: inherit;
+  transition: border-color 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
 }
-.avatar-cropper:focus-within { border-color: rgba(216, 186, 120, 0.62); }
-.avatar-workbench { display: flex; align-items: center; gap: 16px; }
-.avatar-final-preview {
-  flex: 0 0 auto; width: 92px; height: 92px; overflow: hidden;
-  display: grid; place-items: center; border-radius: 50%;
-  background: #303641; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+.editor-name input:focus {
+  border-color: rgba(198, 164, 92, 0.6); box-shadow: 0 0 0 3px rgba(198, 164, 92, 0.14);
 }
-.avatar-final-preview img { width: 100%; height: 100%; object-fit: cover; }
-.avatar-final-preview span { display: grid; justify-items: center; gap: 5px; color: #8e95a4; }
-.avatar-final-preview small { font-size: 9px; }
-.avatar-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.avatar-controls > small { flex-basis: 100%; color: #818897; font-size: 10px; }
-.avatar-file-button, .avatar-remove, .crop-sliders button {
-  display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px;
+
+.avatar-cropper { flex: 0 0 auto; outline: 0; }
+.avatar-workbench { display: flex; align-items: flex-start; gap: 13px; }
+.avatar-viewport {
+  position: relative;
+  flex: 0 0 auto;
+  width: 104px;
+  height: 104px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #262c37;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.11);
+}
+.avatar-viewport img {
+  max-width: none;
+  /* Fitted by the cropper when a source image is loaded; an already-square stored
+     avatar just fills the circle. */
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.avatar-viewport.is-adjustable { cursor: grab; touch-action: none; }
+.avatar-viewport.is-adjustable:active { cursor: grabbing; }
+.avatar-viewport.is-adjustable img { position: absolute; top: 0; left: 0; object-fit: fill; }
+.avatar-viewport-empty { color: #838a99; }
+.avatar-viewport-busy {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--gold-hi);
+  background: rgba(12, 14, 19, 0.72);
+}
+.avatar-controls { display: grid; gap: 9px; padding-top: 6px; }
+.avatar-controls > small { color: #818897; font-size: 10px; line-height: 1.5; }
+.avatar-buttons { display: flex; align-items: center; gap: 7px; }
+.avatar-file-button,
+.avatar-remove {
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px;
   border: 1px solid rgba(255, 255, 255, 0.11); border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05); color: #d7dae0; cursor: pointer;
+  background: rgba(255, 255, 255, 0.05); color: #d7dae0; font-size: 12px; cursor: pointer;
   transition: background-color 150ms ease, transform 140ms var(--ease-out);
 }
-.avatar-file-button:active, .avatar-remove:active, .crop-sliders button:active { transform: scale(0.97); }
+.avatar-file-button:active,
+.avatar-remove:active { transform: scale(0.97); }
 .avatar-file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.avatar-remove { color: #e6b2b2; }
-.crop-editor { display: grid; grid-template-columns: 220px 1fr; gap: 18px; margin-top: 15px; }
-.crop-square {
-  width: 220px; aspect-ratio: 1; overflow: hidden; display: grid; place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px; background: #11151c;
+.avatar-remove { padding: 7px 9px; color: #e6b2b2; }
+.avatar-zoom { display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 8px; color: #9ea4b1; font-size: 10px; }
+.avatar-zoom input { width: 100%; padding: 0; background: transparent; }
+@media (hover: hover) and (pointer: fine) {
+  .avatar-file-button:hover,
+  .avatar-remove:hover { background: rgba(255, 255, 255, 0.09); }
 }
-.crop-square img { width: 100%; height: 100%; object-fit: cover; transform-origin: center; }
-.crop-sliders { display: grid; align-content: center; gap: 10px; }
-.crop-sliders label { display: grid; grid-template-columns: 52px 1fr; align-items: center; color: #9ea4b1; font-size: 10px; }
-.crop-sliders input { padding: 0; background: transparent; box-shadow: none; }
-.crop-sliders button { justify-self: start; }
-.avatar-hint { margin: 10px 0 0; color: #777f8f; font-size: 10px; }
+
+/* Secondary hint after a field label, e.g. 每行一条. */
+.editor-section label > span { display: flex; align-items: baseline; gap: 7px; }
+.editor-section label em { color: #7d8493; font-size: 10.5px; font-style: normal; }
 
 /* ============================================================================
    Motion preferences
@@ -1244,9 +1286,7 @@ button { color: inherit; }
   .provider-grid { grid-template-columns: 1fr; }
   .model-service-overview { grid-template-columns: 1fr; }
   .rail-actions { grid-template-columns: 1fr; }
-  .crop-editor { grid-template-columns: 1fr; }
-  .crop-square { width: min(220px, 100%); }
-  .creator-fields { grid-template-columns: 1fr; }
+      .creator-fields { grid-template-columns: 1fr; }
   .modal-backdrop { padding: 0; }
   .settings-panel,
   .app-settings-panel,

@@ -4,35 +4,92 @@ import {
   useState,
   type ClipboardEvent,
   type DragEvent,
-  type MutableRefObject
+  type MutableRefObject,
+  type PointerEvent
 } from 'react';
-import { ImagePlus, LoaderCircle, Trash2 } from 'lucide-react';
-import { processAvatarImage, type AvatarCrop } from '../lib/avatar-image';
+import { ImagePlus, Trash2 } from 'lucide-react';
+import {
+  AVATAR_IMAGE_POLICY,
+  calculateSquareCrop,
+  processAvatarImage,
+  type AvatarCrop
+} from '../lib/avatar-image';
+
+/**
+ * What the cropper hands back. The viewport is already exact, so nothing is
+ * encoded while the user adjusts — the caller encodes once, when it saves.
+ * Handing back a finished Blob instead meant a save that landed before the
+ * encode finished silently dropped the avatar.
+ */
+export interface AvatarSelection {
+  encode: () => Promise<Blob>;
+}
 
 interface AvatarCropperProps {
   existingUrl?: string;
-  onChange: (avatar: Blob | null, removed: boolean) => void;
+  onChange: (selection: AvatarSelection | null, removed: boolean) => void;
 }
 
 const DEFAULT_CROP: AvatarCrop = { zoom: 1, x: 0, y: 0 };
 
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+/**
+ * Places the source image inside the crop viewport so that what the viewport
+ * shows is exactly what `processAvatarImage` will cut. Same geometry as
+ * `calculateSquareCrop`, expressed in viewport pixels.
+ */
+function viewportImageStyle(
+  natural: { width: number; height: number } | null,
+  crop: AvatarCrop,
+  viewport: number
+) {
+  if (!natural || !viewport) return undefined;
+  const { sx, sy, size } = calculateSquareCrop(natural.width, natural.height, crop);
+  const scale = viewport / size;
+  return {
+    width: `${natural.width * scale}px`,
+    height: `${natural.height * scale}px`,
+    transform: `translate(${-sx * scale}px, ${-sy * scale}px)`
+  };
+}
+
 export function AvatarCropper({ existingUrl, onChange }: AvatarCropperProps) {
-  const [file, setFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
   const [crop, setCrop] = useState(DEFAULT_CROP);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Measured, not assumed: the drag maths and the preview geometry both need the
+  // viewport's real width, and it is responsive.
+  const [viewport, setViewport] = useState(0);
   const sourceUrlRef = useRef<string | null>(null);
-  const previewUrlRef = useRef<string | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const cropRef = useRef(crop);
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; crop: AvatarCrop } | null>(null);
+
+  // The encoder reads the crop through a ref, so the selection handed to the
+  // caller stays valid however many times the user nudges the frame afterwards.
+  useEffect(() => { cropRef.current = crop; }, [crop]);
 
   useEffect(() => () => {
     if (sourceUrlRef.current) URL.revokeObjectURL(sourceUrlRef.current);
-    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
   }, []);
 
-  function replaceObjectUrl(
-    next: string,
+  useEffect(() => {
+    const element = viewportRef.current;
+    if (!element) return;
+    const measure = () => setViewport(element.getBoundingClientRect().width);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  function replaceSourceUrl(
+    next: string | null,
     current: MutableRefObject<string | null>,
     setter: (value: string | null) => void
   ) {
@@ -41,27 +98,33 @@ export function AvatarCropper({ existingUrl, onChange }: AvatarCropperProps) {
     setter(next);
   }
 
-  async function apply(nextFile = file, nextCrop = crop) {
-    if (!nextFile || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const output = await processAvatarImage(nextFile, nextCrop);
-      replaceObjectUrl(URL.createObjectURL(output), previewUrlRef, setPreviewUrl);
-      onChange(output, false);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '头像处理失败。');
-    } finally {
-      setBusy(false);
+  /** Obvious rejections are reported at pick time rather than at save time. */
+  function rejectionFor(candidate: File): string | null {
+    if (candidate.size > AVATAR_IMAGE_POLICY.maxInputBytes) return '图片不能超过 12 MB。';
+    if (
+      candidate.type &&
+      !AVATAR_IMAGE_POLICY.acceptedTypes.includes(
+        candidate.type as (typeof AVATAR_IMAGE_POLICY.acceptedTypes)[number]
+      )
+    ) {
+      return '请选择 JPEG、PNG 或 WebP 图片。';
     }
+    return null;
   }
 
-  async function choose(next: File | null) {
-    if (!next || busy) return;
-    setFile(next);
+  function choose(next: File | null) {
+    if (!next) return;
+    const rejection = rejectionFor(next);
+    if (rejection) {
+      setError(rejection);
+      return;
+    }
+    setNatural(null);
     setCrop(DEFAULT_CROP);
-    replaceObjectUrl(URL.createObjectURL(next), sourceUrlRef, setSourceUrl);
-    await apply(next, DEFAULT_CROP);
+    cropRef.current = DEFAULT_CROP;
+    setError(null);
+    replaceSourceUrl(URL.createObjectURL(next), sourceUrlRef, setSourceUrl);
+    onChange({ encode: () => processAvatarImage(next, cropRef.current) }, false);
   }
 
   function firstImage(files: FileList | null): File | null {
@@ -70,27 +133,60 @@ export function AvatarCropper({ existingUrl, onChange }: AvatarCropperProps) {
 
   function drop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
-    void choose(firstImage(event.dataTransfer.files));
+    choose(firstImage(event.dataTransfer.files));
   }
 
   function paste(event: ClipboardEvent<HTMLDivElement>) {
-    const image = Array.from(event.clipboardData.files)
-      .find((item) => item.type.startsWith('image/'));
+    const image = Array.from(event.clipboardData.files).find((item) =>
+      item.type.startsWith('image/')
+    );
     if (image) {
       event.preventDefault();
-      void choose(image);
+      choose(image);
     }
   }
 
   function remove() {
-    setFile(null);
-    setSourceUrl(null);
-    setPreviewUrl(null);
+    setNatural(null);
+    setCrop(DEFAULT_CROP);
     setError(null);
+    replaceSourceUrl(null, sourceUrlRef, setSourceUrl);
     onChange(null, true);
   }
 
-  const displayed = previewUrl ?? existingUrl;
+  // Dragging the picture is how repositioning works everywhere else, so the two
+  // separate 水平/垂直 sliders are gone. Pointer capture keeps the drag alive when
+  // the pointer leaves the small viewport.
+  function startDrag(event: PointerEvent<HTMLDivElement>) {
+    if (!natural || !sourceUrl) return;
+    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, crop };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveDrag(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !natural || !viewport) return;
+    const { size } = calculateSquareCrop(natural.width, natural.height, drag.crop);
+    const scale = viewport / size;
+    const spanX = natural.width - size;
+    const spanY = natural.height - size;
+    // Pixels dragged convert back into the -1..1 crop offsets the encoder takes.
+    const nextX = spanX > 0 ? drag.crop.x - (2 * (event.clientX - drag.x)) / (spanX * scale) : 0;
+    const nextY = spanY > 0 ? drag.crop.y - (2 * (event.clientY - drag.y)) / (spanY * scale) : 0;
+    setCrop({ zoom: drag.crop.zoom, x: clamp(nextX, -1, 1), y: clamp(nextY, -1, 1) });
+  }
+
+  function endDrag(event: PointerEvent<HTMLDivElement>) {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  const displayed = sourceUrl ?? existingUrl;
+  const adjustable = Boolean(sourceUrl && natural);
+
   return (
     <div
       className="avatar-cropper"
@@ -98,59 +194,78 @@ export function AvatarCropper({ existingUrl, onChange }: AvatarCropperProps) {
       onDragOver={(event) => event.preventDefault()}
       onDrop={drop}
       onPaste={paste}
-      tabIndex={0}
     >
       <div className="avatar-workbench">
-        <div className="avatar-final-preview">
-          {displayed
-            ? <img src={displayed} alt="头像预览" />
-            : <span><ImagePlus size={24} /><small>默认头像</small></span>}
-        </div>
-        <div className="avatar-controls">
-          <label className="avatar-file-button">
-            <ImagePlus size={16} />
-            <span>{displayed ? '替换头像' : '选择头像'}</span>
-            <input
-              aria-label="选择头像"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              onChange={(event) => void choose(event.target.files?.[0] ?? null)}
-              disabled={busy}
+        {/* One picture, not two: this viewport is both the crop surface and the
+            preview, so the frame the user drags is the frame that gets saved. */}
+        <div
+          ref={viewportRef}
+          className={`avatar-viewport ${adjustable ? 'is-adjustable' : ''}`}
+          data-testid="avatar-viewport"
+          onPointerDown={startDrag}
+          onPointerMove={moveDrag}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        >
+          {displayed ? (
+            <img
+              src={displayed}
+              alt="头像预览"
+              draggable={false}
+              {...(sourceUrl ? { style: viewportImageStyle(natural, crop, viewport) } : {})}
+              onLoad={(event) =>
+                sourceUrl &&
+                setNatural({
+                  width: event.currentTarget.naturalWidth,
+                  height: event.currentTarget.naturalHeight
+                })
+              }
             />
-          </label>
-          {displayed && (
-            <button type="button" className="avatar-remove" onClick={remove} disabled={busy}>
-              <Trash2 size={15} /> 删除头像
-            </button>
+          ) : (
+            <span className="avatar-viewport-empty"><ImagePlus size={22} /></span>
           )}
-          <small>可拖入或粘贴图片；保存前会裁剪并缩放为正方形。</small>
+        </div>
+
+        <div className="avatar-controls">
+          <div className="avatar-buttons">
+            <label className="avatar-file-button">
+              <ImagePlus size={15} />
+              <span>{displayed ? '替换' : '选择图片'}</span>
+              <input
+                aria-label="选择头像"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => choose(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            {displayed && (
+              <button type="button" className="avatar-remove" onClick={remove} aria-label="删除头像">
+                <Trash2 size={15} />
+              </button>
+            )}
+          </div>
+
+          {adjustable ? (
+            <label className="avatar-zoom">
+              <span>缩放</span>
+              <input
+                type="range"
+                min="1"
+                max="3"
+                step="0.02"
+                aria-label="缩放"
+                value={crop.zoom}
+                onChange={(event) => setCrop({ ...crop, zoom: Number(event.target.value) })}
+              />
+            </label>
+          ) : (
+            <small>支持拖入或粘贴图片，保存时裁剪为正方形。</small>
+          )}
+          {adjustable && <small>拖动画面调整位置。</small>}
         </div>
       </div>
 
-      {sourceUrl && (
-        <div className="crop-editor">
-          <div className="crop-square">
-            <img
-              src={sourceUrl}
-              alt=""
-              style={{
-                transform: `translate(${crop.x * -18}%, ${crop.y * -18}%) scale(${crop.zoom})`
-              }}
-            />
-          </div>
-          <div className="crop-sliders">
-            <label>缩放<input type="range" min="1" max="3" step="0.05" value={crop.zoom} onChange={(event) => setCrop({ ...crop, zoom: Number(event.target.value) })} /></label>
-            <label>水平<input type="range" min="-1" max="1" step="0.02" value={crop.x} onChange={(event) => setCrop({ ...crop, x: Number(event.target.value) })} /></label>
-            <label>垂直<input type="range" min="-1" max="1" step="0.02" value={crop.y} onChange={(event) => setCrop({ ...crop, y: Number(event.target.value) })} /></label>
-            <button type="button" onClick={() => void apply()} disabled={busy}>
-              {busy ? <LoaderCircle className="spin" size={15} /> : null}
-              更新裁剪预览
-            </button>
-          </div>
-        </div>
-      )}
       {error && <p className="inline-error">{error}</p>}
-      <p className="avatar-hint">没有合适的头像？你可以使用任意图片工具制作后上传。</p>
     </div>
   );
 }
