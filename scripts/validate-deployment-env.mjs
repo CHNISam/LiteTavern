@@ -3,8 +3,10 @@ import { fileURLToPath } from 'node:url';
 
 const HOSTED_BRANCHES = new Set(['develop', 'main']);
 
-export function validateDeploymentEnvironment({ cloudBaseUrl, refName }) {
+export function validateDeploymentEnvironment({ cloudBaseUrl, refName, apiMode }) {
   if (!HOSTED_BRANCHES.has(refName)) return;
+
+  if (refName === 'develop' && apiMode === 'same-origin-worker') return;
 
   const candidate = cloudBaseUrl?.trim();
   if (!candidate) {
@@ -35,7 +37,8 @@ if (isDirectExecution) {
   try {
     validateDeploymentEnvironment({
       cloudBaseUrl: process.env.VITE_CLOUD_BASE_URL,
-      refName: process.env.GITHUB_REF_NAME ?? ''
+      refName: process.env.GITHUB_REF_NAME ?? '',
+      apiMode: process.env.HOSTED_API_MODE
     });
     console.log('Hosted deployment environment is valid.');
   } catch (error) {

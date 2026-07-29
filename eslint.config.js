@@ -8,7 +8,7 @@ export default tseslint.config(
       '**/coverage/**',
       '**/node_modules/**',
       '.tmp/**',
-      '.wrangler/**',
+      '**/.wrangler/**',
       '.playwright-cli/**',
       'output/**'
     ]
@@ -22,12 +22,18 @@ export default tseslint.config(
     }
   },
   {
-    files: ['deploy/internal-gate/_worker.js'],
+    files: ['deploy/internal-gate/*.js'],
     languageOptions: {
       globals: {
+        console: 'readonly',
+        crypto: 'readonly',
+        DataView: 'readonly',
+        TextDecoder: 'readonly',
+        TextEncoder: 'readonly',
         Response: 'readonly',
         URL: 'readonly',
-        atob: 'readonly'
+        atob: 'readonly',
+        btoa: 'readonly'
       }
     }
   },
@@ -46,8 +52,15 @@ export default tseslint.config(
     files: ['scripts/**/*.mjs'],
     languageOptions: {
       globals: {
+        Blob: 'readonly',
+        btoa: 'readonly',
         console: 'readonly',
+        crypto: 'readonly',
+        DataView: 'readonly',
+        FormData: 'readonly',
         process: 'readonly',
+        Request: 'readonly',
+        TextEncoder: 'readonly',
         URL: 'readonly'
       }
     }

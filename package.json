@@ -11,7 +11,7 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm-run-all test:workspaces test:deployment",
     "test:workspaces": "npm run test --workspaces --if-present",
-    "test:deployment": "node --test scripts/validate-deployment-env.test.mjs",
+    "test:deployment": "node --test scripts/validate-deployment-env.test.mjs scripts/internal-api.test.mjs",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",

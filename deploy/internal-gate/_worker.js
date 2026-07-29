@@ -4,7 +4,7 @@
  * This file is copied into the build output *only* for internal deploys:
  *
  *   cp deploy/internal-gate/_worker.js apps/web/dist/
- *   wrangler pages deploy apps/web/dist --project-name litetavern-internal --branch develop
+ *   wrangler pages deploy --branch develop --cwd deploy/internal-gate
  *
  * Production deploys never copy it, so litetavern.pages.dev stays purely static —
  * no Worker invocation per asset, no shared request quota consumed.
@@ -20,6 +20,12 @@
  * no per-user identity, no revoking one collaborator without rotating for all,
  * no audit trail. Cloudflare Access is the real answer.
  */
+
+import {
+  D1Repository,
+  R2ObjectStorage,
+  handleApiRequest
+} from './api.js';
 
 const REALM = 'LiteTavern internal';
 
@@ -97,6 +103,30 @@ export default {
     const expected = env.INTERNAL_PREVIEW_PASSWORD;
     if (!expected) return misconfigured();
     if (!authorized(request, expected)) return unauthorized();
+
+    const url = new URL(request.url);
+    if (url.pathname.startsWith('/v1/')) {
+      if (!env.DB || !env.ASSETS_BUCKET) {
+        return new Response(JSON.stringify({
+          error: {
+            code: 'INTERNAL_API_MISCONFIGURED',
+            message: '内测 API 尚未完成配置。',
+            retryable: true
+          }
+        }), {
+          status: 503,
+          headers: {
+            'Cache-Control': 'no-store',
+            'Content-Type': 'application/json; charset=utf-8',
+            'X-Robots-Tag': 'noindex, nofollow'
+          }
+        });
+      }
+      return handleApiRequest(request, {
+        repository: new D1Repository(env.DB),
+        objects: new R2ObjectStorage(env.ASSETS_BUCKET)
+      });
+    }
 
     const response = await serveAssets(request, env);
     const gated = new Response(response.body, response);
