@@ -20,6 +20,7 @@ interface AccountSyncPanelProps {
   onStatusChanged: (status: CloudStatus) => void;
   onLogin: () => void;
   onLogout: () => void;
+  onConnectModel: () => void;
 }
 
 function percent(ratio: number): number {
@@ -38,7 +39,8 @@ export function AccountSyncPanel({
   onClose,
   onStatusChanged,
   onLogin,
-  onLogout
+  onLogout,
+  onConnectModel
 }: AccountSyncPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -238,6 +240,11 @@ export function AccountSyncPanel({
                 onClick={() => void enterAlpha()}
               >
                 {busy ? <LoaderCircle className="spin" size={16} /> : '开始使用 Alpha 资格'}
+              </button>
+            )}
+            {status?.alpha_active && (
+              <button className="secondary-button" onClick={onConnectModel}>
+                连接自己的模型继续聊天
               </button>
             )}
             {registered && (
