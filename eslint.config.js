@@ -8,6 +8,7 @@ export default tseslint.config(
       '**/coverage/**',
       '**/node_modules/**',
       '.tmp/**',
+      '.wrangler/**',
       '.playwright-cli/**',
       'output/**'
     ]
@@ -18,6 +19,16 @@ export default tseslint.config(
     files: ['**/*.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off'
+    }
+  },
+  {
+    files: ['deploy/internal-gate/_worker.js'],
+    languageOptions: {
+      globals: {
+        Response: 'readonly',
+        URL: 'readonly',
+        atob: 'readonly'
+      }
     }
   },
   {
