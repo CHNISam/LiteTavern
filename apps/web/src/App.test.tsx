@@ -178,12 +178,12 @@ describe('HSR message shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByTitle('试用额度剩余 30 次')).toBeInTheDocument();
+    expect(await screen.findByTitle('LiteTavern Cloud 试用额度：剩余 30 / 30 次')).toBeInTheDocument();
     const composer = screen.getByPlaceholderText('给流萤发送短信…');
     fireEvent.change(composer, { target: { value: '你好' } });
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
 
-    expect(await screen.findByTitle('试用额度剩余 29 次')).toBeInTheDocument();
+    expect(await screen.findByTitle('LiteTavern Cloud 试用额度：剩余 29 / 30 次')).toBeInTheDocument();
   });
 
   it('points an anonymous visitor at registration and BYOK when the trial is spent', async () => {
@@ -225,11 +225,11 @@ describe('HSR message shell', () => {
 
     expect(
       await screen.findByText(
-        '当前没有可用模型。请配置自己的模型，或查看 LiteTavern 提供的模型额度。'
+        '当前没有可用模型。请接入自己的模型，或查看 LiteTavern Cloud 的平台额度。'
       )
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '配置自己的模型' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '查看平台额度' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '接入自己的模型' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看 LiteTavern Cloud 额度' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
   });
 
@@ -279,7 +279,7 @@ describe('HSR message shell', () => {
     expect(
       await screen.findByText('官方免费服务暂时繁忙，请稍后再试。本次不会扣除免费次数。')
     ).toBeInTheDocument();
-    expect(screen.getByTitle('试用额度剩余 30 次')).toBeInTheDocument();
+    expect(screen.getByTitle('LiteTavern Cloud 试用额度：剩余 30 / 30 次')).toBeInTheDocument();
   });
 
   it('shows a clear BYOK path when the platform model channel is disabled', async () => {
@@ -315,11 +315,11 @@ describe('HSR message shell', () => {
 
     expect(
       await screen.findByText(
-        '当前没有可用模型。请配置自己的模型，或查看 LiteTavern 提供的模型额度。'
+        '当前没有可用模型。请接入自己的模型，或查看 LiteTavern Cloud 的平台额度。'
       )
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '配置自己的模型' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '查看平台额度' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '接入自己的模型' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看 LiteTavern Cloud 额度' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
   });
 
@@ -379,7 +379,7 @@ describe('HSR message shell', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '模型服务' }));
     const panel = await screen.findByRole('dialog', { name: '模型服务' });
-    expect(within(panel).getByText('今日平台回复：剩余 14 / 20')).toBeInTheDocument();
+    expect(within(panel).getByRole('meter', { name: 'Alpha 每日额度剩余量' })).toBeInTheDocument();
     expect(within(panel).getByText('每天 08:00 恢复')).toBeInTheDocument();
     // A raw token count is never shown to an ordinary user.
     expect(screen.queryByText(/token/i)).not.toBeInTheDocument();

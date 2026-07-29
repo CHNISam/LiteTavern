@@ -237,16 +237,57 @@ export const EXPORT_PATH = '/v1/cloud/export';
 // ===== User-facing copy =====
 // Kept in one place so the product never overstates what the user actually has.
 
-export function quotaLabel(status: CloudStatus | null): string {
-  if (!status) return 'LiteTavern Cloud';
+/**
+ * The platform pool, described rather than reduced to a bare number.
+ *
+ * A lone "剩余 30 次" tells the reader nothing about who is paying, out of how
+ * much, or whether it comes back — which is exactly why it read as invented.
+ * Every field here comes from `/v1/cloud/status`; nothing is estimated.
+ */
+export interface QuotaDescription {
+  /** The service providing the allowance, named. It is not "官方" — it is a product. */
+  provider: string;
+  /** Which pool of that service is paying. */
+  poolName: string;
+  used: number;
+  total: number;
+  available: number;
+  /** 0–1, for a meter. */
+  ratio: number;
+  /** How the pool comes back, or null when it does not. */
+  renewal: string | null;
+  exhausted: boolean;
+  /** What one unit buys, in the user's terms. */
+  unitName: string;
+}
+
+export const CLOUD_PROVIDER_NAME = 'LiteTavern Cloud';
+
+export function describeQuota(status: CloudStatus | null): QuotaDescription | null {
+  if (!status || status.quota.source === 'NONE') return null;
   const { quota } = status;
-  if (quota.source === 'ALPHA') {
-    return `今日平台回复：剩余 ${quota.available} / ${quota.total}`;
-  }
-  if (quota.source === 'TRIAL') {
-    return `试用额度剩余 ${quota.available} 次`;
-  }
-  return '暂无平台额度';
+  const alpha = quota.source === 'ALPHA';
+  return {
+    provider: CLOUD_PROVIDER_NAME,
+    poolName: alpha ? 'Alpha 每日额度' : '试用额度',
+    // `used` is authoritative; deriving it from total - available would hide
+    // anything the server has reserved but not yet spent.
+    used: quota.used,
+    total: quota.total,
+    available: quota.available,
+    ratio: quota.total > 0 ? quota.available / quota.total : 0,
+    renewal: alpha ? '每天 08:00 恢复' : '用完后不再恢复',
+    exhausted: quota.available === 0,
+    unitName: '次回复'
+  };
+}
+
+/** One-line form for compact surfaces such as the composer's mode switch. */
+export function quotaLabel(status: CloudStatus | null): string {
+  const described = describeQuota(status);
+  if (!described) return `暂无 ${CLOUD_PROVIDER_NAME} 额度`;
+  const scope = described.poolName === 'Alpha 每日额度' ? '今日剩余' : '剩余';
+  return `${described.provider} ${described.poolName}：${scope} ${described.available} / ${described.total} 次`;
 }
 
 export function membershipNotice(status: CloudStatus | null): string | null {

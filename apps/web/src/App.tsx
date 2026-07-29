@@ -547,8 +547,8 @@ function ProductApp() {
       setErrorCode(code);
       setError(
         freeQuotaEnabled
-          ? '你的官方免费回复次数已用完。你可以配置自己的模型服务继续聊天。'
-          : '官方免费服务当前已关闭。你可以配置自己的模型服务继续聊天。'
+          ? 'LiteTavern Cloud 的额度已用完。你可以接入自己的模型继续聊天。'
+          : 'LiteTavern Cloud 平台模型当前已关闭。你可以接入自己的模型继续聊天。'
       );
       analytics.blockingError(analyticsErrorCode(code), 'chat', {
         errorStage: 'quota_check',
@@ -790,6 +790,7 @@ function ProductApp() {
         open={providerOpen}
         onClose={() => setProviderOpen(false)}
         cloud={cloud}
+        offline={cloudOffline}
         freeQuotaEnabled={freeQuotaEnabled}
         usageMode={usageMode}
         initialSection={providerInitialSection}
@@ -1145,11 +1146,11 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
           <div className="quota-notice" role="status">
             <span>
               <CircleAlert size={16} />
-              当前没有可用模型。请配置自己的模型，或查看 LiteTavern 提供的模型额度。
+              当前没有可用模型。请接入自己的模型，或查看 LiteTavern Cloud 的平台额度。
             </span>
             <div className="quota-notice-actions">
-              <button type="button" onClick={onProvider}>配置自己的模型</button>
-              <button type="button" onClick={onPlatformQuota}>查看平台额度</button>
+              <button type="button" onClick={onProvider}>接入自己的模型</button>
+              <button type="button" onClick={onPlatformQuota}>查看 LiteTavern Cloud 额度</button>
             </div>
           </div>
         )}
@@ -1172,9 +1173,9 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
             onClick={() => onUsageMode('PLATFORM')}
             title={quotaLabel(cloud)}
           >
-            平台额度
+            LiteTavern Cloud
           </button>
-          <button className={usageMode === 'BYOK' ? 'active' : ''} onClick={() => configurations.length ? onUsageMode('BYOK') : onProvider()}>自带模型</button>
+          <button className={usageMode === 'BYOK' ? 'active' : ''} onClick={() => configurations.length ? onUsageMode('BYOK') : onProvider()}>自己的模型</button>
           {usageMode === 'BYOK' && configurations.length > 0 && (
             <select value={selectedConfigurationId} onChange={(event) => onConfiguration(event.target.value)}>
               {configurations.map((item) => <option value={item.model_configuration_id} key={item.model_configuration_id}>{item.display_name} · {item.model_name}</option>)}
