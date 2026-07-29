@@ -70,6 +70,11 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # 必须固定版本。wrangler-action@v3 默认装 3.90.0，而 3.90.0 的 Pages
+          # 命令不接受 JSONC 配置，会直接报
+          #   Pages doesn't currently support JSON formatted config ... use wrangler.toml
+          # 并在读到 wrangler.jsonc 的瞬间失败，看起来很像认证问题。
+          wranglerVersion: '4.115.0'
           command: >-
             d1 migrations apply litetavern-internal
             --remote
@@ -80,6 +85,8 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # 同上：内部部署经由 --cwd 读同一个 wrangler.jsonc。
+          wranglerVersion: '4.115.0'
           # --branch 必须与目标项目的 production_branch 一致，
           # 否则部署会落到 preview 环境，项目根地址不会更新。
           command: ${{ github.ref_name == 'main'
