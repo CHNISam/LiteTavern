@@ -12,10 +12,13 @@
     "test": "npm-run-all test:workspaces test:deployment",
     "test:workspaces": "npm run test --workspaces --if-present",
     "test:deployment": "node --test scripts/validate-deployment-env.test.mjs scripts/internal-api.test.mjs",
+    "test:branding": "node scripts/verify-branding.mjs",
+    "test:release": "node --test scripts/release-policy.test.mjs scripts/verify-deployment.test.mjs scripts/workflow-policy.test.mjs",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
-    "check": "npm-run-all typecheck lint test build"
+    "check": "npm-run-all typecheck lint test test:branding test:release build",
+    "verify:deployment": "node scripts/verify-deployment.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -23,7 +26,7 @@
   "devDependencies": {
     "@eslint/js": "latest",
     "eslint": "latest",
-    "npm-run-all": "latest",
+    "npm-run-all2": "8.0.4",
     "typescript": "latest",
     "typescript-eslint": "latest"
   }

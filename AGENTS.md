@@ -6,20 +6,28 @@
 
 1. 所有涉及 Git 的操作必须严格遵循 `git-workflow` skill，不得凭经验跳过或自行简化其规范。
 2. 在执行分支创建、提交、推送、拉取、合并、变基、PR、发布、CI/CD 或 Git hooks 等操作前，必须先完整读取 `git-workflow/SKILL.md`。
-3. 当 `git-workflow` skill 指定了与当前任务匹配的参考文件时，必须在操作前完整读取对应文件：
-   - 分支策略：`references/branching-strategies.md`
-   - Commit 与语义化版本：`references/commit-conventions.md`
-   - PR、审查、合并、冲突与 CI 检查：`references/pull-request-workflow.md`
-   - CI/CD：`references/ci-cd-integration.md`
-   - Rebase、Cherry-pick、Bisect 等高级操作：`references/advanced-git.md`
-   - Release：`references/github-releases.md`
-   - Git hooks：`references/git-hooks-setup.md`
-4. 默认采用 GitHub Flow；分支命名、Commit 格式和 PR 流程必须符合该 skill 的要求。
-5. Commit 必须使用 Conventional Commits：`<type>[scope]: <description>`。
-6. 执行任何可能改写历史、覆盖文件、删除分支或标签的操作前，必须先检查当前分支、工作区状态、远端和目标范围；未获用户明确授权时不得执行破坏性操作。
-7. 不得覆盖或丢弃用户已有的未提交改动。发现脏工作区或与任务无关的改动时，必须保留并绕开。
-8. 在声称 Git 操作完成前，必须以最新命令输出验证分支、跟踪关系、工作区状态及相关远端结果。
-9. 远端连接优先使用 HTTPS；除非用户明确要求，不得擅自改用 SSH。
+3. 本项目固定采用受控 GitFlow：
+   - 单人开发默认在本地完成全量检查后，将 `feature/*` 合入并直接推送到 `develop`；小型、可回滚改动也可直接在 `develop` 完成；
+   - PR 不是单人开发的强制门禁，仅在未来多人协作、需要异步审查或外部贡献时使用；
+   - `release/*` 从 `develop` 创建，经 staging 与 RC 验收并获得用户明确确认后，才可合入 `main`；
+   - `hotfix/*` 从稳定版本创建，修复后同时回合 `main` 与 `develop`；
+   - `main` 只保存可发布、可追溯的生产版本。
+4. `main` 是生产分支。禁止在 `main` 上直接开发、直接提交、直接部署或把未经发布验收的提交当作生产版本。
+5. `main` 上的生产版本必须有语义化稳定标签 `vX.Y.Z` 和已发布的 GitHub Release；RC 使用 `vX.Y.Z-rc.N`，并保持 Draft/Prerelease 状态。
+6. 发布必须经过以下顺序，任何 Agent 不得跳步：
+   - `release/*` 或 `hotfix/*` 部署到受 Cloudflare Access 保护的 staging；
+   - 人工验收通过后，才可创建 RC 标签和 Draft GitHub Release；
+   - RC 再次人工确认后，才可发布稳定 Release；
+   - 只有已发布稳定 Release 的校验产物，才可在 production 环境人工批准后部署。
+7. `PRODUCTION_RELEASE_ENABLED` 默认必须为 `false`。生产后端与持久化方案未正式确认前不得开启，也不得通过本地 Wrangler、控制台手工上传或其他旁路发布生产。
+8. staging 与 production 必须使用不同 Cloudflare Pages 项目、不同环境变量和不同访问边界。staging 在验证 Access 挑战前不得部署业务页面。
+9. Commit 必须使用 Conventional Commits：`<type>[scope]: <description>`。
+10. 执行任何可能改写历史、覆盖文件、删除分支或标签的操作前，必须先检查当前分支、工作区状态、远端和目标范围；未获用户明确授权时不得执行破坏性操作。
+11. 不得覆盖或丢弃用户已有的未提交改动。发现脏工作区或与任务无关的改动时，必须保留并绕开。
+12. 在声称 Git 操作完成前，必须以最新命令输出验证分支、跟踪关系、工作区状态、标签、Release 及相关远端结果。
+13. 远端连接优先使用 HTTPS；除非用户明确要求，不得擅自改用 SSH。
+
+完整发布规范见 [`docs/release-governance.md`](./docs/release-governance.md)。
 
 ## 自动化测试执行规范（强制）
 
@@ -34,14 +42,14 @@
 5. 测试失败只说明源码与预期不一致。必须先依据已确认的需求判断是源码错误、测试错误还是需求已变化，不得仅以“让测试通过”为目标修改任一方。
 6. 测试修改权限如下：
 
-   | 操作 | 是否可直接执行 |
-   | --- | --- |
-   | 新增遗漏的测试用例 | 可以 |
-   | 修复业务代码使测试通过 | 可以 |
-   | 整理测试代码但不改变语义 | 可以 |
-   | 修改测试中的业务预期 | 必须先人工确认 |
-   | 因需求变更更新测试 | 必须先确认新需求 |
-   | 删除、跳过或弱化测试 | 默认禁止 |
+   | 操作                     | 是否可直接执行   |
+   | ------------------------ | ---------------- |
+   | 新增遗漏的测试用例       | 可以             |
+   | 修复业务代码使测试通过   | 可以             |
+   | 整理测试代码但不改变语义 | 可以             |
+   | 修改测试中的业务预期     | 必须先人工确认   |
+   | 因需求变更更新测试       | 必须先确认新需求 |
+   | 删除、跳过或弱化测试     | 默认禁止         |
 
 7. 不得为了让测试通过而修改正确标准，不得用放宽断言、删除边界条件、增加跳过标记等方式掩盖失败。
 8. 修改完成后，必须运行当前新增或修改的测试、相关模块测试，并在条件允许时运行全量测试。

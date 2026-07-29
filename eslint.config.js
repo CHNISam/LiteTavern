@@ -57,6 +57,7 @@ export default tseslint.config(
         console: 'readonly',
         crypto: 'readonly',
         DataView: 'readonly',
+        fetch: 'readonly',
         FormData: 'readonly',
         process: 'readonly',
         Request: 'readonly',

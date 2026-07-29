@@ -1,0 +1,78 @@
+name: Create release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_branch:
+        description: Release or hotfix branch already tested on staging
+        required: true
+        type: string
+      rc_tag:
+        description: Candidate tag, for example v0.1.0-rc.1
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-candidate-${{ inputs.rc_tag }}
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    name: release candidate
+    runs-on: ubuntu-latest
+    environment: release-candidate
+    env:
+      RELEASE_BRANCH: ${{ inputs.release_branch }}
+      RC_TAG: ${{ inputs.rc_tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_branch }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate candidate source and tag
+        run: |
+          node scripts/release-policy.mjs branch --source "$RELEASE_BRANCH" --target main
+          node scripts/release-policy.mjs rc --tag "$RC_TAG" --package package.json
+
+      - run: npm ci --no-audit
+      - run: npm run check
+      - run: npm audit --audit-level=high
+
+      - name: Build immutable candidate artifact
+        run: |
+          tar -C apps/web/dist -czf "litetavern-web-$RC_TAG.tar.gz" .
+          sha256sum "litetavern-web-$RC_TAG.tar.gz" > "litetavern-web-$RC_TAG.tar.gz.sha256"
+
+      - name: Create candidate tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if git rev-parse "refs/tags/$RC_TAG" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$RC_TAG")" = "$HEAD_SHA"
+          else
+            git tag -a "$RC_TAG" -m "LiteTavern $RC_TAG"
+            git push origin "$RC_TAG"
+          fi
+
+      - name: Create or update draft prerelease
+        run: |
+          if gh release view "$RC_TAG" >/dev/null 2>&1; then
+            gh release edit "$RC_TAG" --draft --prerelease --title "LiteTavern $RC_TAG"
+          else
+            gh release create "$RC_TAG" --draft --prerelease --generate-notes --title "LiteTavern $RC_TAG"
+          fi
+          gh release upload "$RC_TAG" \
+            "litetavern-web-$RC_TAG.tar.gz" \
+            "litetavern-web-$RC_TAG.tar.gz.sha256" \
+            --clobber
