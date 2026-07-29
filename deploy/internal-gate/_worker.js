@@ -11,9 +11,10 @@
  *
  * The gate is HTTP Basic auth against `INTERNAL_PREVIEW_PASSWORD`, a Pages
  * environment secret. The password is never stored in this repository. If the
- * secret is unset the gate opens rather than locking a deployment out of reach:
- * the deliberate failure mode is "open", because this file also ends up in front
- * of a build that may have no secret configured yet.
+ * secret is missing the gate fails *closed* — 503, serving nothing. A gate whose
+ * absent configuration silently publishes an internal build is not a gate, and a
+ * locked-out deployment is recoverable in one command while an accidental
+ * disclosure is not.
  *
  * This is an interim measure. It authenticates a shared secret, not a person:
  * no per-user identity, no revoking one collaborator without rotating for all,
@@ -81,10 +82,21 @@ async function serveAssets(request, env) {
   });
 }
 
+function misconfigured() {
+  return new Response('503 Service Unavailable — internal gate is not configured', {
+    status: 503,
+    headers: {
+      'Cache-Control': 'no-store',
+      'X-Robots-Tag': 'noindex, nofollow'
+    }
+  });
+}
+
 export default {
   async fetch(request, env) {
     const expected = env.INTERNAL_PREVIEW_PASSWORD;
-    if (expected && !authorized(request, expected)) return unauthorized();
+    if (!expected) return misconfigured();
+    if (!authorized(request, expected)) return unauthorized();
 
     const response = await serveAssets(request, env);
     const gated = new Response(response.body, response);
