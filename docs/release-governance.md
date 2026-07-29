@@ -7,7 +7,9 @@
 - `main` 视为生产分支，但在首个合规稳定 Release 前不代表已有可发布产品。
 - 现有 `litetavern.pages.dev` 手工上传内容属于历史临时预览，不据此补打标签、创建 Release 或宣称生产已发布。
 - 历史 Git 集成 Pages 项目已删除，后续 Git push 不再旁路触发 Cloudflare 自动部署。
-- 独立 `litetavern-internal` Pages 项目已创建但保持空白；Access 生效前不上传应用。
+- 内部环境使用独立 `litetavern-dev` Pages 项目，已部署应用并由 Cloudflare Access 保护。
+  原 `litetavern-internal` 项目名已永久停用：删除后 Cloudflare 边缘仍继续提供一个已删除的、
+  无访问控制的部署，重建同名项目会把它一并复活。该名称不得再使用。
 - 生产部署保持冻结：`PRODUCTION_RELEASE_ENABLED=false`。
 - 在生产后端、持久化和密钥边界确认前，不得解除冻结。
 
@@ -42,13 +44,27 @@ stable tag ──fix──> hotfix/* ──> protected staging ──> main + de
 | Staging    | 内测与 RC 验收   | Cloudflare Access | `release/*`、`hotfix/*`       |
 | Production | 对外稳定版本     | 公网              | 已发布稳定 Release 的校验产物 |
 
-Staging 使用独立 Pages 项目，默认名为 `litetavern-internal`。固定预览别名为：
+Staging 使用独立 Pages 项目，名为 `litetavern-dev`：
 
 ```text
-https://staging.litetavern-internal.pages.dev
+https://litetavern-dev.pages.dev
 ```
 
-Cloudflare Pages 的预览 URL 默认公开。必须先在 Pages 设置中启用 Access，并确认匿名请求得到 Access 登录跳转或 `401/403`，之后才能把仓库变量 `STAGING_ACCESS_ENABLED` 设为 `true`。不得仅凭 `noindex`、不可猜测链接或搜索引擎未收录来替代访问控制。
+Cloudflare Pages 的预览 URL 默认公开，且每次部署都会多出一个 `<hash>.<project>.pages.dev`
+主机名。因此 Access 应用的 destination 必须同时覆盖项目根域和通配符：
+
+```text
+litetavern-dev.pages.dev
+*.litetavern-dev.pages.dev
+```
+
+只保护根域会让每一次部署都留下一个可公开访问的 URL。访问控制不得仅依赖 `noindex`、
+不可猜测链接或搜索引擎未收录。
+
+当前状态：Access 应用 `LiteTavern Dev` 已生效，身份提供商限定为 One-time PIN，
+策略为邮箱白名单 Allow。匿名请求根路径和 `/v1/` 均返回到 `*.cloudflareaccess.com`
+的 302。白名单外的邮箱同样会收到验证码，但在输入验证码之后才被拒绝 —— Access 先确认
+身份再套策略，所以“收不到验证码”不是判断有没有权限的依据。
 
 Production 使用独立 Pages 项目，默认名为 `litetavern`。不得用 staging 项目、预览分支或本地目录直接覆盖生产。
 
