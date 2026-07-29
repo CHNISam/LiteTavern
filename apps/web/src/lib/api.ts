@@ -96,6 +96,36 @@ export class ApiError extends Error {
   }
 }
 
+interface ApiErrorPayload {
+  error?: {
+    code?: string;
+    message?: string;
+    retryable?: boolean;
+    request_id?: string;
+  };
+}
+
+const CLOUD_UNAVAILABLE_MESSAGE = 'LiteTavern Cloud 暂不可用，请稍后重试。';
+
+/**
+ * Parse a JSON API response without leaking browser JSON parser errors into the UI.
+ *
+ * A static Pages deployment returns an empty 404 (or sometimes HTML) when its
+ * Cloud API origin is missing. That is an availability/configuration failure, not
+ * malformed user data, so surface one stable and actionable error.
+ */
+export async function readApiJson<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  if (!text.trim()) {
+    throw new ApiError(CLOUD_UNAVAILABLE_MESSAGE, 'INVALID_API_RESPONSE', true);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError(CLOUD_UNAVAILABLE_MESSAGE, 'INVALID_API_RESPONSE', true);
+  }
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   // `cloudUrl` keeps same-origin deployments on relative paths and rewrites to the
   // configured LiteTavern Cloud origin when the client is hosted separately.
@@ -108,14 +138,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...init.headers
     }
   });
-  const payload = (await response.json()) as T & {
-    error?: {
-      code?: string;
-      message?: string;
-      retryable?: boolean;
-      request_id?: string;
-    };
-  };
+  const payload = await readApiJson<T & ApiErrorPayload>(response);
   if (!response.ok) {
     throw new ApiError(
       payload.error?.message ?? '请求失败，请稍后重试。',
@@ -186,14 +209,7 @@ export async function streamGeneration(
     body: JSON.stringify(payload)
   });
   if (!response.ok) {
-    const body = (await response.json()) as {
-      error?: {
-        code?: string;
-        message?: string;
-        retryable?: boolean;
-        request_id?: string;
-      };
-    };
+    const body = await readApiJson<ApiErrorPayload>(response);
     throw new ApiError(
       body.error?.message ?? '发送失败，请稍后重试。',
       body.error?.code,

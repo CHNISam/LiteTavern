@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, LoaderCircle, X } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, readApiJson } from '../lib/api';
+import { cloudUrl } from '../lib/runtime-config';
 import { AvatarCropper } from './AvatarCropper';
 
 interface CharacterModel {
@@ -97,19 +98,19 @@ export function CharacterEditor({ open, characterId, onClose, onSaved }: {
     if (avatar) {
       const body = new FormData();
       body.append('file', avatar, 'avatar.webp');
-      const response = await fetch(`/v1/characters/${targetId}/avatar`, {
+      const response = await fetch(cloudUrl(`/v1/characters/${targetId}/avatar`), {
         method: 'POST',
         credentials: 'include',
         body
       });
-      const payload = await response.json() as { error?: { message?: string } };
+      const payload = await readApiJson<{ error?: { message?: string } }>(response);
       if (!response.ok) throw new Error(payload.error?.message ?? '头像上传失败。');
     } else if (avatarRemoved) {
-      const response = await fetch(`/v1/characters/${targetId}/avatar`, {
+      const response = await fetch(cloudUrl(`/v1/characters/${targetId}/avatar`), {
         method: 'DELETE',
         credentials: 'include'
       });
-      const payload = await response.json() as { error?: { message?: string } };
+      const payload = await readApiJson<{ error?: { message?: string } }>(response);
       if (!response.ok) throw new Error(payload.error?.message ?? '头像删除失败。');
     }
   }
@@ -196,7 +197,9 @@ export function CharacterEditor({ open, characterId, onClose, onSaved }: {
               <h3>基础</h3>
               <label>名称<input aria-label="名称" value={model.name} maxLength={200} onChange={(event) => field('name', event.target.value)} /></label>
               <label>头像<AvatarCropper
-                {...(characterId ? { existingUrl: `/v1/characters/${characterId}/avatar` } : {})}
+                {...(characterId
+                  ? { existingUrl: cloudUrl(`/v1/characters/${characterId}/avatar`) }
+                  : {})}
                 onChange={(next, removed) => {
                   setAvatar(next);
                   setAvatarRemoved(removed);

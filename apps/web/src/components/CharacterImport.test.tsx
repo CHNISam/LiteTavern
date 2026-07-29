@@ -31,9 +31,56 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.mocked(processAvatarImage).mockReset();
+  delete window.__LITETAVERN__;
 });
 
 describe('CharacterImport avatar handling', () => {
+  it('sends multipart requests to the configured cross-origin Cloud API', async () => {
+    window.__LITETAVERN__ = { cloudBaseUrl: 'https://api-internal.example' };
+    vi.mocked(processAvatarImage).mockRejectedValue(new Error('no avatar needed'));
+    const requests: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      requests.push(String(input));
+      return json(preview);
+    });
+    render(
+      <CharacterImport
+        open
+        onClose={() => undefined}
+        onImported={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('选择角色卡文件'), {
+      target: { files: [new File(['{}'], 'card.json', { type: 'application/json' })] }
+    });
+
+    await screen.findByText('卡片角色');
+    expect(requests[0]).toBe(
+      'https://api-internal.example/v1/characters/import/preview'
+    );
+  });
+
+  it('shows a readable Cloud error when Pages returns an empty API response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 404 }));
+    render(
+      <CharacterImport
+        open
+        onClose={() => undefined}
+        onImported={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('选择角色卡文件'), {
+      target: { files: [new File(['png'], 'card.png', { type: 'image/png' })] }
+    });
+
+    expect(
+      await screen.findByText('LiteTavern Cloud 暂不可用，请稍后重试。')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Unexpected end of JSON input/)).not.toBeInTheDocument();
+  });
+
   it('uploads a processed card avatar after the card data commits', async () => {
     vi.mocked(processAvatarImage).mockResolvedValue(
       new Blob(['square-avatar'], { type: 'image/webp' })

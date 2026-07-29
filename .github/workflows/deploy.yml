@@ -36,6 +36,12 @@ jobs:
 
       - run: npm ci
 
+      - name: Validate hosted API configuration
+        run: node scripts/validate-deployment-env.mjs
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          VITE_CLOUD_BASE_URL: ${{ vars.VITE_CLOUD_BASE_URL }}
+
       # typecheck + lint + test + build。构建失败或测试失败都不部署。
       - name: Check and build
         run: npm run check

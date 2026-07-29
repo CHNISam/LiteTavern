@@ -41,5 +41,15 @@ export default tseslint.config(
         fetch: 'readonly'
       }
     }
+  },
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        URL: 'readonly'
+      }
+    }
   }
 );

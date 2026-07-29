@@ -9,7 +9,9 @@
   "scripts": {
     "dev": "npm run dev --workspace @litetavern/web",
     "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm-run-all test:workspaces test:deployment",
+    "test:workspaces": "npm run test --workspaces --if-present",
+    "test:deployment": "node --test scripts/validate-deployment-env.test.mjs",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
