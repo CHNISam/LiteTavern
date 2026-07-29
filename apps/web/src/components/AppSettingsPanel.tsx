@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
+  BookOpen,
   ChevronRight,
   Download,
   HeartHandshake,
   Info,
   MessageCircle,
   Upload,
+  UserRound,
   X
 } from 'lucide-react';
 import { EXPORT_PATH } from '../lib/cloud';
@@ -18,6 +20,8 @@ interface AppSettingsPanelProps {
   onClose: () => void;
   onImport: () => void;
   onMigrate: () => void;
+  onPersonas: () => void;
+  onWorldbooks: () => void;
 }
 
 type SettingsView = 'root' | 'data' | 'about';
@@ -26,7 +30,9 @@ export function AppSettingsPanel({
   open,
   onClose,
   onImport,
-  onMigrate
+  onMigrate,
+  onPersonas,
+  onWorldbooks
 }: AppSettingsPanelProps) {
   const [view, setView] = useState<SettingsView>('root');
 
@@ -75,6 +81,22 @@ export function AppSettingsPanel({
         <div className="app-settings-body">
           {view === 'root' && (
             <nav className="app-settings-list" aria-label="设置项目">
+              <button type="button" onClick={onPersonas}>
+                <span className="app-settings-icon"><UserRound size={19} /></span>
+                <span>
+                  <strong>用户身份</strong>
+                  <small>管理你在故事中的 Persona，与账号资料无关</small>
+                </span>
+                <ChevronRight size={18} />
+              </button>
+              <button type="button" onClick={onWorldbooks}>
+                <span className="app-settings-icon"><BookOpen size={19} /></span>
+                <span>
+                  <strong>世界书</strong>
+                  <small>管理世界设定条目，命中时才进入对话</small>
+                </span>
+                <ChevronRight size={18} />
+              </button>
               <button type="button" onClick={() => setView('data')}>
                 <span className="app-settings-icon"><Upload size={19} /></span>
                 <span>

@@ -47,9 +47,12 @@ LiteTavern 的运行时只读取内部角色模型。外部角色卡是输入/�
 | `creator.notes` | 无正式字段 | `data.creator_notes` | 否 | 高级 | 覆盖原值 | `""` |
 | `creator.character_version` | 无正式字段 | `data.character_version` | 否 | 高级 | 覆盖原值 | `""` |
 | passthrough root fields | 未映射字段 | `spec/data` 之外字段 | 否 | 否 | 原样合并回外层 | `{}` |
-| passthrough data fields | 未映射字段 | `extensions`、`character_book`、`assets`、V3 新字段等 | 否 | 否 | 原样合并回 `data` | `{}` |
+| `character_book` | 无正式字段 | `data.character_book` | 是，导入为世界书后按关键词命中注入 | 世界书面板 | 以保留字段为底，用当前世界书内容覆盖已建模字段 | 不创建世界书 |
+| passthrough data fields | 未映射字段 | `extensions`、`assets`、V3 新字段等 | 否 | 否 | 原样合并回 `data` | `{}` |
 
-`character_book`、V3 assets、group-only greetings、多语言创作者说明、来源数组和扩展字段当前只保留，不进入聊天提示。界面会显示这些未生效路径。
+V3 assets、group-only greetings、多语言创作者说明、来源数组和扩展字段当前只保留，不进入聊天提示。界面会显示这些未生效路径。
+
+`character_book` 从 v0.2.0 起不再只是保留字段：导入时会同时建立一本 `origin=CHARACTER_BOOK` 的世界书并关联到该角色，运行时按关键词命中和常驻规则注入。往返规则与角色字段一致——未建模的书级与条目级字段原样保存在 `source_fields` / `extensions`，导出时先展开保留字段，再用当前世界书的已建模字段覆盖，因此未编辑的角色卡导出后内容不变，用户在 LiteTavern 里的编辑也会随卡带走。用「角色卡更新设定」替换角色时，随旧卡导入的世界书会被新卡的版本取代；用户自建的世界书（`origin=USER`）不受影响。
 
 ## 检测与导出规则
 

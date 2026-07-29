@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  ArrowLeft, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download,
-  KeyRound, LoaderCircle, MessageCircle, Pencil, Plus, Send, Settings,
+  ArrowLeft, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy,
+  Download, KeyRound, LoaderCircle, MessageCircle, Pencil, Plus, Send, Settings,
   Trash2, Upload, UserRound, Volume2, VolumeX
 } from 'lucide-react';
 import { AccountSyncPanel } from './components/CloudPanel';
 import { ProviderSettings } from './components/ProviderSettings';
 import { AppSettingsPanel } from './components/AppSettingsPanel';
+import { ConversationPersonaPanel, PersonaPanel } from './components/PersonaPanel';
+import { CharacterWorldbookPanel, WorldbookPanel } from './components/WorldbookPanel';
 import { CharacterImport } from './components/CharacterImport';
 import { CharacterEditor } from './components/CharacterEditor';
 import { RelationshipImport } from './components/RelationshipImport';
@@ -113,6 +115,14 @@ function ProductApp() {
   const [providerInitialSection, setProviderInitialSection] =
     useState<'overview' | 'platform' | 'byok'>('overview');
   const [appSettingsOpen, setAppSettingsOpen] = useState(false);
+  const [personaPanelOpen, setPersonaPanelOpen] = useState(false);
+  const [worldbookPanelOpen, setWorldbookPanelOpen] = useState(false);
+  const [conversationPersonaOpen, setConversationPersonaOpen] = useState(false);
+  const [characterWorldbookOpen, setCharacterWorldbookOpen] = useState(false);
+  // Which identity the open conversation speaks as. The server binds the default
+  // persona when a conversation is first created and returns it here; from then on
+  // only an explicit choice in this session changes it.
+  const [conversationPersonaId, setConversationPersonaId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importCharacterId, setImportCharacterId] = useState<string | undefined>();
   const [editorOpen, setEditorOpen] = useState(false);
@@ -242,15 +252,19 @@ function ProductApp() {
     setError(null);
     setErrorCode(null);
     setSuggestions([]);
-    const created = await api<{ conversation_id: string }>('/v1/conversations', {
-      method: 'POST', body: JSON.stringify({ character_id: character.character_id })
-    });
+    const created = await api<{ conversation_id: string; persona_id?: string | null }>(
+      '/v1/conversations',
+      { method: 'POST', body: JSON.stringify({ character_id: character.character_id }) }
+    );
     // The reader has already moved on; writing this state back would drag them
     // to a contact they left, so the response is recorded and otherwise dropped.
     cacheConversationId(character.character_id, created.conversation_id);
     if (token !== openTokenRef.current) return;
     conversationIdRef.current = created.conversation_id;
     setConversationId(created.conversation_id);
+    // The server is the source of truth for which persona this conversation is bound
+    // to; a deployment without personas simply reports none.
+    setConversationPersonaId(created.persona_id ?? null);
     if (trackSelection) {
       analytics.criticalAction('character_selected', 'home', {
         characterId: character.character_id,
@@ -281,6 +295,7 @@ function ProductApp() {
     setActive(character);
     setView('chat');
     setSuggestions([]);
+    setConversationPersonaId(null);
     const cachedId = cachedConversationId(character.character_id);
     conversationIdRef.current = cachedId;
     setConversationId(cachedId);
@@ -776,6 +791,8 @@ function ProductApp() {
           <CharacterSettingsPage
             character={active}
             onBack={() => setView('profile')}
+            onPersona={() => setConversationPersonaOpen(true)}
+            onWorldbooks={() => setCharacterWorldbookOpen(true)}
             onImport={() => openCharacterImport(active.character_id)}
             onEdit={() => {
               setEditorCharacterId(active.character_id);
@@ -831,6 +848,29 @@ function ProductApp() {
         onClose={() => setAppSettingsOpen(false)}
         onImport={() => openCharacterImport()}
         onMigrate={() => openRelationshipImport(active?.character_id)}
+        onPersonas={() => {
+          setAppSettingsOpen(false);
+          setPersonaPanelOpen(true);
+        }}
+        onWorldbooks={() => {
+          setAppSettingsOpen(false);
+          setWorldbookPanelOpen(true);
+        }}
+      />
+      <PersonaPanel open={personaPanelOpen} onClose={() => setPersonaPanelOpen(false)} />
+      <WorldbookPanel open={worldbookPanelOpen} onClose={() => setWorldbookPanelOpen(false)} />
+      <ConversationPersonaPanel
+        open={conversationPersonaOpen}
+        conversationId={conversationId}
+        personaId={conversationPersonaId}
+        onClose={() => setConversationPersonaOpen(false)}
+        onBound={setConversationPersonaId}
+      />
+      <CharacterWorldbookPanel
+        open={characterWorldbookOpen}
+        characterId={active?.character_id ?? null}
+        characterName={active?.name ?? '角色'}
+        onClose={() => setCharacterWorldbookOpen(false)}
       />
       <AccountSyncPanel
         open={accountOpen}
@@ -1318,8 +1358,10 @@ function SettingRow({ icon, title, description, value, onClick, href, disabled =
   return <button className="setting-row" onClick={onClick} disabled={disabled}>{content}</button>;
 }
 
-function CharacterSettingsPage({ character, onBack, onImport, onEdit, onDelete }: {
-  character: Character; onBack: () => void; onImport: () => void; onEdit: () => void; onDelete: () => Promise<void>;
+function CharacterSettingsPage({ character, onBack, onPersona, onWorldbooks, onImport, onEdit, onDelete }: {
+  character: Character; onBack: () => void;
+  onPersona: () => void; onWorldbooks: () => void;
+  onImport: () => void; onEdit: () => void; onDelete: () => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -1349,6 +1391,11 @@ function CharacterSettingsPage({ character, onBack, onImport, onEdit, onDelete }
             <div><h2>{character.name}</h2><p>{character.profile_summary || '角色卡暂未填写简介。'}</p></div>
           </div>
           <div className="settings-groups">
+            <label>对话设定</label>
+            <section>
+              <SettingRow icon={<UserRound />} title="本次对话的身份" description="选择你在这段对话里的 Persona" onClick={onPersona} />
+              <SettingRow icon={<BookOpen />} title="关联世界书" description="选择这个角色对话时参与匹配的世界设定" onClick={onWorldbooks} />
+            </section>
             <label>角色数据</label>
             <section>
               <SettingRow icon={<Pencil />} title="编辑角色设定" description="修改名称、头像、描述与高级角色字段" onClick={onEdit} />
