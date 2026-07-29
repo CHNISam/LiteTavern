@@ -782,6 +782,10 @@ function ProductApp() {
           setAccountOpen(false);
           void onLogout();
         }}
+        onConnectModel={() => {
+          setAccountOpen(false);
+          openProviderSettings('byok');
+        }}
       />
     </main>
   );
