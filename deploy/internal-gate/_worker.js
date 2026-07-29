@@ -1,24 +1,21 @@
 /**
- * Password gate for the internal (development) deployment.
+ * Worker for the internal (development) deployment: serves the static bundle and
+ * the internal `/v1/` API. Copied into the build output *only* for internal
+ * deploys:
  *
- * This file is copied into the build output *only* for internal deploys:
- *
- *   cp deploy/internal-gate/_worker.js apps/web/dist/
+ *   cp deploy/internal-gate/_worker.js deploy/internal-gate/api.js apps/web/dist/
  *   wrangler pages deploy --branch develop --cwd deploy/internal-gate
  *
  * Production deploys never copy it, so litetavern.pages.dev stays purely static —
  * no Worker invocation per asset, no shared request quota consumed.
  *
- * The gate is HTTP Basic auth against `INTERNAL_PREVIEW_PASSWORD`, a Pages
- * environment secret. The password is never stored in this repository. If the
- * secret is missing the gate fails *closed* — 503, serving nothing. A gate whose
- * absent configuration silently publishes an internal build is not a gate, and a
- * locked-out deployment is recoverable in one command while an accidental
- * disclosure is not.
- *
- * This is an interim measure. It authenticates a shared secret, not a person:
- * no per-user identity, no revoking one collaborator without rotating for all,
- * no audit trail. Cloudflare Access is the real answer.
+ * This file holds no authentication. Who may reach this deployment is decided by
+ * the Cloudflare Access application in front of litetavern-dev.pages.dev and
+ * *.litetavern-dev.pages.dev, which authenticates real people against an email
+ * allow-list before a request ever reaches the origin. An earlier HTTP Basic gate
+ * lived here as a stopgap; keeping it would have meant a second login prompt for
+ * humans and a shared secret for the `/v1/` fetches, while adding nothing Access
+ * does not already do.
  */
 
 import {
@@ -26,47 +23,6 @@ import {
   R2ObjectStorage,
   handleApiRequest
 } from './api.js';
-
-const REALM = 'LiteTavern internal';
-
-/** Constant-time comparison, so a wrong password leaks no timing signal. */
-function timingSafeEqual(a, b) {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
-}
-
-function unauthorized() {
-  return new Response('401 Unauthorized', {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': `Basic realm="${REALM}", charset="UTF-8"`,
-      'Cache-Control': 'no-store',
-      // An internal build must never reach a search index, gate or no gate.
-      'X-Robots-Tag': 'noindex, nofollow'
-    }
-  });
-}
-
-function authorized(request, expected) {
-  const header = request.headers.get('Authorization') ?? '';
-  if (!header.startsWith('Basic ')) return false;
-
-  let decoded;
-  try {
-    decoded = atob(header.slice('Basic '.length));
-  } catch {
-    return false;
-  }
-
-  // Any username is accepted; only the shared password is checked.
-  const separator = decoded.indexOf(':');
-  const supplied = separator === -1 ? '' : decoded.slice(separator + 1);
-  return timingSafeEqual(supplied, expected);
-}
 
 /**
  * Serve the static bundle, falling back to index.html so client-side routes keep
@@ -88,22 +44,8 @@ async function serveAssets(request, env) {
   });
 }
 
-function misconfigured() {
-  return new Response('503 Service Unavailable — internal gate is not configured', {
-    status: 503,
-    headers: {
-      'Cache-Control': 'no-store',
-      'X-Robots-Tag': 'noindex, nofollow'
-    }
-  });
-}
-
 export default {
   async fetch(request, env) {
-    const expected = env.INTERNAL_PREVIEW_PASSWORD;
-    if (!expected) return misconfigured();
-    if (!authorized(request, expected)) return unauthorized();
-
     const url = new URL(request.url);
     if (url.pathname.startsWith('/v1/')) {
       if (!env.DB || !env.ASSETS_BUCKET) {

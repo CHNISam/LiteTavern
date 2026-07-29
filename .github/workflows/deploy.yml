@@ -55,9 +55,10 @@ jobs:
           VITE_SUPPORT_BILIBILI_URL: ${{ vars.VITE_SUPPORT_BILIBILI_URL }}
           VITE_SUPPORT_DOUYIN_URL: ${{ vars.VITE_SUPPORT_DOUYIN_URL }}
 
-      # 开发环境不对公众开放：口令门只随内部部署走，生产构建保持纯静态，
+      # 内测 Worker（静态资源 + /v1 API）只随开发环境部署，生产构建保持纯静态，
       # 不会因为多一个 Worker 而让每个静态资源都消耗请求额度。
-      - name: Add internal password gate
+      # 访问控制不在这里：由 litetavern-dev.pages.dev 前面的 Cloudflare Access 负责。
+      - name: Add internal worker
         if: github.ref_name != 'main'
         run: |
           cp deploy/internal-gate/_worker.js apps/web/dist/_worker.js
