@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_AFDIAN_URL,
   normalizeSupportPlacement,
   normalizeSupportSource,
   resolveSupportConfig,
@@ -56,5 +57,13 @@ describe('support configuration', () => {
       bilibiliUrl: 'https://space.bilibili.com/123',
       douyinUrl: null
     });
+  });
+
+  it('falls back to the published project page only when afdian is unconfigured', () => {
+    const resolved = resolveSupportConfig({}, 'https://litetavern.example');
+
+    expect(resolved.afdianUrl).toBe(DEFAULT_AFDIAN_URL);
+    // A deployment-supplied payment code has no safe default and stays absent.
+    expect(resolved.wechatQrUrl).toBeNull();
   });
 });

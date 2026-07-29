@@ -1584,9 +1584,17 @@ button { color: inherit; }
   padding: 21px 23px 15px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
-.app-settings-header h2 { margin: 5px 0 0; font-size: 20px; font-weight: 600; }
+.app-settings-header h2 { margin: 0; font-size: 20px; font-weight: 600; }
+/* Own row each: an inline-flex back control used to sit on the same line as the
+   inline eyebrow and read as one collided string ("返回设置LITETAVERN"). */
+.app-settings-heading {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  min-width: 0;
+}
 .app-settings-back {
-  margin: 0 0 13px;
+  margin: 0;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -1649,6 +1657,17 @@ button { color: inherit; }
 .app-settings-list > button > svg,
 .app-settings-list > a > svg { color: #747c8a; }
 .app-about { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 8px 5px; }
+.app-about-identity { display: flex; align-items: center; gap: 13px; }
+.app-about-version { color: #858d9b; font-size: 11.5px; }
+.app-about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gold-hi);
+  font-size: 12px;
+  text-decoration: none;
+}
+.app-about-link:hover { text-decoration: underline; }
 .app-about-mark {
   width: 48px;
   height: 48px;
@@ -1658,7 +1677,7 @@ button { color: inherit; }
   color: var(--gold-hi);
   background: rgba(198, 164, 92, 0.1);
 }
-.app-about h3 { margin: 2px 0 0; font-size: 20px; }
+.app-about h3 { margin: 0 0 2px; font-size: 20px; }
 .app-about p { margin: 0; color: #9ba2af; font-size: 12px; line-height: 1.7; }
 .app-about > .secondary-button,
 .app-about section .secondary-button { align-self: stretch; justify-content: center; text-decoration: none; }
@@ -1911,8 +1930,7 @@ button { color: inherit; }
   gap: 20px;
 }
 .public-brand,
-.public-header-link,
-.public-header-back {
+.public-header-link {
   color: inherit;
   text-decoration: none;
 }
@@ -1920,11 +1938,25 @@ button { color: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  padding: 6px 11px 6px 6px;
+  margin-left: -6px;
+  border-radius: 11px;
   font-size: 16px;
   font-weight: 650;
   letter-spacing: 0.02em;
+  transition: background 160ms var(--ease-out);
 }
 .public-brand svg { color: var(--pub-accent); }
+.public-brand-back {
+  display: grid;
+  place-items: center;
+  color: var(--pub-text-muted);
+}
+.public-brand-back svg { color: inherit; }
+@media (hover: hover) {
+  .public-brand:hover { background: var(--pub-soft-bg); }
+  .public-brand:hover .public-brand-back { color: var(--pub-accent); }
+}
 
 .public-header-actions {
   display: flex;
@@ -1973,25 +2005,9 @@ button { color: inherit; }
   background: var(--pub-accent-soft);
 }
 
-.public-header-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--pub-card-border);
-  border-radius: 11px;
-  color: var(--pub-text);
-  font-size: 13px;
-  transition: color 160ms var(--ease-out), border-color 160ms var(--ease-out),
-    transform 140ms var(--ease-out);
-}
-.public-header-back:active { transform: scale(0.97); }
-
 @media (hover: hover) and (pointer: fine) {
   .public-header-link:hover { color: var(--pub-accent); background: var(--pub-accent-soft); }
   .theme-switch button:hover { color: var(--pub-accent); }
-  .public-header-back:hover { color: var(--pub-accent); border-color: var(--pub-accent-border); }
 }
 
 .support-shell,
@@ -2009,13 +2025,25 @@ button { color: inherit; }
   margin-bottom: 46px;
 }
 .support-hero-copy { max-width: 620px; }
-.public-eyebrow,
-.support-kicker {
+.public-eyebrow {
   margin: 0;
   color: var(--pub-accent);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.16em;
+}
+/* Cadence badge under the method title, not a competing eyebrow above it. */
+.support-kicker {
+  display: inline-block;
+  margin: 6px 0 0;
+  padding: 2px 8px;
+  border: 1px solid var(--pub-accent-border);
+  border-radius: 999px;
+  color: var(--pub-accent);
+  background: var(--pub-accent-soft);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
 }
 .support-hero h1,
 .about-page h1 {
@@ -2038,20 +2066,6 @@ button { color: inherit; }
   font-size: 15px;
   line-height: 1.85;
 }
-.support-pledge {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  margin-top: 20px !important;
-  padding: 12px 15px;
-  border: 1px solid var(--pub-accent-border);
-  border-radius: 13px;
-  background: var(--pub-accent-tint);
-  color: var(--pub-text-soft) !important;
-  font-size: 13.5px !important;
-  line-height: 1.7 !important;
-}
-.support-pledge svg { flex: 0 0 auto; margin-top: 3px; color: var(--pub-accent); }
 
 /* Hero artwork ------------------------------------------------------------ */
 .support-orbit {
@@ -2135,6 +2149,7 @@ button { color: inherit; }
 .support-grid { display: grid; gap: 18px; }
 .support-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .support-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.support-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 .support-tile,
 .support-card {
@@ -2191,16 +2206,10 @@ button { color: inherit; }
   background: var(--pub-accent-soft);
 }
 .support-card-title {
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--pub-text-strong);
   font-size: 18px;
   font-weight: 620;
-}
-.support-card-subtitle {
-  margin: 0 0 13px;
-  color: var(--pub-text-strong);
-  font-size: 13px;
-  font-weight: 650;
 }
 .support-card-copy {
   min-height: 48px;
@@ -2257,7 +2266,20 @@ button { color: inherit; }
   color: var(--pub-text-muted);
   font-size: 12px;
 }
-.amount-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Three presets and the free-entry field are one row of peers: the custom amount
+   used to sit on its own labelled line and read as a separate step. */
+.amount-options { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .amount-options button {
   height: 38px;
   border: 1px solid var(--pub-card-border);
@@ -2274,14 +2296,8 @@ button { color: inherit; }
   color: var(--pub-accent);
   background: var(--pub-accent-soft);
 }
-.amount-fieldset label {
-  display: grid;
-  grid-template-columns: 1fr minmax(150px, 0.7fr);
-  align-items: center;
-  gap: 10px;
-}
 .custom-amount {
-  height: 40px;
+  height: 38px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -2347,22 +2363,6 @@ button { color: inherit; }
   color: var(--pub-text-faint);
   font-size: 12px;
 }
-.support-divider { height: 1px; margin: 25px 0 20px; background: var(--pub-hairline); }
-.support-uses {
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 11px;
-  list-style: none;
-}
-.support-uses li {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--pub-text-soft);
-  font-size: 12.5px;
-}
-.support-uses svg { flex: 0 0 auto; color: var(--pub-accent); }
 
 .support-notes {
   padding: 8px 26px;
@@ -2420,7 +2420,7 @@ button { color: inherit; }
 /* Founding Supporter claim ------------------------------------------------- */
 .claim-entry {
   width: 100%;
-  margin-top: 18px;
+  margin-top: 20px;
   padding: 11px 12px;
   border: 1px dashed var(--pub-card-border);
   border-radius: 11px;
@@ -2672,7 +2672,6 @@ button { color: inherit; }
   .public-header { min-height: 64px; gap: 10px; }
   .public-header-actions { gap: 6px; }
   .public-header-link span { display: none; }
-  .public-header-back { padding: 0 11px; }
   .support-shell { padding: 30px 0 36px; }
   .support-hero { margin-bottom: 32px; gap: 18px; }
   .support-hero h1,
@@ -2685,7 +2684,8 @@ button { color: inherit; }
   .support-section { margin-bottom: 32px; }
   .support-grid { gap: 14px; }
   .support-grid-4,
-  .support-grid-3 { grid-template-columns: 1fr; }
+  .support-grid-3,
+  .support-grid-2 { grid-template-columns: 1fr; }
   .support-tile {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);

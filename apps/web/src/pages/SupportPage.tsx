@@ -159,11 +159,6 @@ const supportUses = [
 
 const supportThanks = [
   {
-    icon: Sparkles,
-    title: '把进展交回给你',
-    body: '每个版本的更新日志都会写清楚这段时间做了什么、改了什么。'
-  },
-  {
     icon: MessagesSquare,
     title: '优先听见你的声音',
     body: '支持者提出的问题与建议，我们会优先阅读并回复。'
@@ -294,10 +289,6 @@ export function SupportPage({
               你的每一份支持，都会变成更稳定的服务、更快的更新，
               以及更多值得期待的可能性。
             </p>
-            <p className="support-pledge">
-              <Heart size={16} />
-              支持不会消失在账单里，它会变成下一个版本里看得见的改进。
-            </p>
           </div>
           <SupportOrbit />
         </section>
@@ -349,8 +340,10 @@ export function SupportPage({
                   <QrCode size={20} />
                 </span>
                 <div>
-                  <p className="support-kicker">一次性支持</p>
-                  <h3 className="support-card-title" id="wechat-title">使用微信扫码支持</h3>
+                  <h3 className="support-card-title" id="wechat-title">微信扫码</h3>
+                  {/* Cadence is one attribute of the method, not a headline above
+                      it — stacking it as an eyebrow made two competing titles. */}
+                  <p className="support-kicker">单次</p>
                 </div>
               </div>
 
@@ -391,10 +384,8 @@ export function SupportPage({
                       ¥{suggestion}
                     </button>
                   ))}
-                </div>
-                <label>
-                  <span>自定义支持金额</span>
-                  <span className="custom-amount">
+                  <label className="custom-amount">
+                    <span className="visually-hidden">自定义支持金额</span>
                     <b>¥</b>
                     <input
                       type="number"
@@ -402,18 +393,14 @@ export function SupportPage({
                       step="1"
                       inputMode="numeric"
                       aria-label="自定义支持金额"
-                      placeholder="其他金额"
+                      placeholder="其他"
                       value={amount}
                       onChange={(event) => setAmount(event.target.value)}
                     />
-                  </span>
-                </label>
-                <small>金额仅供参考，请在微信支付页中确认；页面不会记录金额。</small>
+                  </label>
+                </div>
+                <small>金额请在微信支付页中填写；本页不会记录金额。</small>
               </div>
-
-              <button type="button" className="claim-entry" onClick={openClaim}>
-                已经支持？认领 Founding Supporter 身份
-              </button>
             </section>
 
             <section className="support-card" aria-labelledby="afdian-title">
@@ -422,12 +409,12 @@ export function SupportPage({
                   <HeartHandshake size={20} />
                 </span>
                 <div>
-                  <p className="support-kicker">持续支持</p>
-                  <h3 className="support-card-title" id="afdian-title">通过爱发电支持</h3>
+                  <h3 className="support-card-title" id="afdian-title">爱发电</h3>
+                  <p className="support-kicker">按月</p>
                 </div>
               </div>
               <p className="support-card-copy">
-                适合希望按月或长期支持 LiteTavern 的用户，也让我们更容易规划下一步。
+                按月的支持让服务器与额度有稳定的预期，随时可以调整或取消。
               </p>
               {config.afdianUrl ? (
                 <a
@@ -442,28 +429,21 @@ export function SupportPage({
               ) : (
                 <p className="support-inline-unavailable">爱发电支持入口暂未开放</p>
               )}
-              <div className="support-divider" />
-              <h4 className="support-card-subtitle">为什么选择持续支持</h4>
-              <ul className="support-uses">
-                <li>
-                  <Server size={15} />让服务器与额度有稳定的预期
-                </li>
-                <li>
-                  <Zap size={15} />优先投入到体验优化上
-                </li>
-                <li>
-                  <HeartHandshake size={15} />随时可以调整或取消
-                </li>
-              </ul>
             </section>
           </div>
+
+          {/* Claiming is a follow-up to having supported by any method, so it sits
+              after both cards instead of inside the WeChat one. */}
+          <button type="button" className="claim-entry" onClick={openClaim}>
+            已经支持？认领 Founding Supporter 身份
+          </button>
         </section>
 
         <section className="support-section" aria-labelledby="thanks-title">
           <h2 className="support-section-title" id="thanks-title">
             我们怎么感谢你
           </h2>
-          <div className="support-grid support-grid-3">
+          <div className="support-grid support-grid-2">
             {supportThanks.map(({ icon: Icon, title, body }) => (
               <article className="support-tile" key={title}>
                 <span className="support-icon">
@@ -503,7 +483,7 @@ export function SupportPage({
         </section>
       </div>
 
-      <SiteFooter />
+      <SiteFooter omit={['support']} />
 
       <SupporterClaimDialog
         open={claimOpen}
