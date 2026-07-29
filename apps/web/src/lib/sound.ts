@@ -21,6 +21,8 @@ function getContext(): AudioContext | null {
 const MUTE_KEY = 'litetavern:muted';
 const PREVIOUS_MUTE_KEY = ['pom', 'chat:muted'].join('');
 
+// Sound is off until the user turns it on: an unprompted chime on first load is
+// startling, and the header toggle makes opting in a single click.
 export function isMuted(): boolean {
   try {
     const current = localStorage.getItem(MUTE_KEY);
@@ -29,10 +31,11 @@ export function isMuted(): boolean {
     if (previous !== null) {
       localStorage.setItem(MUTE_KEY, previous);
       localStorage.removeItem(PREVIOUS_MUTE_KEY);
+      return previous === '1';
     }
-    return previous === '1';
+    return true;
   } catch {
-    return false;
+    return true;
   }
 }
 
