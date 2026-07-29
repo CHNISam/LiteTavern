@@ -1,0 +1,87 @@
+name: Deploy
+
+# 开源客户端是纯静态产物，两个 Cloudflare Pages 项目彼此隔离：
+#
+#   develop -> litetavern-dev  内部/开发环境，Cloudflare Access 邮箱白名单可见
+#   main    -> litetavern      生产环境，公开
+#
+# 两个项目都没有接 Cloudflare 的 Git 集成，部署只由本工作流触发，
+# 因此"部署了什么"永远等于"这里跑过什么"。
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  # 同一分支只保留最新一次部署，旧的排队任务直接取消。
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || 'internal' }}
+      url: ${{ github.ref_name == 'main' && 'https://litetavern.pages.dev' || 'https://litetavern-dev.pages.dev' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Validate hosted API configuration
+        run: node scripts/validate-deployment-env.mjs
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          HOSTED_API_MODE: ${{ github.ref_name == 'develop' && 'same-origin-worker' || '' }}
+          VITE_CLOUD_BASE_URL: ${{ vars.VITE_CLOUD_BASE_URL }}
+
+      # typecheck + lint + test + build。构建失败或测试失败都不部署。
+      - name: Check and build
+        run: npm run check
+        env:
+          # 客户端的构建时公开变量。未设置时客户端同源访问 Cloud，
+          # 并保持严格的 CSP connect-src。绝不能在这里放任何密钥。
+          VITE_CLOUD_BASE_URL: ${{ vars.VITE_CLOUD_BASE_URL }}
+          VITE_SUPPORT_WECHAT_QR_URL: ${{ vars.VITE_SUPPORT_WECHAT_QR_URL }}
+          VITE_SUPPORT_AFDIAN_URL: ${{ vars.VITE_SUPPORT_AFDIAN_URL }}
+          VITE_SUPPORT_BILIBILI_URL: ${{ vars.VITE_SUPPORT_BILIBILI_URL }}
+          VITE_SUPPORT_DOUYIN_URL: ${{ vars.VITE_SUPPORT_DOUYIN_URL }}
+
+      # 内测 Worker（静态资源 + /v1 API）只随开发环境部署，生产构建保持纯静态，
+      # 不会因为多一个 Worker 而让每个静态资源都消耗请求额度。
+      # 访问控制不在这里：由 litetavern-dev.pages.dev 前面的 Cloudflare Access 负责。
+      - name: Add internal worker
+        if: github.ref_name != 'main'
+        run: |
+          cp deploy/internal-gate/_worker.js apps/web/dist/_worker.js
+          cp deploy/internal-gate/api.js apps/web/dist/api.js
+
+      - name: Apply internal D1 migrations
+        if: github.ref_name != 'main'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            d1 migrations apply litetavern-internal
+            --remote
+            --config deploy/internal-gate/wrangler.jsonc
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # --branch 必须与目标项目的 production_branch 一致，
+          # 否则部署会落到 preview 环境，项目根地址不会更新。
+          command: ${{ github.ref_name == 'main'
+            && 'pages deploy apps/web/dist --project-name litetavern --branch main'
+            || 'pages deploy --branch develop --cwd deploy/internal-gate' }}

@@ -1,28 +1,56 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowLeft, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download,
-  KeyRound, LoaderCircle, MessageCircle, Pencil, Plus, Send, Settings,
+  HeartHandshake, KeyRound, LoaderCircle, MessageCircle, Pencil, Plus, Send, Settings,
   Trash2, Upload, UserRound, Volume2, VolumeX
 } from 'lucide-react';
+import { CloudPanel } from './components/CloudPanel';
 import { ProviderSettings } from './components/ProviderSettings';
 import { CharacterImport } from './components/CharacterImport';
 import { CharacterEditor } from './components/CharacterEditor';
+import { RelationshipImport } from './components/RelationshipImport';
 import { LoginSync } from './components/LoginSync';
+import { AboutPage } from './pages/AboutPage';
+import { SupportPage } from './pages/SupportPage';
 import {
   ApiError, api, deleteCharacter, generateTurn, logout, saveTurnBubble,
   type AnonymousIdentity, type Character, type Message, type ModelConfiguration
 } from './lib/api';
 import { analytics, type AnalyticsPageName } from './lib/analytics';
+import {
+  fetchCloudStatus,
+  quotaLabel,
+  readCachedStatus,
+  reportSyncCheckpoint,
+  type CloudStatus
+} from './lib/cloud';
+import {
+  cacheCharacters,
+  cacheConversationId,
+  cacheMessages,
+  cachedCharacters,
+  cachedConversationId,
+  cachedMessages
+} from './lib/local-cache';
+import { cloudUrl } from './lib/runtime-config';
 import { credentialStore } from './lib/credential-store';
 import { copyText } from './lib/clipboard';
 import { createId } from './lib/id';
 import { TurnPlaybackController } from './lib/turn-playback';
 import { playClick, isMuted, setMuted } from './lib/sound';
+import { publicRouteForPath, siteHref } from './public-routing';
 
 type View = 'chat' | 'profile' | 'memories' | 'settings';
 
 function analyticsErrorCode(code: string): string {
-  if (code === 'FREE_QUOTA_EXHAUSTED') return 'quota_exhausted';
+  if (
+    code === 'FREE_QUOTA_EXHAUSTED' ||
+    code === 'CLOUD_QUOTA_EXHAUSTED' ||
+    code === 'CLOUD_QUOTA_DAILY_LIMIT' ||
+    code === 'CLOUD_BUDGET_EXHAUSTED'
+  ) {
+    return 'quota_exhausted';
+  }
   if (code === 'PROVIDER_TIMEOUT') return 'generation_timeout';
   if (
     code === 'FREE_SERVICE_UNAVAILABLE' ||
@@ -37,7 +65,8 @@ function analyticsErrorCode(code: string): string {
 
 function avatarUrl(character: Character) {
   const version = character.version ? `?v=${character.version}` : '';
-  return `/v1/characters/${character.character_id}/avatar${version}`;
+  // Avatars are served by LiteTavern Cloud, which may live on another origin.
+  return cloudUrl(`/v1/characters/${character.character_id}/avatar${version}`);
 }
 
 function Avatar({ character, className = '' }: { character: Character; className?: string }) {
@@ -50,6 +79,21 @@ function Avatar({ character, className = '' }: { character: Character; className
 }
 
 export function App() {
+  const publicRoute = publicRouteForPath(window.location.pathname);
+  if (publicRoute === 'support') {
+    const query = new URLSearchParams(window.location.search);
+    return (
+      <SupportPage
+        source={query.get('source')}
+        placement={query.get('placement')}
+      />
+    );
+  }
+  if (publicRoute === 'about') return <AboutPage />;
+  return <ProductApp />;
+}
+
+function ProductApp() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [active, setActive] = useState<Character | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -61,6 +105,8 @@ export function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorCharacterId, setEditorCharacterId] = useState<string | undefined>();
+  const [migrationOpen, setMigrationOpen] = useState(false);
+  const [migrationCharacterId, setMigrationCharacterId] = useState<string | undefined>();
   const [configurations, setConfigurations] = useState<ModelConfiguration[]>([]);
   const [usageMode, setUsageMode] = useState<'PLATFORM' | 'BYOK'>('PLATFORM');
   const [selectedConfigurationId, setSelectedConfigurationId] = useState('');
@@ -70,6 +116,9 @@ export function App() {
   const [freeQuotaEnabled, setFreeQuotaEnabled] = useState(true);
   const [account, setAccount] = useState<AnonymousIdentity | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [cloud, setCloud] = useState<CloudStatus | null>(() => readCachedStatus());
+  const [cloudOffline, setCloudOffline] = useState(false);
+  const [cloudOpen, setCloudOpen] = useState(false);
   const [analyticsReady, setAnalyticsReady] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggesting, setSuggesting] = useState(false);
@@ -177,9 +226,38 @@ export function App() {
         result: 'success'
       });
     }
+    cacheConversationId(character.character_id, created.conversation_id);
     const loaded = await fetchMessages(created.conversation_id);
     setMessages(loaded);
+    cacheMessages(created.conversation_id, loaded);
     if (loaded.length > 0) void loadSuggestions(created.conversation_id);
+  }
+
+  /**
+   * Degraded open: LiteTavern Cloud is unreachable, so the last conversation this
+   * browser read for the character is replayed from cache. Nothing is written and
+   * the banner tells the user the state is stale, not lost.
+   */
+  function openCharacterOffline(character: Character) {
+    playbackRef.current?.interrupt();
+    setTyping(false);
+    setActive(character);
+    setView('chat');
+    setSuggestions([]);
+    const cachedId = cachedConversationId(character.character_id);
+    setConversationId(cachedId);
+    setMessages(cachedId ? cachedMessages(cachedId) : []);
+  }
+
+  async function refreshCloudStatus() {
+    try {
+      const result = await fetchCloudStatus();
+      if (result.status) setCloud(result.status);
+      setCloudOffline(result.offline);
+      return result.status;
+    } catch {
+      return null;
+    }
   }
 
   // Empty-bodied messages (a failed mid-stream reply, or a character with no opening
@@ -232,22 +310,40 @@ export function App() {
       });
       setAnalyticsReady(true);
     }
+    await refreshCloudStatus();
     const [characterResponse, configurationResponse] = await Promise.all([
       api<{ characters: Character[] }>('/v1/characters'),
       api<{ configurations: ModelConfiguration[] }>('/v1/model-configurations')
     ]);
     setCharacters(characterResponse.characters);
+    cacheCharacters(characterResponse.characters);
     setConfigurations(configurationResponse.configurations);
     if (configurationResponse.configurations[0]) {
       setSelectedConfigurationId(configurationResponse.configurations[0].model_configuration_id);
     }
     if (characterResponse.characters[0]) await openCharacter(characterResponse.characters[0]);
+    void reportSyncCheckpoint({ status: 'SYNCED', clientRevision: Date.now() });
+  }
+
+  /**
+   * LiteTavern Cloud is unreachable at startup. Rather than showing an empty app (or
+   * claiming the data is gone), fall back to the cached contact list and mark the
+   * session offline; BYOK and every local view keep working.
+   */
+  function bootstrapOffline() {
+    const cached = cachedCharacters();
+    setCloudOffline(true);
+    setCharacters(cached);
+    if (cached[0]) openCharacterOffline(cached[0]);
+    void reportSyncCheckpoint({ status: 'FAILED', errorCode: 'CLOUD_UNREACHABLE' });
   }
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    void bootstrap().catch((reason: Error) => setError(reason.message));
+    // The offline banner already states the situation; adding an inline error would
+    // say the same thing twice and read as two separate problems.
+    void bootstrap().catch(() => bootstrapOffline());
   }, []);
 
   // After registration / login / merge the session cookie has rotated. Adopt the new
@@ -258,8 +354,10 @@ export function App() {
     setFreeQuotaRemaining(user.free_quota_remaining);
     setFreeQuotaEnabled(user.free_quota_enabled);
     setLoginOpen(false);
+    await refreshCloudStatus();
     const response = await api<{ characters: Character[] }>('/v1/characters');
     setCharacters(response.characters);
+    cacheCharacters(response.characters);
   }
 
   // Sign out: revoke this device's session, then start a brand-new anonymous identity
@@ -280,14 +378,18 @@ export function App() {
     setConversationId(null);
     setMessages([]);
     setView('chat');
+    await refreshCloudStatus();
     const response = await api<{ characters: Character[] }>('/v1/characters');
     setCharacters(response.characters);
+    cacheCharacters(response.characters);
     if (response.characters[0]) await openCharacter(response.characters[0]);
   }
 
   const analyticsPage: AnalyticsPageName = providerOpen
     ? 'model_config'
-    : importOpen
+    : migrationOpen
+      ? 'relationship_import'
+      : importOpen
       ? 'character_import'
       : editorOpen
         ? editorCharacterId
@@ -369,10 +471,13 @@ export function App() {
     // Ignore repeat sends only while awaiting the model; during playback a new send
     // is allowed and interrupts the remaining bubbles.
     if (controller.getState() === 'GENERATING') return;
-    if (
-      usageMode === 'PLATFORM' &&
-      (!freeQuotaEnabled || freeQuotaRemaining === 0)
-    ) {
+    // Blocked only when the server has told us there is nothing left to spend. The
+    // Cloud status is authoritative; the legacy counter is the fallback while the
+    // first status response is still in flight.
+    const platformExhausted = cloud
+      ? cloud.quota.source === 'NONE' || cloud.quota.available === 0
+      : freeQuotaRemaining === 0;
+    if (usageMode === 'PLATFORM' && (!freeQuotaEnabled || platformExhausted)) {
       const code = freeQuotaEnabled
         ? 'FREE_QUOTA_EXHAUSTED'
         : 'FREE_SERVICE_DISABLED';
@@ -405,6 +510,13 @@ export function App() {
         ...(conversationId ? { conversationId } : {}),
         result: 'attempted'
       });
+      // The named program event: the user actually sent their first message in this
+      // conversation. Counted separately from the attempt so the funnel is honest.
+      analytics.track('first_message_sent', {
+        pageName: 'chat',
+        ...(active ? { characterId: active.character_id } : {}),
+        ...(conversationId ? { conversationId } : {})
+      });
     }
     const userMessage: Message = { message_id: createId(), role: 'USER', content_text: text, status: 'COMPLETED' };
     setMessages((current) => {
@@ -427,6 +539,13 @@ export function App() {
       turnIdRef.current = plan.turn_id;
       if (plan.free_quota_remaining !== undefined) {
         setFreeQuotaRemaining(plan.free_quota_remaining);
+      }
+      // The reply carries the post-deduction quota, so the badge stays honest
+      // without an extra round trip.
+      if (plan.cloud_quota) {
+        setCloud((current) =>
+          current ? { ...current, quota: { ...current.quota, ...plan.cloud_quota } } : current
+        );
       }
       return plan.messages;
     });
@@ -455,6 +574,33 @@ export function App() {
     setImportOpen(true);
   }
 
+  function openRelationshipImport(characterId?: string) {
+    analytics.criticalAction('relationship_import_started', analyticsPage, {
+      ...(characterId ? { characterId } : {}),
+      result: 'attempted'
+    });
+    setMigrationCharacterId(characterId);
+    setMigrationOpen(true);
+  }
+
+  // After a migration the imported character and the freshly created conversation
+  // become the active ones, so the user lands straight in the new chat.
+  async function onRelationshipImported(result: { character_id: string; conversation_id: string }) {
+    const response = await api<{ characters: Character[] }>('/v1/characters');
+    setCharacters(response.characters);
+    const imported = response.characters.find((item) => item.character_id === result.character_id);
+    if (!imported) return;
+    playbackRef.current?.interrupt();
+    setTyping(false);
+    setActive(imported);
+    setView('chat');
+    setError(null);
+    setErrorCode(null);
+    setSuggestions([]);
+    setConversationId(result.conversation_id);
+    setMessages(await fetchMessages(result.conversation_id));
+  }
+
   function openCharacterCreate() {
     analytics.criticalAction('character_create_started', analyticsPage, {
       result: 'attempted'
@@ -480,6 +626,7 @@ export function App() {
       onSelect={(character) => void openCharacter(character, 'chat', true)}
       onImport={openCharacterImport}
       onCreate={openCharacterCreate}
+      onMigrate={() => openRelationshipImport()}
     />
   );
 
@@ -491,28 +638,45 @@ export function App() {
         muted={muted}
         onToggleMute={toggleMute}
         account={account}
+        cloud={cloud}
         onLogin={openLogin}
         onLogout={() => void onLogout()}
+        onCloud={() => setCloudOpen(true)}
         {...(view === 'memories' && active ? { title: `与${active.name}的回忆` } : view === 'settings' ? { title: 'LiteTavern' } : {})}
       />
 
       <section className="hsr-stage">
+        {cloudOffline && (
+          <p className="cloud-offline-banner" role="status">
+            LiteTavern Cloud 暂时不可用。本地角色、已缓存的对话和自带模型仍可使用；
+            未同步的内容会在恢复后重试，数据没有丢失。
+          </p>
+        )}
         {view === 'chat' && contactRail}
         {!active ? (
           <EmptyCharacter
             onImport={openCharacterImport}
             onCreate={openCharacterCreate}
+            onMigrate={() => openRelationshipImport()}
           />
         ) : view === 'chat' ? (
           <ChatPage
             character={active} messages={messages} draft={draft} sending={sending} error={error}
             errorCode={errorCode} freeQuotaRemaining={freeQuotaRemaining} freeQuotaEnabled={freeQuotaEnabled}
+            cloud={cloud}
             usageMode={usageMode} configurations={configurations} selectedConfigurationId={selectedConfigurationId}
             suggestions={suggestions} suggesting={suggesting} typing={typing}
             onProfile={() => setView('profile')} onDraft={setDraft} onSend={send} onPick={(text) => void submit(text)}
             onEditSubmit={(messageId, text) => void submit(text, messageId)}
-            onUsageMode={setUsageMode} onConfiguration={setSelectedConfigurationId}
+            onUsageMode={(mode) => {
+              setUsageMode(mode);
+              if (mode === 'BYOK') {
+                analytics.criticalAction('byok_selected', 'chat', { result: 'success' });
+              }
+            }}
+            onConfiguration={setSelectedConfigurationId}
             onProvider={openProviderSettings}
+            onCloud={() => setCloudOpen(true)}
           />
         ) : view === 'profile' ? (
           <ProfilePage
@@ -534,6 +698,7 @@ export function App() {
           <CharacterSettingsPage
             character={active} configurations={configurations}
             onBack={() => setView('profile')} onImport={openCharacterImport}
+            onMigrate={() => openRelationshipImport(active.character_id)}
             onEdit={() => {
               setEditorCharacterId(active.character_id);
               setEditorOpen(true);
@@ -564,10 +729,32 @@ export function App() {
         onClose={() => setEditorOpen(false)}
         onSaved={() => refreshCharacters(true)}
       />
+      <RelationshipImport
+        open={migrationOpen}
+        characters={characters}
+        {...(migrationCharacterId ? { defaultCharacterId: migrationCharacterId } : {})}
+        onClose={() => setMigrationOpen(false)}
+        onImported={onRelationshipImported}
+      />
       <LoginSync
         open={loginOpen}
         onClose={() => setLoginOpen(false)}
         onAuthenticated={(user) => void onAuthenticated(user)}
+      />
+      <CloudPanel
+        open={cloudOpen}
+        status={cloud}
+        offline={cloudOffline}
+        onClose={() => setCloudOpen(false)}
+        onStatusChanged={setCloud}
+        onLogin={() => {
+          setCloudOpen(false);
+          openLogin();
+        }}
+        onProvider={() => {
+          setCloudOpen(false);
+          openProviderSettings();
+        }}
       />
     </main>
   );
@@ -589,15 +776,35 @@ function SmsIcon({ size = 30 }: { size?: number }) {
   );
 }
 
-function TopChrome({ title, muted, onToggleMute, account, onLogin, onLogout }: {
+function TopChrome({ title, muted, onToggleMute, account, cloud, onLogin, onLogout, onCloud }: {
   title?: string; muted?: boolean; onToggleMute?: () => void;
-  account?: AnonymousIdentity | null; onLogin?: () => void; onLogout?: () => void;
+  account?: AnonymousIdentity | null; cloud?: CloudStatus | null;
+  onLogin?: () => void; onLogout?: () => void; onCloud?: () => void;
 }) {
   const registered = account?.registered ?? account?.identity_type === 'EMAIL';
   return (
     <header className="top-chrome">
       <div className="sms-title"><SmsIcon size={30} /><span><strong>短信</strong>{title && <small>{title}</small>}</span></div>
       <div className="chrome-actions">
+        {/* Always reachable, including on the empty state — service status is not a
+            chat-only concern. */}
+        {onCloud && (
+          <button type="button" className="chrome-cloud" onClick={onCloud} aria-label="LiteTavern Cloud 状态">
+            {cloud
+              ? cloud.quota.source === 'ALPHA'
+                ? `Cloud Alpha ${Math.round(cloud.quota.remaining_ratio * 100)}%`
+                : cloud.quota.source === 'TRIAL'
+                  ? `Cloud 试用 ${cloud.quota.available} 次`
+                  : 'LiteTavern Cloud'
+              : 'LiteTavern Cloud'}
+          </button>
+        )}
+        <a
+          className="chrome-support"
+          href={siteHref('/support?source=website&placement=direct')}
+        >
+          支持 LiteTavern
+        </a>
         {account && (
           registered ? (
             <div className="account-chip" title={account.email ?? undefined}>
@@ -621,9 +828,10 @@ function TopChrome({ title, muted, onToggleMute, account, onLogin, onLogout }: {
   );
 }
 
-function ContactRail({ characters, active, tone, onSelect, onImport, onCreate }: {
+function ContactRail({ characters, active, tone, onSelect, onImport, onCreate, onMigrate }: {
   characters: Character[]; active: Character | null; tone: 'dark' | 'light';
   onSelect: (character: Character) => void; onImport: () => void; onCreate: () => void;
+  onMigrate: () => void;
 }) {
   return (
     <aside className={`contact-rail rail-${tone}`}>
@@ -640,12 +848,13 @@ function ContactRail({ characters, active, tone, onSelect, onImport, onCreate }:
       <div className="rail-actions">
         <button className="rail-action" onClick={onCreate}><Plus size={21} /> 新建角色</button>
         <button className="rail-action" onClick={onImport}><Upload size={21} /> 导入角色卡</button>
+        <button className="rail-action" onClick={onMigrate}><HeartHandshake size={21} /> 迁移角色关系</button>
       </div>
     </aside>
   );
 }
 
-function EmptyCharacter({ onImport, onCreate }: { onImport: () => void; onCreate: () => void }) {
+function EmptyCharacter({ onImport, onCreate, onMigrate }: { onImport: () => void; onCreate: () => void; onMigrate: () => void }) {
   return (
     <section className="main-paper empty-paper">
       <MessageCircle size={42} />
@@ -654,6 +863,7 @@ function EmptyCharacter({ onImport, onCreate }: { onImport: () => void; onCreate
       <div className="empty-actions">
         <button className="gold-button" onClick={onCreate}><Plus size={19} /> 创建角色</button>
         <button className="secondary-button" aria-label="导入流萤角色卡" onClick={onImport}><Upload size={19} /> 导入角色卡</button>
+        <button className="secondary-button" onClick={onMigrate}><HeartHandshake size={19} /> 迁移角色关系</button>
       </div>
     </section>
   );
@@ -728,26 +938,36 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   );
 }
 
-function ChatPage({ character, messages, draft, sending, error, errorCode, freeQuotaRemaining, freeQuotaEnabled, usageMode, configurations, selectedConfigurationId, suggestions, suggesting, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider }: {
+function ChatPage({ character, messages, draft, sending, error, errorCode, freeQuotaRemaining, freeQuotaEnabled, cloud, usageMode, configurations, selectedConfigurationId, suggestions, suggesting, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider, onCloud }: {
   character: Character; messages: Message[]; draft: string; sending: boolean; error: string | null;
   errorCode: string | null; freeQuotaRemaining: number | null; freeQuotaEnabled: boolean;
+  cloud: CloudStatus | null;
   usageMode: 'PLATFORM' | 'BYOK'; configurations: ModelConfiguration[]; selectedConfigurationId: string;
   suggestions: string[]; suggesting: boolean; typing: boolean;
   onProfile: () => void; onDraft: (value: string) => void; onSend: (event: FormEvent) => void; onPick: (text: string) => void;
   onEditSubmit: (messageId: string, text: string) => void;
   onUsageMode: (mode: 'PLATFORM' | 'BYOK') => void; onConfiguration: (id: string) => void; onProvider: () => void;
+  onCloud: () => void;
 }) {
   const lastLine = [...messages].reverse().find((message) => message.role === 'ASSISTANT' && message.content_text.trim())?.content_text
     || character.first_message || character.profile_summary || '角色档案';
 
+  // The server decides whether anything is left to spend; the legacy counter only
+  // covers the moment before the first Cloud status arrives.
+  const platformExhausted = cloud
+    ? cloud.quota.source === 'NONE' || cloud.quota.available === 0
+    : freeQuotaRemaining === 0;
   const officialBlocked =
-    usageMode === 'PLATFORM' &&
-    (!freeQuotaEnabled || freeQuotaRemaining === 0);
+    usageMode === 'PLATFORM' && (!freeQuotaEnabled || platformExhausted);
   const quotaMessage =
-    usageMode === 'PLATFORM' && freeQuotaRemaining === 0
-      ? '你的官方免费回复次数已用完。你可以配置自己的模型服务继续聊天。'
-      : usageMode === 'PLATFORM' && !freeQuotaEnabled
-        ? '官方免费服务当前已关闭。你可以配置自己的模型服务继续聊天。'
+    usageMode === 'PLATFORM' && !freeQuotaEnabled
+      ? 'LiteTavern Cloud 平台模型当前已关闭。你可以切换到自己的模型服务继续聊天。'
+      : usageMode === 'PLATFORM' && platformExhausted
+        ? cloud?.membership_status === 'ALPHA_ACTIVE'
+          ? '本期 LiteTavern Cloud Alpha 额度已用完。你可以切换到自己的模型服务继续聊天。'
+          : cloud?.registered
+            ? '试用额度已用完。你已在 LiteTavern Cloud Alpha 候补名单中，获得资格后即可使用平台额度。也可以切换到自己的模型服务继续聊天。'
+            : '试用额度已用完。注册后可加入 LiteTavern Cloud Alpha 候补名单，或切换到自己的模型服务继续聊天。'
         : null;
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -799,7 +1019,9 @@ function ChatPage({ character, messages, draft, sending, error, errorCode, freeQ
       </button>
       <div className="chat-scroll-wrap">
         <div className="chat-messages" ref={scrollRef} onScroll={handleScroll}>
-          {messages.map((message) => (
+          {messages.map((message) => (message.role === 'EVENT' ? (
+            <p key={message.message_id} className="chat-event" role="note">{message.content_text}</p>
+          ) : (
             <div key={message.message_id} className={`hsr-message ${message.role === 'USER' ? 'from-user' : 'from-character'} ${editingId === message.message_id ? 'is-editing' : ''}`}>
               {message.role === 'ASSISTANT' && <Avatar character={character} />}
               <div className="message-body">
@@ -825,7 +1047,7 @@ function ChatPage({ character, messages, draft, sending, error, errorCode, freeQ
               </div>
               {message.role === 'USER' && <span className="user-avatar"><UserRound size={26} /></span>}
             </div>
-          ))}
+          )))}
           {typing && (
             <div className="hsr-message from-character">
               <Avatar character={character} />
@@ -849,9 +1071,17 @@ function ChatPage({ character, messages, draft, sending, error, errorCode, freeQ
           <div className="quota-notice" role="status">
             <span><CircleAlert size={16} />{quotaMessage}</span>
             <button type="button" onClick={onProvider}>配置自己的模型服务</button>
+            <button type="button" onClick={onCloud}>查看 LiteTavern Cloud</button>
+            <a href={siteHref('/support?source=website&placement=quota_prompt')}>
+              自愿支持 LiteTavern
+            </a>
           </div>
         )}
-        {(errorCode === 'FREE_QUOTA_EXHAUSTED' || errorCode === 'FREE_SERVICE_DISABLED') && (
+        {(errorCode === 'FREE_QUOTA_EXHAUSTED' ||
+          errorCode === 'CLOUD_QUOTA_EXHAUSTED' ||
+          errorCode === 'CLOUD_QUOTA_DAILY_LIMIT' ||
+          errorCode === 'CLOUD_BUDGET_EXHAUSTED' ||
+          errorCode === 'FREE_SERVICE_DISABLED') && (
           <button className="quota-config-link" type="button" onClick={onProvider}>
             配置自己的模型服务
           </button>
@@ -868,8 +1098,14 @@ function ChatPage({ character, messages, draft, sending, error, errorCode, freeQ
           </div>
         )}
         <div className="model-bar">
-          <button className={usageMode === 'PLATFORM' ? 'active' : ''} onClick={() => onUsageMode('PLATFORM')}>
-            {freeQuotaRemaining === null ? '官方免费' : `官方免费 ${freeQuotaRemaining} 次`}
+          {/* A mode switch, not a meter — the remaining allowance lives in the
+              status chip so the two never disagree. */}
+          <button
+            className={usageMode === 'PLATFORM' ? 'active' : ''}
+            onClick={() => onUsageMode('PLATFORM')}
+            title={quotaLabel(cloud)}
+          >
+            LiteTavern Cloud
           </button>
           <button className={usageMode === 'BYOK' ? 'active' : ''} onClick={() => configurations.length ? onUsageMode('BYOK') : onProvider()}>自带模型</button>
           {usageMode === 'BYOK' && configurations.length > 0 && (
@@ -1015,8 +1251,8 @@ function SettingRow({ icon, title, description, value, onClick, href, disabled =
   return <button className="setting-row" onClick={onClick} disabled={disabled}>{content}</button>;
 }
 
-function CharacterSettingsPage({ character, configurations, onBack, onImport, onEdit, onProvider, onDelete }: {
-  character: Character; configurations: ModelConfiguration[]; onBack: () => void; onImport: () => void; onEdit: () => void; onProvider: () => void; onDelete: () => Promise<void>;
+function CharacterSettingsPage({ character, configurations, onBack, onImport, onMigrate, onEdit, onProvider, onDelete }: {
+  character: Character; configurations: ModelConfiguration[]; onBack: () => void; onImport: () => void; onMigrate: () => void; onEdit: () => void; onProvider: () => void; onDelete: () => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -1051,10 +1287,11 @@ function CharacterSettingsPage({ character, configurations, onBack, onImport, on
               <SettingRow icon={<Pencil />} title="编辑角色设定" description="修改名称、头像、描述与高级角色字段" onClick={onEdit} />
               <SettingRow icon={<Upload />} title="导入角色卡" description="从本地文件更新角色设定与对话数据" onClick={onImport} />
               <SettingRow icon={<Download />} title="导出角色卡" description="将当前角色卡按原始格式导出" href={`/v1/characters/${character.character_id}/export`} />
+              <SettingRow icon={<HeartHandshake />} title="迁移角色关系" description="把其他平台整理好的关系、资料与记忆导入这个角色" onClick={onMigrate} />
             </section>
             <label>模型配置</label>
             <section>
-              <SettingRow icon={<KeyRound />} title="模型选择" description="选择该角色使用的对话模型" value={configurations[0]?.display_name || 'LiteTavern 官方额度'} onClick={onProvider} />
+              <SettingRow icon={<KeyRound />} title="模型选择" description="选择该角色使用的对话模型" value={configurations[0]?.display_name || 'LiteTavern Cloud 额度'} onClick={onProvider} />
             </section>
             {character.is_owned && (
               <>

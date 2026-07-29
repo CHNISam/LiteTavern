@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, FileJson, LoaderCircle, Upload, X } from 'lucide-react';
+import { readApiJson } from '../lib/api';
 import { processAvatarImage } from '../lib/avatar-image';
+import { cloudUrl } from '../lib/runtime-config';
 
 interface Preview {
   format: string;
@@ -36,11 +38,15 @@ export function CharacterImport({ open, replaceCharacterId, onClose, onImported 
     const body = new FormData();
     body.append('file', file);
     if (replaceCharacterId) body.append('replace_character_id', replaceCharacterId);
-    const response = await fetch(path, { method: 'POST', credentials: 'include', body });
-    const payload = await response.json() as Preview & {
+    const response = await fetch(cloudUrl(path), {
+      method: 'POST',
+      credentials: 'include',
+      body
+    });
+    const payload = await readApiJson<Preview & {
       character_id?: string;
       error?: { message?: string };
-    };
+    }>(response);
     if (!response.ok) throw new Error(payload.error?.message ?? '角色卡处理失败。');
     return payload;
   }
@@ -54,8 +60,14 @@ export function CharacterImport({ open, replaceCharacterId, onClose, onImported 
     setBusy(true);
     try {
       const body = new FormData(); body.append('file', next);
-      const response = await fetch('/v1/characters/import/preview', { method: 'POST', credentials: 'include', body });
-      const payload = await response.json() as Preview & { error?: { message?: string } };
+      const response = await fetch(cloudUrl('/v1/characters/import/preview'), {
+        method: 'POST',
+        credentials: 'include',
+        body
+      });
+      const payload = await readApiJson<Preview & {
+        error?: { message?: string };
+      }>(response);
       if (!response.ok) throw new Error(payload.error?.message ?? '角色卡解析失败。');
       setPreview(payload);
       if (next.type === 'image/png' || next.name.toLowerCase().endsWith('.png')) {
@@ -81,7 +93,7 @@ export function CharacterImport({ open, replaceCharacterId, onClose, onImported 
         const body = new FormData();
         body.append('file', avatar, 'avatar.webp');
         // Avatar failure is intentionally non-fatal: card data has already committed.
-        await fetch(`/v1/characters/${imported.character_id}/avatar`, {
+        await fetch(cloudUrl(`/v1/characters/${imported.character_id}/avatar`), {
           method: 'POST',
           credentials: 'include',
           body

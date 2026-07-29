@@ -6,12 +6,14 @@
     <meta name="theme-color" content="#111421" />
     <meta name="description" content="LiteTavern — 与有记忆的角色持续对话" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" href="/litetavern.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./litetavern.svg" />
     <title>LiteTavern</title>
   </head>
   <body>
     <div id="root"></div>
+    <!-- Editable after build: points the static client at a LiteTavern Cloud origin. -->
+    <script src="./litetavern-config.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

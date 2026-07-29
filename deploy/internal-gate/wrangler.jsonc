@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // The Pages project is litetavern-dev, not litetavern-internal: the older
+  // project name was retired because Cloudflare's edge kept serving a deleted,
+  // ungated deployment under it. Recreating that name would resurrect it.
+  "name": "litetavern-dev",
+  "pages_build_output_dir": "../../apps/web/dist",
+  "compatibility_date": "2026-07-29",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "litetavern-internal",
+      "database_id": "e42a4d5b-2d2b-48f4-a3e1-7b3223c7102b",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ASSETS_BUCKET",
+      "bucket_name": "litetavern-internal-assets"
+    }
+  ]
+}

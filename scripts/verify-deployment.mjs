@@ -1,4 +1,3 @@
-/* global URL, console, fetch, process */
 
 import { pathToFileURL } from 'node:url';
 

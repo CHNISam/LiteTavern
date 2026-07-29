@@ -6,6 +6,7 @@ coverage/
 *.log
 .litetavern/
 .tmp/
+.wrangler/
 playwright-report/
 test-results/
 .playwright-cli/

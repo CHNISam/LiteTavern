@@ -35,6 +35,47 @@ beforeEach(() => {
 });
 
 describe('analytics client', () => {
+  it('migrates session and attribution state from the previous storage keys', async () => {
+    const storage = memoryStorage();
+    const previousPrefix = ['pom', 'chat.analytics'].join('');
+    storage.setItem(
+      `${previousPrefix}.session.v1`,
+      JSON.stringify({
+        sessionId: 'existing-session',
+        startedAt: Date.parse('2026-07-27T00:55:00Z'),
+        lastActivityAt: Date.parse('2026-07-27T00:59:00Z'),
+        sessionNumber: 1,
+        pageViewIndex: 0,
+        interactionIndex: 0,
+        currentPage: null,
+        pageDepth: 0
+      })
+    );
+    storage.setItem(
+      `${previousPrefix}.attribution.v1`,
+      JSON.stringify({ firstSourceChannel: 'github', firstCampaignId: null })
+    );
+    const fetcher = vi.fn(async () => new Response('{}', { status: 202 }));
+    const client = new AnalyticsClient({
+      storage,
+      fetcher,
+      now: () => Date.parse('2026-07-27T01:00:00Z')
+    });
+
+    await client.initialize({
+      userId: 'user-1',
+      anonymousId: 'anonymous-1',
+      url: 'https://litetavern.example/',
+      referrer: '',
+      appVersion: '0.1.0'
+    });
+
+    expect(client.getSessionId()).toBe('existing-session');
+    expect(storage.getItem('litetavern.analytics.session.v1')).not.toBeNull();
+    expect(storage.getItem('litetavern.analytics.attribution.v1')).not.toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('persists first attribution and starts a new session only after inactivity', async () => {
     const storage = memoryStorage();
     const requests: StoredRequest[] = [];
@@ -173,5 +214,50 @@ describe('analytics client', () => {
     );
     expect(JSON.stringify(events)).not.toContain('message');
     expect(JSON.stringify(events)).not.toContain('api_key');
+  });
+
+  it('sends support events through the existing endpoint without payment data', async () => {
+    const requests: StoredRequest[] = [];
+    const client = new AnalyticsClient({
+      storage: memoryStorage(),
+      fetcher: async (input, init) => {
+        requests.push({
+          path: String(input),
+          events: JSON.parse(String(init?.body)).events as AnalyticsEventPayload[]
+        });
+        return new Response('{}', { status: 202 });
+      },
+      now: () => Date.parse('2026-07-27T01:00:00Z')
+    });
+    await client.initialize({
+      userId: '',
+      anonymousId: '',
+      url: 'https://litetavern.example/support?source=github',
+      referrer: '',
+      appVersion: '0.1.0'
+    });
+
+    client.supportEvent('support_method_click', {
+      source: 'github',
+      method: 'afdian',
+      placement: 'direct',
+      isAuthenticated: false
+    });
+    await Promise.resolve();
+
+    expect(requests.at(-1)?.path).toBe('/v1/analytics/events');
+    expect(requests.at(-1)?.events[0]).toMatchObject({
+      event_name: 'support_method_click',
+      page_name: 'support',
+      properties: {
+        source: 'github',
+        method: 'afdian',
+        placement: 'direct',
+        is_authenticated: false
+      }
+    });
+    expect(JSON.stringify(requests.at(-1)?.events[0])).not.toMatch(
+      /qr|wechat.?id|account|amount|payment/i
+    );
   });
 });

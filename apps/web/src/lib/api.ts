@@ -1,5 +1,6 @@
 import { analytics } from './analytics';
 import { createId } from './id';
+import { cloudUrl } from './runtime-config';
 
 export interface Character {
   character_id: string;
@@ -16,7 +17,9 @@ export interface Character {
 
 export interface Message {
   message_id: string;
-  role: 'USER' | 'ASSISTANT';
+  // EVENT is a system note in the transcript (e.g. a relationship migration). It is
+  // never attributed to the character and never sent to the model.
+  role: 'USER' | 'ASSISTANT' | 'EVENT';
   content_text: string;
   status: string;
 }
@@ -93,8 +96,40 @@ export class ApiError extends Error {
   }
 }
 
+interface ApiErrorPayload {
+  error?: {
+    code?: string;
+    message?: string;
+    retryable?: boolean;
+    request_id?: string;
+  };
+}
+
+const CLOUD_UNAVAILABLE_MESSAGE = 'LiteTavern Cloud 暂不可用，请稍后重试。';
+
+/**
+ * Parse a JSON API response without leaking browser JSON parser errors into the UI.
+ *
+ * A static Pages deployment returns an empty 404 (or sometimes HTML) when its
+ * Cloud API origin is missing. That is an availability/configuration failure, not
+ * malformed user data, so surface one stable and actionable error.
+ */
+export async function readApiJson<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  if (!text.trim()) {
+    throw new ApiError(CLOUD_UNAVAILABLE_MESSAGE, 'INVALID_API_RESPONSE', true);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError(CLOUD_UNAVAILABLE_MESSAGE, 'INVALID_API_RESPONSE', true);
+  }
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
+  // `cloudUrl` keeps same-origin deployments on relative paths and rewrites to the
+  // configured LiteTavern Cloud origin when the client is hosted separately.
+  const response = await fetch(cloudUrl(path), {
     ...init,
     credentials: 'include',
     headers: {
@@ -103,14 +138,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...init.headers
     }
   });
-  const payload = (await response.json()) as T & {
-    error?: {
-      code?: string;
-      message?: string;
-      retryable?: boolean;
-      request_id?: string;
-    };
-  };
+  const payload = await readApiJson<T & ApiErrorPayload>(response);
   if (!response.ok) {
     throw new ApiError(
       payload.error?.message ?? '请求失败，请稍后重试。',
@@ -126,6 +154,14 @@ export interface TurnPlan {
   turn_id: string;
   messages: string[];
   free_quota_remaining?: number;
+  /** Present for platform-paid turns: which pool paid and what is left of it. */
+  cloud_quota?: {
+    source: 'TRIAL' | 'ALPHA' | 'BYOK' | 'NONE';
+    total: number;
+    available: number;
+    remaining_ratio: number;
+    cycle_ends_at: string | null;
+  };
 }
 
 // Generate a whole Agent turn (1–4 bubbles) in one model call. The bubbles are not
@@ -162,7 +198,7 @@ export async function streamGeneration(
   payload: unknown,
   onDelta: (text: string) => void
 ): Promise<{ freeQuotaRemaining?: number }> {
-  const response = await fetch(`/v1/conversations/${conversationId}/generations`, {
+  const response = await fetch(cloudUrl(`/v1/conversations/${conversationId}/generations`), {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -173,14 +209,7 @@ export async function streamGeneration(
     body: JSON.stringify(payload)
   });
   if (!response.ok) {
-    const body = (await response.json()) as {
-      error?: {
-        code?: string;
-        message?: string;
-        retryable?: boolean;
-        request_id?: string;
-      };
-    };
+    const body = await readApiJson<ApiErrorPayload>(response);
     throw new ApiError(
       body.error?.message ?? '发送失败，请稍后重试。',
       body.error?.code,

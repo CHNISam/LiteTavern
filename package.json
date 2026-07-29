@@ -4,15 +4,14 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "apps/web"
   ],
   "scripts": {
-    "dev": "npm-run-all --parallel dev:api dev:web",
-    "dev:api": "npm run dev --workspace @litetavern/api",
-    "dev:web": "npm run dev --workspace @litetavern/web",
+    "dev": "npm run dev --workspace @litetavern/web",
     "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm-run-all test:workspaces test:deployment",
+    "test:workspaces": "npm run test --workspaces --if-present",
+    "test:deployment": "node --test scripts/validate-deployment-env.test.mjs scripts/internal-api.test.mjs",
     "test:branding": "node scripts/verify-branding.mjs",
     "test:release": "node --test scripts/release-policy.test.mjs scripts/verify-deployment.test.mjs scripts/workflow-policy.test.mjs",
     "test:coverage": "npm run test:coverage --workspaces --if-present",

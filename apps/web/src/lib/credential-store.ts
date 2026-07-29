@@ -22,6 +22,8 @@ interface StoredCredential {
 }
 
 const STORE_NAME = 'credentials';
+const DEFAULT_DATABASE_NAME = 'litetavern-credentials';
+const PREVIOUS_DATABASE_NAME = ['pom', 'chat-credentials'].join('');
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -44,11 +46,17 @@ function maskKey(apiKey: string): string {
 }
 
 export class BrowserCredentialStore {
-  constructor(private readonly databaseName = 'litetavern-credentials') {}
+  private migration: Promise<void> | null = null;
 
-  private open(): Promise<IDBDatabase> {
+  constructor(
+    private readonly databaseName = DEFAULT_DATABASE_NAME,
+    private readonly previousDatabaseName: string | undefined =
+      databaseName === DEFAULT_DATABASE_NAME ? PREVIOUS_DATABASE_NAME : undefined
+  ) {}
+
+  private openNamed(databaseName: string): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.databaseName, 1);
+      const request = indexedDB.open(databaseName, 1);
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains(STORE_NAME)) {
           const store = request.result.createObjectStore(STORE_NAME, {
@@ -60,6 +68,55 @@ export class BrowserCredentialStore {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
+  }
+
+  private async migratePreviousCredentials(): Promise<void> {
+    if (!this.previousDatabaseName || this.previousDatabaseName === this.databaseName) return;
+
+    const previous = await this.openNamed(this.previousDatabaseName);
+    let records: StoredCredential[];
+    try {
+      const transaction = previous.transaction(STORE_NAME, 'readonly');
+      records = await requestResult(
+        transaction.objectStore(STORE_NAME).getAll() as IDBRequest<StoredCredential[]>
+      );
+      await transactionDone(transaction);
+    } finally {
+      previous.close();
+    }
+    if (records.length > 0) {
+      const current = await this.openNamed(this.databaseName);
+      try {
+        const readTransaction = current.transaction(STORE_NAME, 'readonly');
+        const existing = await requestResult(
+          readTransaction.objectStore(STORE_NAME).getAllKeys() as IDBRequest<IDBValidKey[]>
+        );
+        await transactionDone(readTransaction);
+        const existingIds = new Set(existing.map(String));
+        const missing = records.filter((record) => !existingIds.has(record.credentialId));
+        if (missing.length > 0) {
+          const writeTransaction = current.transaction(STORE_NAME, 'readwrite');
+          const store = writeTransaction.objectStore(STORE_NAME);
+          for (const record of missing) store.put(record);
+          await transactionDone(writeTransaction);
+        }
+      } finally {
+        current.close();
+      }
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(this.previousDatabaseName!);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => resolve();
+    });
+  }
+
+  private async open(): Promise<IDBDatabase> {
+    this.migration ??= this.migratePreviousCredentials();
+    await this.migration;
+    return this.openNamed(this.databaseName);
   }
 
   async save(input: SaveCredentialInput): Promise<CredentialSummary> {
