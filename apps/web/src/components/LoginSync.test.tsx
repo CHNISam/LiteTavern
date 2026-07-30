@@ -94,6 +94,33 @@ describe('LoginSync', () => {
     expect(await screen.findByText('验证码不正确，请重新输入。')).toBeInTheDocument();
   });
 
+  it('stays on the email step when delivery fails', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      json(
+        {
+          error: {
+            code: 'EMAIL_DELIVERY_FAILED',
+            message: 'provider internals must not be shown'
+          }
+        },
+        503
+      )
+    );
+
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} />);
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
+      target: { value: 'user@example.com' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
+
+    expect(
+      await screen.findByText('验证码邮件未能发送，请稍后重试。')
+    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('you@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('验证码已发送至 u***@example.com')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('______')).not.toBeInTheDocument();
+  });
+
   it('lets the user go back and change the email', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
       json({ success: true, message: 'ok' })

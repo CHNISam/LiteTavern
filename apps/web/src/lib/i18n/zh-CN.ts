@@ -503,6 +503,7 @@ export const zhCN = {
     resendIn: (seconds: number) => `重新发送（${seconds}s）`,
     invalidEmail: '请输入有效的邮箱地址。',
     rateLimited: '发送过于频繁，请稍后再试。',
+    deliveryFailed: '验证码邮件未能发送，请稍后重试。',
     codeInvalid: '验证码不正确，请重新输入。',
     codeExpired: '验证码已过期，请重新获取。',
     tooManyAttempts: '尝试次数过多，请重新获取验证码。',

@@ -25,6 +25,8 @@ function friendlyError(reason: unknown): string {
       return t().auth.invalidEmail;
     case 'CODE_SEND_RATE_LIMITED':
       return t().auth.rateLimited;
+    case 'EMAIL_DELIVERY_FAILED':
+      return t().auth.deliveryFailed;
     case 'CODE_INVALID':
       return t().auth.codeInvalid;
     case 'CODE_EXPIRED':

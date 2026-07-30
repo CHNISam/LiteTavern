@@ -537,6 +537,7 @@ export const en: Dictionary = {
     resendIn: (seconds: number) => `Resend in ${seconds}s`,
     invalidEmail: 'Enter a valid email address.',
     rateLimited: 'Too many requests. Please wait a moment.',
+    deliveryFailed: 'We could not send the verification email. Please try again.',
     codeInvalid: 'That code is not right. Please check and retype it.',
     codeExpired: 'That code has expired. Request a new one.',
     tooManyAttempts: 'Too many attempts. Request a new code.',
