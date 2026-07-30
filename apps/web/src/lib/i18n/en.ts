@@ -1,0 +1,526 @@
+import type { Dictionary } from './zh-CN';
+
+/**
+ * English copy, written for the ecosystem this audience already lives in rather
+ * than translated phrase by phrase.
+ *
+ * Concretely: the vocabulary is SillyTavern's, because that is what these
+ * readers know — "character card", "greeting", "example dialogue", "system
+ * prompt", "bring your own key" — and the tone is plainer and shorter than the
+ * Chinese, which reads as warm rather than terse. Nothing here promises anything
+ * the Chinese copy does not.
+ */
+export const en: Dictionary = {
+  common: {
+    close: 'Close',
+    cancel: 'Cancel',
+    save: 'Save',
+    saving: 'Saving…',
+    send: 'Send',
+    delete: 'Delete',
+    back: 'Back',
+    confirm: 'Confirm',
+    retry: 'Try again',
+    ok: 'Got it',
+    submitting: 'Submitting…',
+    optional: 'optional'
+  },
+
+  language: {
+    label: 'Language',
+    description: 'Interface language and wording',
+    ariaLabel: 'Interface language'
+  },
+
+  chrome: {
+    appName: 'Messages',
+    modelService: 'Models',
+    settings: 'Settings',
+    signIn: 'Sign in',
+    account: 'Account',
+    manageAccount: 'Manage account and sync',
+    syncWarning: 'Sync problem',
+    soundOn: 'Turn sound on',
+    soundOff: 'Turn sound off',
+    memoriesTitle: (name: string) => `Memories with ${name}`
+  },
+
+  contacts: {
+    newCharacter: 'New character',
+    emptyTitle: 'No characters yet',
+    emptyBody: 'Create one below, or import a character card from Settings',
+    waitingMessage: 'No messages yet',
+    emptyStateTitle: 'Waiting for the first message',
+    emptyStateBody:
+      'Start with “New character” on the left, or import an existing card from Settings → Import and migrate.'
+  },
+
+  chat: {
+    offlineBanner:
+      'LiteTavern Cloud is unreachable. Local characters, cached conversations and your own models keep working; anything unsynced will retry once it is back. Nothing has been lost.',
+    openProfile: (name: string) => `Open ${name}’s profile`,
+    placeholder: (name: string) => `Message ${name}…`,
+    firstConversation: 'Say something to get started.',
+    scrollToBottom: 'Scroll to latest',
+    sendMessage: 'Send message',
+    quickReplies: 'Suggested replies',
+    thinkingOfReplies: 'Thinking of a few replies…',
+    noModelAvailable:
+      'No model available. Connect your own, or check your LiteTavern Cloud allowance.',
+    connectOwnModel: 'Connect your own model',
+    viewCloudQuota: 'Check LiteTavern Cloud',
+    ownModel: 'Your own model',
+    characterProfile: 'Character profile',
+    copy: 'Copy',
+    copied: 'Copied',
+    copyMessage: 'Copy message',
+    copiedMessage: 'Copied',
+    editMessage: 'Edit message',
+    editMessageContent: 'Edit message text',
+    sendFailed: 'Could not send. Please try again.',
+    quotaExhausted:
+      'Your LiteTavern Cloud allowance is used up. Connect your own model to keep chatting.',
+    platformDisabled:
+      'LiteTavern Cloud models are switched off right now. Connect your own model to keep chatting.',
+    byokMissingConfiguration: 'Add one of your own models first.',
+    byokMissingKey: 'This browser has no API key for that configuration. Please add it again.'
+  },
+
+  profile: {
+    backToChat: 'Back to messages',
+    edit: 'Edit',
+    moreActions: 'More actions',
+    updateFromCard: 'Update from a character card',
+    exportCard: 'Export character card',
+    deleteCharacter: 'Delete character',
+    noSummary: 'This card has no description yet.',
+    noPersonality: 'This card has no personality yet.',
+    summary: 'Description',
+    summaryPlaceholder: 'Appearance, role, background',
+    personality: 'Personality',
+    personalityHint: 'Separate with commas to show them as tags, e.g. gentle, resolute, quiet',
+    personalityPlaceholder: 'gentle, resolute, quiet',
+    editField: (label: string) => `Edit ${label.toLowerCase()}`,
+    relationship: 'Where you stand',
+    relationshipUpdated: 'Updated automatically after each conversation.',
+    relationshipEmpty: (name: string) =>
+      `Once you have talked with ${name}, a short summary of your relationship appears here and keeps up with the conversation.`,
+    memories: 'Memories',
+    memoriesHint: 'Things worth remembering from your conversations',
+    memoriesCount: (count: number, name: string) =>
+      `${count} ${count === 1 ? 'memory' : 'memories'}, sent to ${name} along with the conversation`,
+    memoriesNone: 'Nothing remembered yet',
+    deleteTitle: (name: string) => `Delete “${name}”?`,
+    deleteBody:
+      'They will disappear from your contacts and the conversation history goes with them. This cannot be undone.',
+    deleting: 'Deleting…',
+    deleteFailed: 'Could not delete. Please try again.',
+    saveFailed: 'Could not save. Please try again.'
+  },
+
+  memory: {
+    title: 'Memories',
+    backToProfile: 'Back to profile',
+    purpose: (name: string) =>
+      `These are sent to ${name} along with the conversation. Delete one and it stops being used.`,
+    loading: 'Loading memories…',
+    emptyTitle: 'Nothing remembered yet',
+    emptyBody: (name: string) =>
+      `After each exchange with ${name}, anything worth remembering long-term is picked out and kept here, then carried into later conversations.`,
+    goChat: 'Start chatting',
+    addedByYou: 'Added by you',
+    addedAutomatically: 'Picked up automatically',
+    unconfirmed: 'Unconfirmed',
+    deleteAria: (excerpt: string) => `Delete memory: ${excerpt}`,
+    deleteTitle: 'Delete this memory?',
+    deleteBody: (name: string) =>
+      `${name} will no longer carry it into later conversations. This cannot be undone.`,
+    kinds: {
+      FACT: { label: 'Facts', blurb: 'Things established about you' },
+      PREFERENCE: { label: 'Preferences', blurb: 'What you like and dislike' },
+      EXPERIENCE: { label: 'Shared history', blurb: 'What you went through together' },
+      COMMITMENT: { label: 'Promises', blurb: 'What you agreed on' },
+      CORRECTION: { label: 'Corrections', blurb: 'Things you set straight' },
+      OTHER: { label: 'Other', blurb: 'Not sorted yet' }
+    }
+  },
+
+  editor: {
+    eyebrow: 'Character',
+    createTitle: 'New character',
+    editTitle: 'Edit character',
+    loading: 'Loading character…',
+    name: 'Name',
+    namePlaceholder: 'What are they called?',
+    sectionPerson: 'Who they are',
+    sectionDialogue: 'How they talk',
+    description: 'Description',
+    descriptionPlaceholder: 'Appearance, role, background',
+    personality: 'Personality',
+    personalityNote: 'shown on their profile',
+    personalityPlaceholder: 'Separate with commas to show them as tags, e.g. gentle, resolute, quiet',
+    scenario: 'Scenario',
+    scenarioPlaceholder: 'The situation you are both in',
+    firstMessage: 'First message',
+    alternateGreetings: 'Alternate greetings',
+    alternateGreetingsNote: 'one per line',
+    exampleMessages: 'Example dialogue',
+    exampleMessagesPlaceholder: 'Show how they speak and their tone',
+    advanced: 'Advanced',
+    systemPrompt: 'System prompt',
+    postHistory: 'Post-history instructions',
+    tags: 'Tags',
+    tagsNote: 'comma separated',
+    creator: 'Creator',
+    characterVersion: 'Character version',
+    creatorNotes: 'Creator notes',
+    saveCharacter: 'Save character',
+    nameRequired: 'Give the character a name.',
+    saveFailed: 'Could not save the character.',
+    avatarUploadFailed: (reason: string) =>
+      `The character was saved, but the avatar upload failed: ${reason}`,
+    avatarUploadRetry: 'Please try again.',
+    unappliedFields: (count: number) =>
+      `${count} ${count === 1 ? 'field is' : 'fields are'} kept but not in use`,
+    compatibility: {
+      FORMAL: 'Fully supported',
+      COMPATIBLE: 'Compatible',
+      PRESERVED: 'Stored only'
+    }
+  },
+
+  avatar: {
+    preview: 'Avatar preview',
+    choose: 'Choose avatar',
+    chooseShort: 'Choose image',
+    replace: 'Replace',
+    remove: 'Remove avatar',
+    zoom: 'Zoom',
+    dropHint: 'Drop or paste an image. It is cropped to a square when you save.',
+    dragHint: 'Drag the image to reposition it.',
+    tooLarge: 'Images must be under 12 MB.',
+    wrongType: 'Choose a JPEG, PNG or WebP image.',
+    processFailed: 'Could not process the image.',
+    uploadFailed: 'Could not upload the avatar.',
+    deleteFailed: 'Could not remove the avatar.'
+  },
+
+  settings: {
+    title: 'Settings',
+    backToSettings: 'Back to settings',
+    sections: 'Settings',
+    dataTitle: 'Import and migrate',
+    dataBody: 'Import character cards, migrate relationships, or export your cloud data',
+    dataLead: 'Occasional data work lives here. New characters still start from the contact list.',
+    aboutTitle: 'About LiteTavern',
+    aboutBody: 'Version, source code, and how to support the project',
+    importCard: 'Import a character card',
+    importCardBody: 'Create a character from a local JSON or PNG file',
+    migrate: 'Migrate a relationship',
+    migrateBody: 'Bring a relationship, profile and memories over from another platform',
+    exportCloud: 'Export cloud data',
+    exportCloudBody: 'Download a copy of this Cloud account’s data',
+    appTagline:
+      'An open-source AI client where characters, conversations and shared history carry on.',
+    version: (version: string) => `Version ${version}`,
+    viewSource: 'View the source on GitHub',
+    supportHeading: 'Support LiteTavern',
+    supportBody:
+      'Supporting the project is entirely optional. It does not affect normal use, Cloud sign-up, sync, plans or Alpha access.',
+    supportAction: 'Support LiteTavern'
+  },
+
+  models: {
+    eyebrow: 'Models',
+    title: 'Choose who writes the replies',
+    statusLabel: 'Model service status',
+    cloudBlurb: 'The hosted model service run by LiteTavern',
+    inUse: 'In use',
+    usingThis: 'Currently in use',
+    useCloud: (name: string) => `Use ${name}`,
+    useOwnModel: 'Use your own model',
+    ownModel: 'Your own model',
+    ownModelBlurb: 'Your API key, billed by the provider you chose',
+    ownModelEmpty:
+      'No provider connected yet. Pick one below — your API key stays on this device.',
+    connectedCount: (count: number) =>
+      `${count} ${count === 1 ? 'configuration' : 'configurations'}`,
+    connectedLabel: 'Connected',
+    currentLabel: 'Active',
+    keyLocation: 'Key stored',
+    keyLocationValue: 'This browser only',
+    quotaSource: 'Allowance',
+    quotaUsed: 'Used',
+    quotaRenewal: 'Renews',
+    quotaRemaining: (total: number, unit: string) => `of ${total} ${unit} left`,
+    quotaMeterLabel: (pool: string) => `${pool} remaining`,
+    quotaStale: (name: string) =>
+      `${name} is unreachable — this is the last state that synced.`,
+    poolExhausted: (pool: string, renewal: string) => `Your ${pool} is used up. ${renewal}.`,
+    platformUnavailable: (name: string) => `${name} models are unavailable right now.`,
+    connectOwnInstead: 'Connect one of your own models below to keep chatting.',
+    noQuotaOnAccount: (name: string) => `This account has no ${name} allowance.`,
+    searchLabel: 'Search providers',
+    searchPlaceholder: 'Search by name or address',
+    noMatch: (query: string) => `No provider matches “${query}”.`,
+    alreadyConnected: 'Connected',
+    regions: {
+      CN: 'China-based providers',
+      GLOBAL: 'Global providers',
+      LOCAL: 'Local models',
+      CUSTOM: 'Custom endpoint'
+    },
+    loadingProviders: 'Loading providers…',
+    loadFailed: (reason: string) => `Could not load providers: ${reason}`,
+    loadFailedGeneric: 'Could not load providers. Please try again.',
+    keysUnaffected: 'Your API keys are untouched — they never leave this browser.',
+    emptyCatalogue: 'The provider catalogue is empty. Check the LiteTavern Cloud configuration.',
+    backToProviders: 'Back to providers',
+    configurationName: 'Name',
+    baseUrl: 'Base URL',
+    modelId: 'Model ID',
+    modelIdPlaceholder: 'Copy it from the provider’s model list',
+    apiKey: 'API Key',
+    apiKeyPlaceholder: 'Stored in this browser only',
+    apiKeyOptional: 'Leave empty for a local server',
+    privacyNote:
+      'The full key is written to this browser’s IndexedDB. The server only forwards it while validating and generating.',
+    providerDocs: 'Provider documentation',
+    validateAndSave: 'Validate and save',
+    validating: 'Checking the connection…',
+    validationFailed: 'The connection could not be validated.',
+    connectFailed: 'Connection failed.',
+    connected: 'Connected. The configuration is saved in this browser.',
+    replaceKey: 'Replace key',
+    replaceKeyPrompt: 'Enter the new API key (it stays masked after saving)',
+    deleteConfiguration: 'Delete configuration',
+    keyMissing: 'No key found in this browser',
+    anyOpenAiCompatible: 'Any OpenAI-compatible service'
+  },
+
+  cloud: {
+    providerName: 'LiteTavern Cloud',
+    trialPool: 'trial allowance',
+    alphaPool: 'daily Alpha allowance',
+    replyUnit: 'replies',
+    alphaRenewal: 'Renews daily at 08:00',
+    trialRenewal: 'Does not renew',
+    noQuota: (name: string) => `No ${name} allowance`,
+    quotaLabel: (provider: string, pool: string, scope: string, available: number, total: number) =>
+      `${provider} ${pool}: ${available} of ${total} ${scope}`,
+    scopeToday: 'left today',
+    scopeRemaining: 'left',
+    unavailable: 'LiteTavern Cloud is unavailable. Please try again shortly.',
+    requestFailed: 'The request failed. Please try again.',
+    streamUnsupported: 'This browser does not support streaming responses.',
+    modelUnavailable: 'The model service is temporarily unavailable.'
+  },
+
+  membership: {
+    anonymousTrialActive: 'Using the trial allowance provided by LiteTavern Cloud',
+    anonymousTrialSpent:
+      'Your LiteTavern Cloud trial allowance is used up. Sign up to join the Alpha waitlist, or switch to your own model to keep chatting.',
+    waitlistSupporter:
+      'You are on the LiteTavern Cloud Alpha waitlist. Thank you for supporting LiteTavern early — you will be given priority in the queue, though supporting is not a purchase of access and we cannot promise a date.',
+    waitlist:
+      'You are on the LiteTavern Cloud Alpha waitlist. Places are limited and released in batches in queue order; we cannot promise a date yet.',
+    alphaGranted:
+      'You have LiteTavern Cloud Alpha access but have not started yet. Entering Alpha unlocks the platform allowance and cloud features.',
+    alphaActive: (available: number, total: number) =>
+      `Platform replies today: ${available} of ${total} left. Renews daily at 08:00.`,
+    alphaPausedWithReason: (reason: string) =>
+      `LiteTavern Cloud Alpha access is paused: ${reason}. You can switch to your own model to keep chatting.`,
+    alphaPaused:
+      'LiteTavern Cloud Alpha access is paused. You can switch to your own model to keep chatting.',
+    alphaEndedWithReason: (reason: string) =>
+      `This round of LiteTavern Cloud Alpha has ended: ${reason}. You can switch to your own model to keep chatting.`,
+    alphaEnded:
+      'This round of LiteTavern Cloud Alpha has ended. You can switch to your own model to keep chatting.',
+    disclaimer:
+      'LiteTavern Cloud Alpha is still a test. Allowances, models and cloud rules may change based on real costs, stability and what the test shows.'
+  },
+
+  auth: {
+    eyebrow: 'LiteTavern Cloud account',
+    dialogLabel: 'Sign in or create a LiteTavern Cloud account',
+    signInOrUp: 'Sign in or sign up',
+    enterCode: 'Enter the code',
+    lead:
+      'Enter your email. An existing account signs straight in; a new one is created after verification and starts on LiteTavern Free, which syncs characters, conversations and memories. Alpha access is applied for separately.',
+    email: 'Email',
+    codeSentTo: (masked: string) => `We sent a code to ${masked}`,
+    codeLabel: '6-digit code',
+    sendCode: 'Send code',
+    verify: 'Verify and continue',
+    changeEmail: 'Use another email',
+    resendCode: 'Resend the code',
+    resendIn: (seconds: number) => `Resend in ${seconds}s`,
+    invalidEmail: 'Enter a valid email address.',
+    rateLimited: 'Too many requests. Please wait a moment.',
+    codeInvalid: 'That code is not right. Please check and retype it.',
+    codeExpired: 'That code has expired. Request a new one.',
+    tooManyAttempts: 'Too many attempts. Request a new code.',
+    mergeFailed: 'Something went wrong while syncing the account. Please try again.',
+    generic: 'That did not work. Please try again.'
+  },
+
+  importer: {
+    eyebrow: 'Character',
+    importTitle: 'Import a character card',
+    updateTitle: 'Update from a card',
+    chooseFile: 'Choose a card file',
+    choosePlaceholder: 'Choose a JSON or PNG character card',
+    formatSupport:
+      'Character Card V2 / V3 fully supported, Tavern Card V1 compatible, up to 10 MB',
+    parsing: 'Parsing safely…',
+    avatarPreview: 'Card avatar preview',
+    noSummary: 'No description',
+    notFilled: 'Empty',
+    personality: 'Personality',
+    opening: 'Greeting',
+    preserved: (fields: string) => `Kept but not in use: ${fields}`,
+    confirmImport: 'Import',
+    confirmUpdate: 'Update',
+    safetyNote:
+      'Cards are treated as untrusted files: LiteTavern never runs scripts inside them and never fetches remote addresses they contain.',
+    processFailed: 'Could not process the card.',
+    parseFailed: 'Could not read the card.',
+    importFailed: 'Could not import the card.',
+    avatarUnreadable:
+      'The character can be imported, but the card’s avatar could not be read — a placeholder will be used.'
+  },
+
+  claim: {
+    open: 'Already supported? Claim Founding Supporter',
+    title: 'Claim Founding Supporter',
+    lead:
+      'Paying needs no account and no personal details. The fields below are only for claiming the badge, so we can match it up by hand.',
+    nickname: 'Name to show',
+    contactType: 'How to reach you',
+    contact: 'Contact',
+    amount: 'Roughly how much',
+    paidAt: 'Roughly when',
+    note: 'Message (optional)',
+    submit: 'Submit claim',
+    submitted: 'Claim submitted — Founding Supporter is granted once verified',
+    submittedBody:
+      'We check support records by hand and will let you know the result through the contact you left.',
+    submitFailed: 'Could not submit. Please try again.',
+    contactTypes: { wechat: 'WeChat', email: 'Email', other: 'Other' },
+    consent:
+      'Your contact is used only to verify the claim, thank you, invite you to tests and send important project notices — never unrelated marketing.',
+    nicknameRequired: 'Enter a name to show.',
+    contactRequired: 'Enter a way to reach you.',
+    amountRequired: 'Enter an amount greater than 0.',
+    paidAtRequired: 'Pick roughly when you paid.',
+    consentRequired: 'Please agree to how your contact is used.'
+  },
+
+  support: {
+    documentTitle: 'Support LiteTavern',
+    eyebrow: 'VOLUNTARY SUPPORT',
+    heroTitle: 'Support LiteTavern’s development',
+    heroLead: 'LiteTavern is a free, open-source AI client and web tool.',
+    heroBody:
+      'Support turns into a steadier service, faster updates, and more of what comes next.',
+    usesTitle: 'Where support goes',
+    uses: {
+      infraTitle: 'Servers and infrastructure',
+      infraBody: 'Keeping the service up whenever you open it.',
+      modelTitle: 'Model calls and performance',
+      modelBody: 'A larger model allowance, with less waiting and fewer limits.',
+      domainTitle: 'Domains and essentials',
+      domainBody: 'Domain, certificates and CDN, so access stays fast and safe.',
+      devTitle: 'Ongoing development',
+      devBody: 'New features, fixes and long-term maintenance.'
+    },
+    methodsTitle: 'How to support',
+    cadenceOneOff: 'One-off',
+    cadenceMonthly: 'Monthly',
+    thanksTitle: 'What you get back',
+    thanks: {
+      voiceTitle: 'Heard first',
+      voiceBody: 'Questions and suggestions from supporters get read and answered first.',
+      rememberTitle: 'Credited if you want',
+      rememberBody: 'Supporters who want to be named appear in the credits. Anonymous is fine too.'
+    },
+    notesTitle: 'The fine print',
+    notes: {
+      voluntaryTitle: 'Entirely optional',
+      voluntaryBody: 'Supporting is your call, and every contribution is appreciated.',
+      noGateTitle: 'Nothing is gated',
+      noGateBody: 'Everything in the open-source part works without supporting.',
+      projectTitle: 'Spent on the project',
+      projectBody: 'Support goes into building and maintaining LiteTavern.'
+    },
+    fineprint:
+      'A one-off contribution is not the purchase of a Pro plan, and promises no investment, dividend or return. Supporter status is independent of any future plan; badges such as Founding Supporter are not granted automatically and will be designed separately.',
+    suggestedAmount: 'Suggested',
+    suggestedAmountLabel: 'Suggested amount',
+    customAmount: 'Custom amount',
+    customAmountPlaceholder: 'Other',
+    wechat: {
+      title: 'WeChat',
+      openQr: 'Open the WeChat QR code in a new window',
+      qrAlt: 'WeChat payment QR code',
+      unavailable: 'WeChat support is not set up yet',
+      unavailableBody: 'The QR code appears here once it is configured.',
+      amountNote: 'Enter the amount in WeChat Pay. This page does not record it.'
+    },
+    afdian: {
+      title: 'Afdian',
+      body: 'Monthly support on Afdian, the China-based membership platform. Change or cancel any time.',
+      action: 'Support on Afdian',
+      unavailable: 'Afdian support is not set up yet'
+    },
+    kofi: {
+      title: 'Ko-fi',
+      body: 'One-off or monthly, whichever suits. Change or cancel any time.',
+      action: 'Support on Ko-fi',
+      unavailable: 'Ko-fi support is not set up yet'
+    },
+    sponsors: {
+      title: 'GitHub Sponsors',
+      body: 'Sponsor the work right where the code lives.',
+      action: 'Sponsor on GitHub',
+      unavailable: 'GitHub Sponsors is not set up yet'
+    },
+    sources: {
+      bilibiliTitle: 'Found LiteTavern on Bilibili?',
+      bilibiliBody:
+        'You can also support the creator directly on Bilibili, which is usually the easiest route.',
+      bilibiliButton: 'Support on Bilibili',
+      douyinTitle: 'Found LiteTavern on Douyin?',
+      douyinBody: 'Gifts and support inside the app itself are usually more convenient.',
+      douyinButton: 'Support on Douyin',
+      githubTitle: 'Thanks for following the open-source work.',
+      githubBody: 'Developer sponsorship options will be added as they are actually needed.',
+      websiteTitle: 'Thanks for taking a look at LiteTavern.',
+      websiteBody:
+        'Pick whichever way suits you. Not supporting changes nothing about what you can use.'
+    }
+  },
+
+  about: {
+    documentTitle: 'About LiteTavern',
+    eyebrow: 'ABOUT LITETAVERN',
+    title: 'Let characters carry their history forward',
+    lead:
+      'LiteTavern is an AI character world that keeps evolving. Chat is only the way in: the characters, what you do, the world’s history and what happens next add up to a relationship that continues.',
+    supportHeading: 'Support LiteTavern',
+    supportBody:
+      'The open-source part is free to use. If the project helps you, you can voluntarily cover servers, model calls, domains and ongoing development. Not supporting changes nothing about normal use.',
+    supportAction: 'Support LiteTavern'
+  },
+
+  publicChrome: {
+    backToApp: 'Back to LiteTavern',
+    appearance: 'Appearance',
+    lightMode: 'Light',
+    darkMode: 'Dark',
+    footerNote: 'The open-source part of LiteTavern is free to use',
+    footerNav: 'Footer navigation',
+    aboutLink: 'About LiteTavern',
+    supportLink: 'Support LiteTavern'
+  }
+};

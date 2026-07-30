@@ -520,7 +520,7 @@ export class AnalyticsClient {
       | 'support_qr_view',
     options: {
       source: 'bilibili' | 'douyin' | 'github' | 'website' | 'other';
-      method?: 'wechat' | 'afdian' | 'bilibili' | 'douyin';
+      method?: 'wechat' | 'afdian' | 'bilibili' | 'douyin' | 'kofi' | 'github_sponsors';
       placement: 'footer' | 'about' | 'readme' | 'quota_prompt' | 'direct';
       isAuthenticated: boolean;
     }

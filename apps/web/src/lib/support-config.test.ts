@@ -55,7 +55,9 @@ describe('support configuration', () => {
       wechatQrUrl: null,
       afdianUrl: null,
       bilibiliUrl: 'https://space.bilibili.com/123',
-      douyinUrl: null
+      douyinUrl: null,
+      kofiUrl: null,
+      githubSponsorsUrl: null
     });
   });
 

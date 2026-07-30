@@ -1,3 +1,4 @@
+import { useT } from '../lib/i18n';
 import { siteHref } from '../public-routing';
 
 export type SiteFooterLink = 'about' | 'support';
@@ -10,14 +11,17 @@ export type SiteFooterLink = 'about' | 'support';
  * history stack by clicking it again.
  */
 export function SiteFooter({ omit = [] }: { omit?: readonly SiteFooterLink[] } = {}) {
+  const t = useT();
   return (
     <footer className="site-footer">
-      <span>LiteTavern 开源部分可免费使用</span>
-      <nav aria-label="页脚导航">
-        {!omit.includes('about') && <a href={siteHref('/about')}>关于 LiteTavern</a>}
+      <span>{t.publicChrome.footerNote}</span>
+      <nav aria-label={t.publicChrome.footerNav}>
+        {!omit.includes('about') && (
+          <a href={siteHref('/about')}>{t.publicChrome.aboutLink}</a>
+        )}
         {!omit.includes('support') && (
           <a href={siteHref('/support?source=website&placement=footer')}>
-            支持 LiteTavern
+            {t.publicChrome.supportLink}
           </a>
         )}
       </nav>
