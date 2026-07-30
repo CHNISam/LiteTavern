@@ -1,51 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, LoaderCircle, X } from 'lucide-react';
 import { api, readApiJson } from '../lib/api';
+import {
+  EMPTY_CHARACTER,
+  fetchCharacterCard,
+  type CardDetail,
+  type CharacterModel
+} from '../lib/character-card';
 import { cloudUrl } from '../lib/runtime-config';
 import { AvatarCropper, type AvatarSelection } from './AvatarCropper';
-
-interface CharacterModel {
-  name: string;
-  description: string;
-  personality: string;
-  scenario: string;
-  first_message: string;
-  alternate_greetings: string[];
-  example_messages: string;
-  system_prompt: string;
-  post_history_instructions: string;
-  tags: string[];
-  creator: {
-    name: string;
-    notes: string;
-    character_version: string;
-  };
-}
-
-interface CardDetail {
-  normalized_data: CharacterModel;
-  source_metadata: {
-    compatibility_level: 'FORMAL' | 'COMPATIBLE' | 'PRESERVED';
-    format: string;
-    container: string;
-    unapplied_fields: string[];
-  };
-  warnings: string[];
-}
-
-const EMPTY_CHARACTER: CharacterModel = {
-  name: '',
-  description: '',
-  personality: '',
-  scenario: '',
-  first_message: '',
-  alternate_greetings: [],
-  example_messages: '',
-  system_prompt: '',
-  post_history_instructions: '',
-  tags: [],
-  creator: { name: '', notes: '', character_version: '' }
-};
 
 const COMPATIBILITY_LABEL = {
   FORMAL: '正式支持',
@@ -81,7 +44,7 @@ export function CharacterEditor({ open, characterId, onClose, onSaved }: {
       return;
     }
     setLoading(true);
-    void api<CardDetail>(`/v1/characters/${characterId}/card`)
+    void fetchCharacterCard(characterId)
       .then((result) => {
         setModel(result.normalized_data);
         setDetail(result);
