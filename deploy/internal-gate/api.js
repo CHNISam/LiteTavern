@@ -661,6 +661,13 @@ export async function handleApiRequest(request, { repository, objects }) {
       );
     }
 
+    // Personas and worldbooks are deliberately absent here. Both exist to shape a
+    // prompt, and this gate never builds one — the generation routes above are a
+    // 503. Re-implementing their storage in D1 would give this deployment data it
+    // cannot act on, and a second copy of the activation rules to keep in step with
+    // LiteTavern Cloud. The client treats the 404 below as "this deployment does not
+    // offer the feature" and hides the entry points rather than reporting an error.
+
     return error('NOT_FOUND', '接口不存在。', 404);
   } catch (cause) {
     if (cause instanceof ApiFault) {

@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  ArrowLeft, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download,
-  KeyRound, LoaderCircle, MessageCircle, MoreHorizontal, Pencil, Plus, Send, Settings,
+  ArrowLeft, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy,
+  Download, KeyRound, LoaderCircle, MessageCircle, MoreHorizontal, Pencil, Plus, Send,
+  Settings,
   Trash2, Upload, UserRound, Volume2, VolumeX
 } from 'lucide-react';
 import { AccountSyncPanel } from './components/CloudPanel';
 import { ProviderSettings } from './components/ProviderSettings';
 import { AppSettingsPanel } from './components/AppSettingsPanel';
+import { ConversationPersonaPanel, PersonaPanel } from './components/PersonaPanel';
+import { CharacterWorldbookPanel, WorldbookPanel } from './components/WorldbookPanel';
 import { CharacterImport } from './components/CharacterImport';
 import { CharacterEditor } from './components/CharacterEditor';
 import { RelationshipImport } from './components/RelationshipImport';
@@ -116,6 +119,14 @@ function ProductApp() {
   const [providerInitialSection, setProviderInitialSection] =
     useState<'overview' | 'platform' | 'byok'>('overview');
   const [appSettingsOpen, setAppSettingsOpen] = useState(false);
+  const [personaPanelOpen, setPersonaPanelOpen] = useState(false);
+  const [worldbookPanelOpen, setWorldbookPanelOpen] = useState(false);
+  const [conversationPersonaOpen, setConversationPersonaOpen] = useState(false);
+  const [characterWorldbookOpen, setCharacterWorldbookOpen] = useState(false);
+  // Which identity the open conversation speaks as. The server binds the default
+  // persona when a conversation is first created and reports it here; from then on
+  // only an explicit choice changes it.
+  const [conversationPersonaId, setConversationPersonaId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importCharacterId, setImportCharacterId] = useState<string | undefined>();
   const [editorOpen, setEditorOpen] = useState(false);
@@ -249,15 +260,19 @@ function ProductApp() {
     setError(null);
     setErrorCode(null);
     setSuggestions([]);
-    const created = await api<{ conversation_id: string }>('/v1/conversations', {
-      method: 'POST', body: JSON.stringify({ character_id: character.character_id })
-    });
+    const created = await api<{ conversation_id: string; persona_id?: string | null }>(
+      '/v1/conversations',
+      { method: 'POST', body: JSON.stringify({ character_id: character.character_id }) }
+    );
     // The reader has already moved on; writing this state back would drag them
     // to a contact they left, so the response is recorded and otherwise dropped.
     cacheConversationId(character.character_id, created.conversation_id);
     if (token !== openTokenRef.current) return;
     conversationIdRef.current = created.conversation_id;
     setConversationId(created.conversation_id);
+    // The server owns which persona this conversation is bound to; a deployment
+    // without personas simply reports none.
+    setConversationPersonaId(created.persona_id ?? null);
     if (trackSelection) {
       analytics.criticalAction('character_selected', 'home', {
         characterId: character.character_id,
@@ -288,6 +303,7 @@ function ProductApp() {
     setActive(character);
     setView('chat');
     setSuggestions([]);
+    setConversationPersonaId(null);
     const cachedId = cachedConversationId(character.character_id);
     conversationIdRef.current = cachedId;
     setConversationId(cachedId);
@@ -814,6 +830,8 @@ function ProductApp() {
               setView('chat');
             }}
             onMemories={() => setView('memories')}
+            onPersona={() => setConversationPersonaOpen(true)}
+            onWorldbooks={() => setCharacterWorldbookOpen(true)}
             onEdit={() => {
               setEditorCharacterId(active.character_id);
               setEditorOpen(true);
@@ -879,6 +897,29 @@ function ProductApp() {
         onClose={() => setAppSettingsOpen(false)}
         onImport={() => openCharacterImport()}
         onMigrate={() => openRelationshipImport(active?.character_id)}
+        onPersonas={() => {
+          setAppSettingsOpen(false);
+          setPersonaPanelOpen(true);
+        }}
+        onWorldbooks={() => {
+          setAppSettingsOpen(false);
+          setWorldbookPanelOpen(true);
+        }}
+      />
+      <PersonaPanel open={personaPanelOpen} onClose={() => setPersonaPanelOpen(false)} />
+      <WorldbookPanel open={worldbookPanelOpen} onClose={() => setWorldbookPanelOpen(false)} />
+      <ConversationPersonaPanel
+        open={conversationPersonaOpen}
+        conversationId={conversationId}
+        personaId={conversationPersonaId}
+        onClose={() => setConversationPersonaOpen(false)}
+        onBound={setConversationPersonaId}
+      />
+      <CharacterWorldbookPanel
+        open={characterWorldbookOpen}
+        characterId={active?.character_id ?? null}
+        characterName={active?.name ?? '角色'}
+        onClose={() => setCharacterWorldbookOpen(false)}
       />
       <AccountSyncPanel
         open={accountOpen}
@@ -1354,13 +1395,16 @@ function splitTraits(text: string): string[] | null {
  * shown.
  */
 function ProfilePage({
-  character, relationship, memoryCount, onChat, onMemories, onEdit, onImport, onExportHref, onDelete, onFieldSaved
+  character, relationship, memoryCount, onChat, onMemories, onPersona, onWorldbooks,
+  onEdit, onImport, onExportHref, onDelete, onFieldSaved
 }: {
   character: Character;
   relationship: string | null;
   memoryCount: number | null;
   onChat: () => void;
   onMemories: () => void;
+  onPersona: () => void;
+  onWorldbooks: () => void;
   onEdit: () => void;
   onImport: () => void;
   onExportHref: string;
@@ -1495,6 +1539,22 @@ function ProfilePage({
                       ? `${memoryCount} 条，会随对话一起提供给${character.name}`
                       : '还没有记下任何片段'}
                 </small>
+              </span>
+              <ChevronRight size={19} />
+            </button>
+            <button onClick={onPersona} aria-label="本次对话的身份">
+              <span className="pa-icon"><UserRound size={22} /></span>
+              <span className="pa-copy">
+                <strong>本次对话的身份</strong>
+                <small>选择你在这段对话里是谁</small>
+              </span>
+              <ChevronRight size={19} />
+            </button>
+            <button onClick={onWorldbooks} aria-label="关联世界书">
+              <span className="pa-icon"><BookOpen size={22} /></span>
+              <span className="pa-copy">
+                <strong>关联世界书</strong>
+                <small>选择对话时参与匹配的世界设定</small>
               </span>
               <ChevronRight size={19} />
             </button>

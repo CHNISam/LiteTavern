@@ -103,7 +103,14 @@ export class ApiError extends Error {
     message: string,
     readonly code = 'REQUEST_FAILED',
     readonly retryable = false,
-    readonly requestId?: string
+    readonly requestId?: string,
+    /**
+     * HTTP status, when there was one. A route that does not exist yet answers 404
+     * without any LiteTavern error code (that is the framework's own handler), so the
+     * status is the only way to tell "this deployment is older than this feature"
+     * apart from "your request failed".
+     */
+    readonly status?: number
   ) {
     super(message);
     this.name = 'ApiError';
@@ -158,7 +165,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       payload.error?.message ?? '请求失败，请稍后重试。',
       payload.error?.code,
       payload.error?.retryable,
-      payload.error?.request_id
+      payload.error?.request_id,
+      response.status
     );
   }
   return payload;
