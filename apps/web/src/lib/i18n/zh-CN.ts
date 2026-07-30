@@ -81,6 +81,10 @@ export const zhCN = {
     editMessage: '编辑消息',
     editMessageContent: '编辑消息内容',
     sendFailed: '发送失败，请稍后重试。',
+    regexRemovedInput: '输入经 Regex 处理后为空，未发送。',
+    regexInputTimeout: '一个 Regex 脚本执行超时，已使用原始输入。',
+    localContextFailed: '本地上下文准备失败。',
+    regexOutputTimeout: '一个 Regex 脚本执行超时，已保留模型原文。',
     quotaExhausted: 'LiteTavern Cloud 的额度已用完。你可以接入自己的模型继续聊天。',
     platformDisabled: 'LiteTavern Cloud 平台模型当前已关闭。你可以接入自己的模型继续聊天。',
     byokMissingConfiguration: '请先添加一个用户自带模型。',
@@ -93,6 +97,7 @@ export const zhCN = {
     moreActions: '更多操作',
     updateFromCard: '用角色卡更新设定',
     exportCard: '导出角色卡',
+    exportFailed: '角色卡导出失败。',
     deleteCharacter: '删除角色',
     noSummary: '角色卡暂未填写简介。',
     noPersonality: '角色卡暂未填写性格描述。',
@@ -399,7 +404,14 @@ export const zhCN = {
     switchFailed: '切换身份失败，请稍后重试。',
     none: '不使用身份',
     noneHint: '角色只会用一般称呼指代你。',
-    pickerEmpty: '还没有身份，可以先在「设置 → 用户身份」中创建。'
+    pickerEmpty: '还没有身份，可以先在「设置 → 用户身份」中创建。',
+    localOnly: 'Persona 仅保存在此设备，不会标记为已同步。',
+    conversationLocalOnly: '此会话的选择仅保存在此设备。',
+    avatarMissing: '缺少头像，使用默认头像',
+    runtimeAtDepth: (depth: number, role: string) =>
+      `depth ${depth} · ${role}`,
+    preservedFields: (count: number) =>
+      `已保留 ${count} 个未映射源字段（当前不执行）`
   },
 
   worldbook: {
@@ -461,7 +473,20 @@ export const zhCN = {
     linkTitle: (characterName: string) => `${characterName}的世界书`,
     linkLead: '勾选的世界书会在与该角色对话时参与匹配。同一本世界书可以同时关联多个角色。',
     linkFailed: '保存关联失败，请稍后重试。',
-    linkEmpty: '还没有世界书，可以先在「设置 → 世界书」中创建。'
+    linkEmpty: '还没有世界书，可以先在「设置 → 世界书」中创建。',
+    localOnly: '世界书仅保存在此设备，不会标记为已同步。',
+    runtimeSummary: (source: string, scanDepth: number, tokenBudget: number) =>
+      `仅保存在此设备 · 来源 ${source} · 扫描深度 ${scanDepth} · 预算 ${tokenBudget} tokens`,
+    entryRuntime: (
+      position: string,
+      probability: string,
+      priority: number
+    ) => `${position} · 概率 ${probability} · 优先级 ${priority}`,
+    depthRuntime: (depth: number, role: string) =>
+      `depth ${depth} · ${role}`,
+    probabilityOff: '关闭',
+    preservedFields: (count: number) =>
+      `已保留 ${count} 个未映射源字段（当前不执行）`
   },
 
   migration: {
@@ -640,7 +665,10 @@ export const zhCN = {
     processFailed: '角色卡处理失败。',
     parseFailed: '角色卡解析失败。',
     importFailed: '角色卡导入失败。',
-    avatarUnreadable: '角色设定可以导入，但卡片头像无法读取，将使用默认占位头像。'
+    avatarUnreadable: '角色设定可以导入，但卡片头像无法读取，将使用默认占位头像。',
+    localExtensionsOnly: '卡内世界书与 Regex 仅保存在此设备。',
+    regexTitle: (count: number) => `卡内 Regex（${count}）`,
+    regexAuthorize: '授权这些脚本处理输入、回复或世界书文本'
   },
 
   claim: {

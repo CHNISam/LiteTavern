@@ -87,6 +87,12 @@ export const en: Dictionary = {
     editMessage: 'Edit message',
     editMessageContent: 'Edit message text',
     sendFailed: 'Could not send. Please try again.',
+    regexRemovedInput: 'Regex processing removed the whole input, so it was not sent.',
+    regexInputTimeout:
+      'A Regex script timed out. The original input was used.',
+    localContextFailed: 'Could not prepare the local context.',
+    regexOutputTimeout:
+      'A Regex script timed out. The model’s original text was kept.',
     quotaExhausted:
       'Your LiteTavern Cloud allowance is used up. Connect your own model to keep chatting.',
     platformDisabled:
@@ -101,6 +107,7 @@ export const en: Dictionary = {
     moreActions: 'More actions',
     updateFromCard: 'Update from a character card',
     exportCard: 'Export character card',
+    exportFailed: 'Could not export the character card.',
     deleteCharacter: 'Delete character',
     noSummary: 'This card has no description yet.',
     noPersonality: 'This card has no personality yet.',
@@ -425,7 +432,15 @@ export const en: Dictionary = {
     switchFailed: 'Could not switch persona. Please try again.',
     none: 'No persona',
     noneHint: 'The character will refer to you in general terms.',
-    pickerEmpty: 'No personas yet — create one under Settings → Personas.'
+    pickerEmpty: 'No personas yet — create one under Settings → Personas.',
+    localOnly: 'Personas stay on this device and are not marked as synced.',
+    conversationLocalOnly:
+      'This conversation’s choice stays on this device.',
+    avatarMissing: 'Avatar missing; using the default avatar',
+    runtimeAtDepth: (depth: number, role: string) =>
+      `depth ${depth} · ${role}`,
+    preservedFields: (count: number) =>
+      `${count} unmapped source ${count === 1 ? 'field' : 'fields'} preserved (not currently executed)`
   },
 
   worldbook: {
@@ -493,7 +508,20 @@ export const en: Dictionary = {
     linkLead:
       'Checked worldbooks are matched against conversations with this character. One worldbook can be linked to several characters.',
     linkFailed: 'Could not save the links. Please try again.',
-    linkEmpty: 'No worldbooks yet — create one under Settings → Worldbooks.'
+    linkEmpty: 'No worldbooks yet — create one under Settings → Worldbooks.',
+    localOnly: 'Worldbooks stay on this device and are not marked as synced.',
+    runtimeSummary: (source: string, scanDepth: number, tokenBudget: number) =>
+      `On this device only · Source ${source} · Scan depth ${scanDepth} · Budget ${tokenBudget} tokens`,
+    entryRuntime: (
+      position: string,
+      probability: string,
+      priority: number
+    ) => `${position} · Probability ${probability} · Priority ${priority}`,
+    depthRuntime: (depth: number, role: string) =>
+      `depth ${depth} · ${role}`,
+    probabilityOff: 'off',
+    preservedFields: (count: number) =>
+      `${count} unmapped source ${count === 1 ? 'field' : 'fields'} preserved (not currently executed)`
   },
 
   migration: {
@@ -688,7 +716,12 @@ export const en: Dictionary = {
     parseFailed: 'Could not read the card.',
     importFailed: 'Could not import the card.',
     avatarUnreadable:
-      'The character can be imported, but the card’s avatar could not be read — a placeholder will be used.'
+      'The character can be imported, but the card’s avatar could not be read — a placeholder will be used.',
+    localExtensionsOnly:
+      'The card’s worldbook and Regex scripts stay on this device.',
+    regexTitle: (count: number) => `Card Regex (${count})`,
+    regexAuthorize:
+      'Allow these scripts to process input, replies, or worldbook text'
   },
 
   claim: {

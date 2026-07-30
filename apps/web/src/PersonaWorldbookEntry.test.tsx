@@ -1,11 +1,17 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { resetLoreDatabaseForTests } from './lib/lore-store';
+import {
+  bindConversationPersona,
+  createPersona
+} from './lib/persona';
+import { createWorldbook } from './lib/worldbook';
 
 /**
  * Entry-point coverage: the two features have to be reachable from the shell the user
- * actually sees, and the identity a conversation is opened with has to come from the
- * server rather than from whatever the client last had in memory.
+ * actually sees, and Persona/worldbook content must come from the browser-local source
+ * of truth rather than the legacy Cloud asset endpoints.
  */
 
 function json(body: unknown, status = 200) {
@@ -88,28 +94,21 @@ function mockShell(handler: (path: string, init?: RequestInit) => Promise<Respon
   });
 }
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   vi.restoreAllMocks();
   localStorage.clear();
+  await resetLoreDatabaseForTests();
 });
 
 describe('persona and worldbook entry points', () => {
   it('opens persona management from the settings panel', async () => {
+    await createPersona({
+      name: '林岸',
+      description: '一名夜班记者。'
+    });
     mockShell((path) => {
       if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
-      if (path === '/v1/personas') {
-        return json({
-          personas: [
-            {
-              persona_id: 'persona-1',
-              name: '林岸',
-              description: '一名夜班记者。',
-              is_default: true
-            }
-          ]
-        });
-      }
       return null;
     });
 
@@ -122,24 +121,9 @@ describe('persona and worldbook entry points', () => {
   });
 
   it('opens worldbook management from the settings panel', async () => {
+    await createWorldbook('白港设定集');
     mockShell((path) => {
       if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
-      if (path === '/v1/worldbooks') {
-        return json({
-          worldbooks: [
-            {
-              worldbook_id: 'book-1',
-              name: '白港设定集',
-              description: '',
-              enabled: true,
-              scan_depth: null,
-              token_budget: null,
-              origin: 'USER',
-              entry_count: 3
-            }
-          ]
-        });
-      }
       return null;
     });
 
@@ -152,18 +136,18 @@ describe('persona and worldbook entry points', () => {
   });
 
   it('opens the conversation persona picker preselected with the bound persona', async () => {
+    const firstPersona = await createPersona({
+      name: '林岸',
+      description: '夜班记者。'
+    });
+    await createPersona({
+      name: '沈迟',
+      description: '外科医生。'
+    });
+    await bindConversationPersona('conversation-1', firstPersona.persona_id);
     mockShell((path) => {
       if (path === '/v1/conversations') {
-        // The server binds the default persona when the conversation is created.
-        return json({ conversation_id: 'conversation-1', persona_id: 'persona-1' }, 201);
-      }
-      if (path === '/v1/personas') {
-        return json({
-          personas: [
-            { persona_id: 'persona-1', name: '林岸', description: '夜班记者。', is_default: true },
-            { persona_id: 'persona-2', name: '沈迟', description: '外科医生。', is_default: false }
-          ]
-        });
+        return json({ conversation_id: 'conversation-1' }, 201);
       }
       return null;
     });
@@ -174,31 +158,15 @@ describe('persona and worldbook entry points', () => {
 
     const dialog = await screen.findByRole('dialog', { name: '本次对话的身份' });
     await waitFor(() => expect(dialog).toHaveTextContent('林岸'));
-    // Preselection comes from what the server reported, not from a client guess.
+    // Preselection comes from the conversation's durable local binding.
     const selected = dialog.querySelector('.persona-item.selected');
     expect(selected?.textContent).toContain('林岸');
   });
 
   it('opens the character worldbook picker from the character profile', async () => {
+    await createWorldbook('白港设定集');
     mockShell((path) => {
       if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
-      if (path === '/v1/worldbooks') {
-        return json({
-          worldbooks: [
-            {
-              worldbook_id: 'book-1',
-              name: '白港设定集',
-              description: '',
-              enabled: true,
-              scan_depth: null,
-              token_budget: null,
-              origin: 'USER',
-              entry_count: 3
-            }
-          ]
-        });
-      }
-      if (path === '/v1/characters/firefly-card/worldbooks') return json({ worldbooks: [] });
       return null;
     });
 

@@ -266,6 +266,13 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
         <p className="persona-lead">
           {t().worldbook.entriesLead}
         </p>
+        <p className="privacy-footnote">
+          {t().worldbook.runtimeSummary(
+            selected.origin,
+            selected.scan_depth ?? 4,
+            selected.token_budget ?? 800
+          )}
+        </p>
         {loading ? (
           <p className="import-state">
             <LoaderCircle className="spin" size={18} /> {t().worldbook.loadingEntries}
@@ -289,6 +296,28 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
                     </span>
                   </div>
                   <p>{entry.content}</p>
+                  <small>
+                    {t().worldbook.entryRuntime(
+                      entry.position,
+                      entry.use_probability
+                        ? `${entry.probability}%`
+                        : t().worldbook.probabilityOff,
+                      entry.priority ?? entry.insertion_order
+                    )}
+                    {entry.position === 'AT_DEPTH'
+                      ? ` · ${t().worldbook.depthRuntime(
+                          entry.depth,
+                          entry.role
+                        )}`
+                      : ''}
+                  </small>
+                  {Object.keys(entry.source_fields ?? {}).length > 0 && (
+                    <small>
+                      {t().worldbook.preservedFields(
+                        Object.keys(entry.source_fields ?? {}).length
+                      )}
+                    </small>
+                  )}
                   <div className="persona-item-actions">
                     <button
                       type="button"
@@ -350,6 +379,7 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
       <p className="persona-lead">
         {t().worldbook.lead}
       </p>
+      <p className="privacy-footnote">{t().worldbook.localOnly}</p>
       {loading && (
         <p className="import-state">
           <LoaderCircle className="spin" size={18} /> {t().worldbook.loadingBooks}

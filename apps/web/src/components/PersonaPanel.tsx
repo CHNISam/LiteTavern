@@ -144,6 +144,7 @@ export function PersonaPanel({ open, onClose }: { open: boolean; onClose: () => 
       <p className="persona-lead">
         {t().persona.lead}
       </p>
+      <p className="privacy-footnote">{t().persona.localOnly}</p>
 
       {loading && (
         <p className="import-state">
@@ -176,6 +177,25 @@ export function PersonaPanel({ open, onClose }: { open: boolean; onClose: () => 
                       {persona.is_default && <em className="persona-badge">{t().persona.defaultBadge}</em>}
                     </strong>
                     <small>{persona.description || t().persona.noDescription}</small>
+                    <small>
+                      {persona.position}
+                      {persona.position === 'AT_DEPTH'
+                        ? ` · ${t().persona.runtimeAtDepth(
+                            persona.depth ?? 2,
+                            persona.role
+                          )}`
+                        : ''}
+                      {persona.avatar_missing
+                        ? ` · ${t().persona.avatarMissing}`
+                        : ''}
+                    </small>
+                    {Object.keys(persona.source_fields ?? {}).length > 0 && (
+                      <small>
+                        {t().persona.preservedFields(
+                          Object.keys(persona.source_fields ?? {}).length
+                        )}
+                      </small>
+                    )}
                   </span>
                 </button>
                 <div className="persona-item-actions">
@@ -314,6 +334,9 @@ export function ConversationPersonaPanel({
     <PanelShell title={t().persona.pickerTitle} eyebrow={t().persona.eyebrow} onClose={onClose}>
       <p className="persona-lead">
         {t().persona.pickerLead}
+      </p>
+      <p className="privacy-footnote">
+        {t().persona.conversationLocalOnly}
       </p>
       {loading && (
         <p className="import-state">

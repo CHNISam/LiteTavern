@@ -1,12 +1,15 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { resetLoreDatabaseForTests } from './lib/lore-store';
+import {
+  RegexPlacement,
+  saveCharacterRegexBundle
+} from './lib/regex-engine';
 
 /**
- * Every reply-suggestion request is a paid model call. These tests pin the rules
- * that keep a restless clicker from draining an allowance they cannot see:
- * one turn never costs two model calls, re-selecting the open contact costs
- * nothing, and only the conversation the reader settles on is ever suggested for.
+ * Suggestions are part of the same structured model response as the assistant
+ * bubbles. The new client never calls the legacy reply-suggestions route.
  */
 
 function json(body: unknown, status = 200) {
@@ -35,18 +38,36 @@ interface ShellOptions {
   characters?: ReturnType<typeof character>[];
   /** Suggestions returned inline by the turn endpoint. */
   turnSuggestions?: string[];
+  turnMessages?: string[];
   messages?: Record<string, unknown>[];
 }
 
 function mockShell({
   characters = [character('firefly-card', '流萤')],
   turnSuggestions,
+  turnMessages = ['收到。'],
   messages = []
 }: ShellOptions = {}) {
-  const requested: { path: string; method: string }[] = [];
+  const requested: {
+    path: string;
+    method: string;
+    body?: Record<string, unknown>;
+    idempotencyKey?: string;
+  }[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
     const path = String(input);
-    requested.push({ path, method: init?.method ?? 'GET' });
+    const rawBody = typeof init?.body === 'string' ? init.body : null;
+    const headers = new Headers(init?.headers);
+    requested.push({
+      path,
+      method: init?.method ?? 'GET',
+      ...(rawBody
+        ? { body: JSON.parse(rawBody) as Record<string, unknown> }
+        : {}),
+      ...(headers.get('Idempotency-Key')
+        ? { idempotencyKey: headers.get('Idempotency-Key')! }
+        : {})
+    });
     if (path === '/v1/cloud/status') {
       return json({
         cloud: {
@@ -109,7 +130,7 @@ function mockShell({
       return json(
         {
           turn_id: 'turn-1',
-          messages: ['收到。'],
+          messages: turnMessages,
           ...(turnSuggestions ? { suggestions: turnSuggestions } : {})
         },
         201
@@ -131,10 +152,11 @@ async function settle(ms = 700) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   vi.restoreAllMocks();
   localStorage.clear();
+  await resetLoreDatabaseForTests();
 });
 
 describe('request economy', () => {
@@ -160,16 +182,74 @@ describe('request economy', () => {
     // The turn carried its own suggestions, so nothing may ask the model again.
     expect(suggestionCalls(requested)).toHaveLength(0);
     expect(screen.getByRole('button', { name: '那就出发吧' })).toBeInTheDocument();
+    const turn = requested.find((entry) => entry.path.endsWith('/turns'));
+    expect(turn?.body).toMatchObject({
+      input: { type: 'text', text: '你好' },
+      client_context: {
+        version: 1,
+        activation_seed: turn?.idempotencyKey,
+        worldbook_entries: []
+      }
+    });
+    const suggestion = screen.getByRole('button', { name: '那就出发吧' });
+    fireEvent.click(suggestion);
+    const composer = screen.getByPlaceholderText('给流萤发送短信…');
+    await waitFor(() => expect(composer).toHaveValue('那就出发吧'));
+    await waitFor(() => expect(document.activeElement).toBe(composer));
+    fireEvent.change(composer, { target: { value: '那就出发吧！' } });
+    expect(
+      screen.queryByRole('button', { name: '再等等' })
+    ).not.toBeInTheDocument();
   }, 15000);
 
-  it('asks for suggestions once when the turn did not return any', async () => {
+  it('does not make a supplemental call when the turn returns no suggestions', async () => {
     const requested = mockShell();
     render(<App />);
 
     await sendAndPlayOut();
 
-    expect(suggestionCalls(requested)).toHaveLength(1);
-    expect(await screen.findByRole('button', { name: '稍后再说' })).toBeInTheDocument();
+    expect(suggestionCalls(requested)).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: '稍后再说' })).not.toBeInTheDocument();
+  }, 15000);
+
+  it('runs USER_INPUT and AI_OUTPUT Regex exactly once per sent turn', async () => {
+    await saveCharacterRegexBundle(
+      'firefly-card',
+      [
+        {
+          id: 'input-once',
+          scriptName: '输入一次',
+          findRegex: '/a/g',
+          replaceString: 'aa',
+          placement: [RegexPlacement.USER_INPUT]
+        },
+        {
+          id: 'output-once',
+          scriptName: '输出一次',
+          findRegex: '/x/g',
+          replaceString: 'xx',
+          placement: [RegexPlacement.AI_OUTPUT]
+        }
+      ],
+      true
+    );
+    const requested = mockShell({ turnMessages: ['x'] });
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText('给流萤发送短信…');
+    fireEvent.change(composer, { target: { value: 'a' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    await screen.findByText('xx', { selector: '.message-bubble' }, {
+      timeout: 8000
+    });
+    const turn = requested.find((entry) => entry.path.endsWith('/turns'));
+    expect(turn?.body).toMatchObject({
+      input: { type: 'text', text: 'aa' }
+    });
+    expect(
+      screen.queryByText('xxxx', { selector: '.message-bubble' })
+    ).not.toBeInTheDocument();
   }, 15000);
 
   it('costs nothing to click the contact that is already open', async () => {
@@ -194,7 +274,7 @@ describe('request economy', () => {
     expect(requested.slice(before)).toEqual([]);
   });
 
-  it('only suggests for the conversation the reader settles on', async () => {
+  it('does not request suggestions while switching conversations', async () => {
     const requested = mockShell({
       characters: [character('firefly-card', '流萤'), character('march-card', '三月七')],
       messages: [
@@ -214,8 +294,7 @@ describe('request economy', () => {
     await settle();
 
     const spent = suggestionCalls(requested).slice(before);
-    expect(spent).toHaveLength(1);
-    expect(spent[0]!.path).toBe('/v1/conversations/conversation-march-card/reply-suggestions');
+    expect(spent).toHaveLength(0);
   });
 
   it('keeps the settled conversation even when an earlier open resolves last', async () => {
@@ -225,7 +304,9 @@ describe('request economy', () => {
     render(<App />);
 
     const rail = await screen.findByRole('complementary');
-    fireEvent.click(within(rail).getByRole('button', { name: /三月七/ }));
+    fireEvent.click(
+      await within(rail).findByRole('button', { name: /三月七/ })
+    );
     await waitFor(() =>
       expect(screen.getByPlaceholderText('给三月七发送短信…')).toBeInTheDocument()
     );

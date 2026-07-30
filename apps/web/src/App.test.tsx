@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { analytics } from './lib/analytics';
+import { resetLoreDatabaseForTests } from './lib/lore-store';
 
 function json(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), {
@@ -10,12 +11,13 @@ function json(body: unknown, status = 200) {
   }));
 }
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   vi.restoreAllMocks();
   // The client caches the last known LiteTavern Cloud status and contact list so it
   // can degrade gracefully; clear it so one test's cache never leaks into the next.
   localStorage.clear();
+  await resetLoreDatabaseForTests();
 });
 
 type CloudQuotaOverrides = {
@@ -72,7 +74,7 @@ function cloudStatus(
 }
 
 describe('HSR message shell', () => {
-  it('loads quick replies from the Cloud suggestion endpoint for an existing chat', async () => {
+  it('does not buy quick replies merely for opening an existing chat', async () => {
     const requested: string[] = [];
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
@@ -123,22 +125,20 @@ describe('HSR message shell', () => {
           }]
         });
       }
-      if (path === '/v1/conversations/conversation-1/reply-suggestions') {
-        return json({ suggestions: ['当然，一起走吧'] });
-      }
       return json({ error: { message: `unexpected ${path}` } }, 404);
     });
 
     render(<App />);
 
-    // Suggestions settle behind a short debounce so a restless clicker is not
-    // billed per click, so this waits for the outcome rather than the timing.
     expect(
-      await screen.findByRole('button', { name: '当然，一起走吧' }, { timeout: 5000 })
+      await screen.findByText('要一起出发吗？', {
+        selector: '.message-bubble'
+      })
     ).toBeInTheDocument();
-    expect(requested).toContain(
-      '/v1/conversations/conversation-1/reply-suggestions'
-    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(
+      requested.some((path) => path.endsWith('/reply-suggestions'))
+    ).toBe(false);
   });
 
   it('shows the LiteTavern Cloud trial balance and updates it after a reply', async () => {

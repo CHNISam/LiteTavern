@@ -56,19 +56,24 @@ import { createId } from './lib/id';
 import { TurnPlaybackController } from './lib/turn-playback';
 import { playClick, isMuted, setMuted } from './lib/sound';
 import { publicRouteForPath } from './public-routing';
+import { clientContextField } from './lib/lore-runtime';
+import {
+  applyRegexScriptsBounded,
+  RegexPlacement,
+  regexScriptsForCharacter
+} from './lib/regex-engine';
+import { resolveConversationPersona } from './lib/persona';
+import {
+  buildLocalCharacterExport,
+  downloadLocalCharacterExport
+} from './lib/local-card-assets';
+import { migrateLegacyCloudAssets } from './lib/legacy-lore-migration';
 
 // 'settings' is gone: the character settings page repeated the profile and hid
 // the editor at the bottom of it. Editing lives on the profile now.
 type View = 'chat' | 'profile' | 'memories';
 
 const AdminApp = lazy(() => import('./admin/AdminApp'));
-
-/**
- * Reply suggestions are a paid model call, so they are never issued on the raw
- * click. A reader flicking through contacts settles within a few hundred
- * milliseconds; only the conversation they land on is worth spending on.
- */
-const SUGGESTION_DEBOUNCE_MS = 350;
 
 function analyticsErrorCode(code: string): string {
   if (
@@ -165,9 +170,9 @@ function ProductApp() {
   const [worldbookPanelOpen, setWorldbookPanelOpen] = useState(false);
   const [conversationPersonaOpen, setConversationPersonaOpen] = useState(false);
   const [characterWorldbookOpen, setCharacterWorldbookOpen] = useState(false);
-  // Which identity the open conversation speaks as. The server binds the default
-  // persona when a conversation is first created and reports it here; from then on
-  // only an explicit choice changes it.
+  // Which browser-local identity the open conversation speaks as. Resolution is
+  // persisted once per conversation so a later default change cannot silently
+  // recast an established chat.
   const [conversationPersonaId, setConversationPersonaId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importCharacterId, setImportCharacterId] = useState<string | undefined>();
@@ -189,7 +194,6 @@ function ProductApp() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [analyticsReady, setAnalyticsReady] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [suggesting, setSuggesting] = useState(false);
   const [typing, setTyping] = useState(false);
   const [muted, setMutedState] = useState(isMuted());
   // Relationship summary and memory count belong to the character, not the
@@ -207,11 +211,6 @@ function ProductApp() {
   const conversationIdRef = useRef<string | null>(null);
   const activeRef = useRef<Character | null>(null);
   const usageModeRef = useRef<'PLATFORM' | 'BYOK'>(usageMode);
-  const suggestAbortRef = useRef<AbortController | null>(null);
-  // Identifies the conversation state the current suggestions were (or are being)
-  // fetched for. Re-requesting the same key would buy an identical answer twice.
-  const suggestionKeyRef = useRef<string>('');
-  const suggestionTimerRef = useRef<number>(0);
   // Monotonic token for character opens: only the newest open may write state, so a
   // slow earlier request can never resurrect a contact the reader has left.
   const openTokenRef = useRef(0);
@@ -219,7 +218,6 @@ function ProductApp() {
   // (or a tab-visibility change) can interrupt/pause the one in flight.
   const playbackRef = useRef<TurnPlaybackController | null>(null);
   const turnIdRef = useRef<string>('');
-  const scheduleSuggestionsRef = useRef<(id: string, key: string) => void>(() => {});
 
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
   useEffect(() => { activeRef.current = active; }, [active]);
@@ -251,12 +249,7 @@ function ProductApp() {
       },
       onTypingChange: setTyping,
       onStateChange: (state) => setSending(state === 'GENERATING'),
-      onDone: () => {
-        const conv = conversationIdRef.current;
-        // Skipped outright when the turn already carried its own suggestions:
-        // `submit` claims this key, so one turn never costs two model calls.
-        if (conv) scheduleSuggestionsRef.current(conv, `turn:${turnIdRef.current}`);
-      },
+      onDone: () => {},
       onError: (reason) => {
         setTyping(false);
         const apiError = reason instanceof ApiError ? reason : null;
@@ -313,8 +306,6 @@ function ProductApp() {
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
-      window.clearTimeout(suggestionTimerRef.current);
-      suggestAbortRef.current?.abort();
       controller.interrupt();
     };
   }, []);
@@ -327,9 +318,6 @@ function ProductApp() {
     // Abandon any in-flight turn so its bubbles never land in the new conversation.
     playbackRef.current?.interrupt();
     const token = ++openTokenRef.current;
-    // A pending suggestion request belongs to the conversation being left.
-    window.clearTimeout(suggestionTimerRef.current);
-    suggestAbortRef.current?.abort();
     setTyping(false);
     setActive(character);
     setView(nextView);
@@ -346,9 +334,11 @@ function ProductApp() {
     if (token !== openTokenRef.current) return;
     conversationIdRef.current = created.conversation_id;
     setConversationId(created.conversation_id);
-    // The server owns which persona this conversation is bound to; a deployment
-    // without personas simply reports none.
-    setConversationPersonaId(created.persona_id ?? null);
+    const resolvedPersona = await resolveConversationPersona(
+      created.conversation_id,
+      character.character_id
+    );
+    setConversationPersonaId(resolvedPersona?.persona_id ?? null);
     if (trackSelection) {
       analytics.criticalAction('character_selected', 'home', {
         characterId: character.character_id,
@@ -360,10 +350,6 @@ function ProductApp() {
     cacheMessages(created.conversation_id, loaded);
     if (token !== openTokenRef.current) return;
     setMessages(loaded);
-    const lastMessage = loaded[loaded.length - 1];
-    if (lastMessage) {
-      scheduleSuggestions(created.conversation_id, `open:${created.conversation_id}:${lastMessage.message_id}`);
-    }
   }
 
   /**
@@ -374,7 +360,6 @@ function ProductApp() {
   function openCharacterOffline(character: Character) {
     playbackRef.current?.interrupt();
     openTokenRef.current += 1;
-    window.clearTimeout(suggestionTimerRef.current);
     setTyping(false);
     setActive(character);
     setView('chat');
@@ -487,6 +472,14 @@ function ProductApp() {
       setAnalyticsReady(true);
     }
     await refreshCloudStatus();
+    await migrateLegacyCloudAssets((input, init) =>
+      fetch(cloudUrl(String(input)), init)
+    ).catch(() => {
+      // The migration marker is intentionally not written on failure. A later
+      // startup can retry without duplicating already-local assets. Run this
+      // after the status refresh so local migration cannot delay Cloud state
+      // that is already visible in the shell.
+    });
     const [characterResponse, configurationResponse] = await Promise.all([
       api<{ characters: Character[] }>('/v1/characters'),
       api<{ configurations: ModelConfiguration[] }>('/v1/model-configurations')
@@ -590,8 +583,7 @@ function ProductApp() {
     });
   }, [active, analyticsPage, analyticsReady, conversationId]);
 
-  // Resolve the model selector (usage mode + BYOK credentials) shared by both
-  // message sending and reply-suggestion requests.
+  // Resolve the model selector used by the single model call for a turn.
   async function resolveModelSelector(): Promise<Record<string, unknown>> {
     if (usageMode !== 'BYOK') return { usage_mode: 'PLATFORM' };
     const configuration = configurations.find((item) => item.model_configuration_id === selectedConfigurationId);
@@ -605,70 +597,14 @@ function ProductApp() {
     };
   }
 
-  /**
-   * Requests suggestions for one specific conversation state. `key` names that
-   * state, so the same answer is never bought twice.
-   */
-  async function loadSuggestions(targetConversationId: string, key: string) {
-    // The reader moved on while the debounce was pending.
-    if (conversationIdRef.current !== targetConversationId) return;
-    suggestAbortRef.current?.abort();
-    const controller = new AbortController();
-    suggestAbortRef.current = controller;
-    setSuggesting(true);
-    try {
-      const selector = await resolveModelSelector();
-      const response = await api<{ suggestions: string[] }>(
-        `/v1/conversations/${targetConversationId}/reply-suggestions`,
-        {
-          method: 'POST',
-          body: JSON.stringify(selector),
-          signal: controller.signal
-        }
-      );
-      if (conversationIdRef.current === targetConversationId) {
-        setSuggestions(response.suggestions.slice(0, 3));
-      }
-    } catch (reason) {
-      if ((reason as Error)?.name === 'AbortError') return;
-      // A failed request bought nothing, so the key is released and the next
-      // message (or a reopen) may try again.
-      if (suggestionKeyRef.current === key) suggestionKeyRef.current = '';
-      if (conversationIdRef.current === targetConversationId) setSuggestions([]);
-    } finally {
-      if (suggestAbortRef.current === controller) {
-        suggestAbortRef.current = null;
-        setSuggesting(false);
-      }
-    }
-  }
-
-  /**
-   * Claims a conversation state and, after a short settle, pays for suggestions
-   * for it. Already-claimed states return immediately — that is what stops one
-   * turn costing two model calls and a restless clicker costing one per click.
-   */
-  function scheduleSuggestions(targetConversationId: string, key: string) {
-    if (suggestionKeyRef.current === key) return;
-    suggestionKeyRef.current = key;
-    window.clearTimeout(suggestionTimerRef.current);
-    suggestionTimerRef.current = window.setTimeout(() => {
-      void loadSuggestions(targetConversationId, key);
-    }, SUGGESTION_DEBOUNCE_MS);
-  }
-
-  useEffect(() => {
-    scheduleSuggestionsRef.current = scheduleSuggestions;
-  });
-
   // `editOfMessageId` re-sends an earlier user message: that message and everything
   // after it leaves the active branch, and this turn continues from the new text.
   // The turn is generated once and then played out as 1–4 bubbles by the controller;
   // sending again interrupts any bubbles not yet shown.
   async function submit(rawText: string, editOfMessageId?: string) {
-    const text = rawText.trim();
+    const requestedText = rawText.trim();
     const controller = playbackRef.current;
-    if (!text || !conversationId || !controller) return;
+    if (!requestedText || !conversationId || !active || !controller) return;
     // Ignore repeat sends only while awaiting the model; during playback a new send
     // is allowed and interrupts the remaining bubbles.
     if (controller.getState() === 'GENERATING') return;
@@ -697,11 +633,73 @@ function ProductApp() {
       });
       return;
     }
+    const turnRequestId = createId();
+    const scanMessages = messages.flatMap((message) =>
+      message.role === 'USER' || message.role === 'ASSISTANT'
+        ? [
+            {
+              role:
+                message.role === 'USER'
+                  ? ('USER' as const)
+                  : ('ASSISTANT' as const),
+              content_text: message.content_text
+            }
+          ]
+        : []
+    );
+    const macroMessages = scanMessages.map((message) => ({
+      role:
+        message.role === 'USER'
+          ? ('user' as const)
+          : ('assistant' as const),
+      content: message.content_text
+    }));
+    let text = requestedText;
+    let localContext: Record<string, unknown>;
+    let runtimeWarning: string | null = null;
+    try {
+      const scripts = await regexScriptsForCharacter(active.character_id);
+      const macroContext = {
+        char: active.name,
+        description: active.profile_summary,
+        personality: active.personality_summary,
+        messages: macroMessages,
+        activationSeed: turnRequestId
+      };
+      const inputResult = await applyRegexScriptsBounded(text, scripts, {
+        placement: RegexPlacement.USER_INPUT,
+        macros: macroContext,
+        editing: Boolean(editOfMessageId)
+      });
+      text = inputResult.text.trim();
+      if (!text) {
+        setError(t.chat.regexRemovedInput);
+        return;
+      }
+      if (inputResult.timedOut) {
+        runtimeWarning = t.chat.regexInputTimeout;
+      }
+      localContext = await clientContextField(
+        active.character_id,
+        conversationId,
+        scanMessages,
+        text,
+        {
+          activationSeed: turnRequestId,
+          macroContext
+        }
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : t.chat.localContextFailed
+      );
+      return;
+    }
     playClick();
     const targetConversationId = conversationId;
     if (!editOfMessageId) setDraft('');
     setSuggestions([]);
-    setError(null);
+    setError(runtimeWarning);
     setErrorCode(null);
     if (
       !editOfMessageId &&
@@ -735,9 +733,14 @@ function ProductApp() {
       const payload = {
         ...selector,
         input: { type: 'text', text },
+        ...localContext,
         ...(editOfMessageId ? { edit_of_message_id: editOfMessageId } : {})
       };
-      const plan = await generateTurn(targetConversationId, payload);
+      const plan = await generateTurn(
+        targetConversationId,
+        payload,
+        turnRequestId
+      );
       turnIdRef.current = plan.turn_id;
       if (plan.free_quota_remaining !== undefined) {
         const remaining = plan.free_quota_remaining;
@@ -772,16 +775,52 @@ function ProductApp() {
           current ? { ...current, quota: { ...current.quota, ...plan.cloud_quota } } : current
         );
       }
-      // A turn that answered with its own suggestions has already been paid for;
-      // claiming the key makes the `onDone` follow-up a no-op.
-      if (plan.suggestions?.length) {
-        suggestionKeyRef.current = `turn:${plan.turn_id}`;
-        setSuggestions(plan.suggestions.slice(0, 3));
-      } else {
-        setSuggestions([]);
+      setSuggestions(plan.suggestions?.slice(0, 3) ?? []);
+      const scripts = await regexScriptsForCharacter(active.character_id);
+      const processedMessages: string[] = [];
+      for (const [index, assistantText] of plan.messages.entries()) {
+        const result = await applyRegexScriptsBounded(
+          assistantText,
+          scripts,
+          {
+            placement: RegexPlacement.AI_OUTPUT,
+            depth: index,
+            macros: {
+              char: active.name,
+              description: active.profile_summary,
+              personality: active.personality_summary,
+              messages: [
+                ...macroMessages,
+                { role: 'user', content: text },
+                ...processedMessages.map((content) => ({
+                  role: 'assistant' as const,
+                  content
+                }))
+              ],
+              activationSeed: turnRequestId
+            }
+          }
+        );
+        if (result.timedOut) {
+          setError(t.chat.regexOutputTimeout);
+        }
+        processedMessages.push(result.text);
       }
-      return plan.messages;
+      return processedMessages;
     });
+  }
+
+  async function exportActiveCharacter() {
+    if (!active) return;
+    setError(null);
+    try {
+      const result = await buildLocalCharacterExport(active.character_id);
+      downloadLocalCharacterExport(result);
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : t.profile.exportFailed
+      );
+    }
   }
 
   function send(event: FormEvent) {
@@ -903,8 +942,16 @@ function ProductApp() {
             character={active} messages={messages} draft={draft} sending={sending} error={error}
             cloud={cloud} cloudService={cloudService}
             usageMode={usageMode} configurations={configurations} selectedConfigurationId={selectedConfigurationId}
-            suggestions={suggestions} suggesting={suggesting} typing={typing}
-            onProfile={() => setView('profile')} onDraft={setDraft} onSend={send} onPick={(text) => void submit(text)}
+            suggestions={suggestions} typing={typing}
+            onProfile={() => setView('profile')}
+            onDraft={(value) => {
+              setDraft(value);
+              if (value.trim()) setSuggestions([]);
+            }}
+            onSend={send}
+            onPick={(text) => {
+              if (!draft.trim()) setDraft(text);
+            }}
             onEditSubmit={(messageId, text) => void submit(text, messageId)}
             onUsageMode={(mode) => {
               setUsageMode(mode);
@@ -938,7 +985,7 @@ function ProductApp() {
               setEditorOpen(true);
             }}
             onImport={() => openCharacterImport(active.character_id)}
-            onExportHref={cloudUrl(`/v1/characters/${active.character_id}/export`)}
+            onExport={exportActiveCharacter}
             onDelete={deleteActiveCharacter}
             onFieldSaved={refreshActiveCharacter}
           />
@@ -1235,12 +1282,12 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   );
 }
 
-function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, usageMode, configurations, selectedConfigurationId, suggestions, suggesting, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
+function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, usageMode, configurations, selectedConfigurationId, suggestions, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
   character: Character; messages: Message[]; draft: string; sending: boolean; error: string | null;
   cloud: CloudStatus | null;
   cloudService: CloudModelServiceState;
   usageMode: 'PLATFORM' | 'BYOK'; configurations: ModelConfiguration[]; selectedConfigurationId: string;
-  suggestions: string[]; suggesting: boolean; typing: boolean;
+  suggestions: string[]; typing: boolean;
   onProfile: () => void; onDraft: (value: string) => void; onSend: (event: FormEvent) => void; onPick: (text: string) => void;
   onEditSubmit: (messageId: string, text: string) => void;
   onUsageMode: (mode: 'PLATFORM' | 'BYOK') => void; onConfiguration: (id: string) => void; onProvider: () => void;
@@ -1266,6 +1313,7 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
     (error === t.chat.cloudUnavailable || error === t.chat.quotaExhausted);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pinned, setPinned] = useState(true);
   const pinnedRef = useRef(true);
@@ -1285,7 +1333,7 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
   // appear (or their height changes) they shrink the scroll area, so — following
   // star-rail-msg-maker's auto-follow — keep the newest message pinned to the bottom
   // whenever the reader is already there, instead of letting the options cover it.
-  useEffect(() => { if (pinnedRef.current) scrollToBottom('smooth'); }, [suggestions.length, suggesting]);
+  useEffect(() => { if (pinnedRef.current) scrollToBottom('smooth'); }, [suggestions.length]);
   // Jump to the latest when switching conversations.
   useEffect(() => {
     setPinned(true);
@@ -1389,15 +1437,22 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
             )}
           </div>
         )}
-        {(suggestions.length > 0 || suggesting) && (
+        {suggestions.length > 0 && (
           <div className="reply-suggestions" role="group" aria-label={t.chat.quickReplies}>
-            {suggesting && suggestions.length === 0 ? (
-              <span className="suggestion-hint"><LoaderCircle className="spin" size={14} /> {t.chat.thinkingOfReplies}</span>
-            ) : (
-              suggestions.map((text) => (
-                <button key={text} className="suggestion-chip" disabled={sending} onClick={() => onPick(text)}>{text}</button>
-              ))
-            )}
+            {suggestions.map((text) => (
+              <button
+                key={text}
+                className="suggestion-chip"
+                disabled={sending}
+                onClick={() => {
+                  if (draft.trim()) return;
+                  onPick(text);
+                  composerRef.current?.focus();
+                }}
+              >
+                {text}
+              </button>
+            ))}
           </div>
         )}
         <div className="model-bar">
@@ -1429,6 +1484,7 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
         <form className="reply-composer" onSubmit={onSend}>
           <Send size={23} />
           <textarea
+            ref={composerRef}
             value={draft} rows={1} placeholder={t.chat.placeholder(character.name)}
             onChange={(event) => onDraft(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}
@@ -1553,7 +1609,7 @@ function splitTraits(text: string): string[] | null {
  */
 function ProfilePage({
   character, relationship, memoryCount, onChat, onMemories, onPersona, onWorldbooks,
-  onEdit, onImport, onExportHref, onDelete, onFieldSaved
+  onEdit, onImport, onExport, onDelete, onFieldSaved
 }: {
   character: Character;
   relationship: string | null;
@@ -1564,7 +1620,7 @@ function ProfilePage({
   onWorldbooks: () => void;
   onEdit: () => void;
   onImport: () => void;
-  onExportHref: string;
+  onExport: () => Promise<void>;
   onDelete: () => Promise<void>;
   onFieldSaved: () => Promise<void>;
 }) {
@@ -1621,9 +1677,9 @@ function ProfilePage({
                 <button role="menuitem" onClick={() => { setMenuOpen(false); onImport(); }}>
                   <Upload size={15} /> {t.profile.updateFromCard}
                 </button>
-                <a role="menuitem" href={onExportHref}>
+                <button role="menuitem" onClick={() => { setMenuOpen(false); void onExport(); }}>
                   <Download size={15} /> {t.profile.exportCard}
-                </a>
+                </button>
                 {character.is_owned && (
                   <button role="menuitem" className="overflow-danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
                     <Trash2 size={15} /> {t.profile.deleteCharacter}
