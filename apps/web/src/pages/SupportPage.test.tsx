@@ -4,19 +4,13 @@ import type { SupportConfig } from '../lib/support-config';
 import { SupportPage, type SupportTracker } from './SupportPage';
 
 const emptyConfig: SupportConfig = {
-  wechatQrUrl: null,
-  afdianUrl: null,
-  bilibiliUrl: null,
-  douyinUrl: null,
-  kofiUrl: null,
-  githubSponsorsUrl: null
+  afdianUrl: null
 };
 
 function tracker(): SupportTracker {
   return {
     pageView: vi.fn(),
     methodClick: vi.fn(),
-    qrView: vi.fn(),
     claimOpened: vi.fn(),
     claimSubmitted: vi.fn()
   };
@@ -29,8 +23,8 @@ afterEach(() => {
 
 describe('support page', () => {
   it.each([
-    ['bilibili', '在 B 站看到 LiteTavern？'],
-    ['douyin', '在抖音看到 LiteTavern？'],
+    ['bilibili', '感谢你愿意了解 LiteTavern。'],
+    ['douyin', '感谢你愿意了解 LiteTavern。'],
     ['github', '感谢你关注 LiteTavern 的开源开发。'],
     ['website', '感谢你愿意了解 LiteTavern。'],
     ['other', '感谢你愿意了解 LiteTavern。']
@@ -69,7 +63,7 @@ describe('support page', () => {
     });
   });
 
-  it('shows a friendly state instead of a broken image when WeChat is not configured', () => {
+  it('shows a friendly state instead of a dead link when Afdian is not configured', () => {
     render(
       <SupportPage
         source="website"
@@ -80,50 +74,10 @@ describe('support page', () => {
       />
     );
 
-    expect(screen.getByText('微信支持入口暂未开放')).toBeInTheDocument();
-    expect(screen.queryByRole('img', { name: '微信收款二维码' })).not.toBeInTheDocument();
-  });
-
-  it('shows the configured QR and falls back safely when it fails to load', () => {
-    const supportTracker = tracker();
-    render(
-      <SupportPage
-        source="website"
-        placement="direct"
-        config={{ ...emptyConfig, wechatQrUrl: 'https://static.example/wechat.png' }}
-        tracker={supportTracker}
-        isAuthenticated={true}
-      />
-    );
-
-    const image = screen.getByRole('img', { name: '微信收款二维码' });
-    expect(image).toHaveAttribute('src', 'https://static.example/wechat.png');
-    fireEvent.load(image);
-    expect(supportTracker.qrView).toHaveBeenCalledWith({
-      source: 'website',
-      method: 'wechat',
-      placement: 'direct',
-      is_authenticated: true
-    });
-
-    fireEvent.error(image);
-    expect(screen.getByText('微信支持入口暂未开放')).toBeInTheDocument();
-    expect(screen.queryByRole('img', { name: '微信收款二维码' })).not.toBeInTheDocument();
-  });
-
-  it('does not render empty external links', () => {
-    render(
-      <SupportPage
-        source="bilibili"
-        placement="direct"
-        config={emptyConfig}
-        tracker={tracker()}
-        isAuthenticated={false}
-      />
-    );
-
-    expect(screen.queryByRole('link', { name: '通过爱发电持续支持' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: '前往 B 站支持' })).not.toBeInTheDocument();
+    expect(screen.getByText('爱发电支持入口暂未开放')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: '通过爱发电持续支持' })
+    ).not.toBeInTheDocument();
   });
 
   it('tracks configured method clicks with allowlisted fields only', () => {
@@ -132,20 +86,13 @@ describe('support page', () => {
       <SupportPage
         source="bilibili"
         placement="about"
-        config={{
-          ...emptyConfig,
-          wechatQrUrl: 'https://static.example/private-wechat-account.png',
-          afdianUrl: 'https://afdian.com/a/litetavern',
-          bilibiliUrl: 'https://space.bilibili.com/123'
-        }}
+        config={{ afdianUrl: 'https://afdian.com/a/litetavern' }}
         tracker={supportTracker}
         isAuthenticated={false}
       />
     );
 
     fireEvent.click(screen.getByRole('link', { name: '通过爱发电持续支持' }));
-    fireEvent.click(screen.getByRole('link', { name: '前往 B 站支持' }));
-    fireEvent.click(screen.getByRole('link', { name: '在新窗口打开微信二维码' }));
 
     expect(supportTracker.methodClick).toHaveBeenNthCalledWith(1, {
       source: 'bilibili',
@@ -153,21 +100,8 @@ describe('support page', () => {
       placement: 'about',
       is_authenticated: false
     });
-    expect(supportTracker.methodClick).toHaveBeenNthCalledWith(2, {
-      source: 'bilibili',
-      method: 'bilibili',
-      placement: 'about',
-      is_authenticated: false
-    });
-    expect(supportTracker.methodClick).toHaveBeenNthCalledWith(3, {
-      source: 'bilibili',
-      method: 'wechat',
-      placement: 'about',
-      is_authenticated: false
-    });
 
     const serialized = JSON.stringify(vi.mocked(supportTracker.methodClick).mock.calls);
-    expect(serialized).not.toContain('private-wechat-account');
     expect(serialized).not.toContain('amount');
     expect(serialized).not.toContain('payment');
   });
@@ -260,23 +194,5 @@ describe('support page', () => {
     expect(
       JSON.stringify(vi.mocked(supportTracker.claimOpened).mock.calls)
     ).not.toContain('contact');
-  });
-
-  it('keeps amount input local and accepts a custom amount', () => {
-    const supportTracker = tracker();
-    render(
-      <SupportPage
-        source="other"
-        placement="direct"
-        config={emptyConfig}
-        tracker={supportTracker}
-        isAuthenticated={false}
-      />
-    );
-
-    const amount = screen.getByLabelText('自定义支持金额');
-    fireEvent.change(amount, { target: { value: '88' } });
-    expect(amount).toHaveValue(88);
-    expect(supportTracker.methodClick).not.toHaveBeenCalled();
   });
 });

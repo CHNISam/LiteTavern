@@ -799,7 +799,6 @@ export const en: Dictionary = {
       devBody: 'New features, fixes and long-term maintenance.'
     },
     methodsTitle: 'How to support',
-    cadenceOneOff: 'One-off',
     cadenceMonthly: 'Monthly',
     thanksTitle: 'What you get back',
     thanks: {
@@ -823,42 +822,15 @@ export const en: Dictionary = {
     suggestedAmountLabel: 'Suggested amount',
     customAmount: 'Custom amount',
     customAmountPlaceholder: 'Other',
-    wechat: {
-      title: 'WeChat',
-      openQr: 'Open the WeChat QR code in a new window',
-      qrAlt: 'WeChat payment QR code',
-      unavailable: 'WeChat support is not set up yet',
-      unavailableBody: 'The QR code appears here once it is configured.',
-      amountNote: 'Enter the amount in WeChat Pay. This page does not record it.'
-    },
     afdian: {
       title: 'Afdian',
       body: 'Monthly support on Afdian, the China-based membership platform. Change or cancel any time.',
       action: 'Support on Afdian',
       unavailable: 'Afdian support is not set up yet'
     },
-    kofi: {
-      title: 'Ko-fi',
-      body: 'One-off or monthly, whichever suits. Change or cancel any time.',
-      action: 'Support on Ko-fi',
-      unavailable: 'Ko-fi support is not set up yet'
-    },
-    sponsors: {
-      title: 'GitHub Sponsors',
-      body: 'Sponsor the work right where the code lives.',
-      action: 'Sponsor on GitHub',
-      unavailable: 'GitHub Sponsors is not set up yet'
-    },
     sources: {
-      bilibiliTitle: 'Found LiteTavern on Bilibili?',
-      bilibiliBody:
-        'You can also support the creator directly on Bilibili, which is usually the easiest route.',
-      bilibiliButton: 'Support on Bilibili',
-      douyinTitle: 'Found LiteTavern on Douyin?',
-      douyinBody: 'Gifts and support inside the app itself are usually more convenient.',
-      douyinButton: 'Support on Douyin',
       githubTitle: 'Thanks for following the open-source work.',
-      githubBody: 'Developer sponsorship options will be added as they are actually needed.',
+      githubBody: 'What is listed below is what actually works today; routes that are not open yet are left out.',
       websiteTitle: 'Thanks for taking a look at LiteTavern.',
       websiteBody:
         'Pick whichever way suits you. Not supporting changes nothing about what you can use.'

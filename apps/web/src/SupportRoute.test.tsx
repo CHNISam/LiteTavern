@@ -20,7 +20,7 @@ describe('public support route', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: '支持 LiteTavern 持续开发' })
     ).toBeInTheDocument();
-    expect(screen.getByText('在抖音看到 LiteTavern？')).toBeInTheDocument();
+    expect(screen.getByText('感谢你愿意了解 LiteTavern。')).toBeInTheDocument();
 
     await Promise.resolve();
     await Promise.resolve();

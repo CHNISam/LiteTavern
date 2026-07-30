@@ -7,7 +7,6 @@ export type AnalyticsEventName =
   | 'core_blocking_error_shown'
   | 'support_page_view'
   | 'support_method_click'
-  | 'support_qr_view'
   // LiteTavern Cloud program events the client is the one to witness. The rest of
   // the program vocabulary is emitted server-side; see the Cloud architecture doc.
   | 'first_message_sent'
@@ -514,13 +513,10 @@ export class AnalyticsClient {
   }
 
   supportEvent(
-    eventName:
-      | 'support_page_view'
-      | 'support_method_click'
-      | 'support_qr_view',
+    eventName: 'support_page_view' | 'support_method_click',
     options: {
       source: 'bilibili' | 'douyin' | 'github' | 'website' | 'other';
-      method?: 'wechat' | 'afdian' | 'bilibili' | 'douyin' | 'kofi' | 'github_sponsors';
+      method?: 'afdian';
       placement: 'footer' | 'about' | 'readme' | 'quota_prompt' | 'direct';
       isAuthenticated: boolean;
     }

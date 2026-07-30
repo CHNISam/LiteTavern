@@ -2415,53 +2415,6 @@ button { color: inherit; }
   line-height: 1.75;
 }
 
-.wechat-qr {
-  width: min(236px, 100%);
-  aspect-ratio: 1;
-  margin: 4px auto 22px;
-  display: block;
-  padding: 10px;
-  border: 1px solid var(--pub-accent-border-strong);
-  border-radius: 17px;
-  background: #fff;
-  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.18);
-  transition: transform 140ms var(--ease-out), border-color 160ms var(--ease-out);
-}
-.wechat-qr img {
-  width: 100%;
-  height: 100%;
-  display: block;
-  border-radius: 9px;
-  object-fit: contain;
-}
-.wechat-qr:active { transform: scale(0.98); }
-@media (hover: hover) and (pointer: fine) {
-  .wechat-qr:hover { border-color: var(--pub-accent); }
-}
-.support-unavailable {
-  min-height: 226px;
-  margin: 4px 0 22px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 1px dashed var(--pub-card-border);
-  border-radius: 16px;
-  color: var(--pub-text-faint);
-  background: var(--pub-soft-bg);
-  text-align: center;
-}
-.support-unavailable strong { color: var(--pub-text); font-size: 13px; }
-.support-unavailable span { font-size: 11.5px; }
-
-.amount-fieldset {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  color: var(--pub-text-muted);
-  font-size: 12px;
-}
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -2472,50 +2425,6 @@ button { color: inherit; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
-
-/* Three presets and the free-entry field are one row of peers: the custom amount
-   used to sit on its own labelled line and read as a separate step. */
-.amount-options { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.amount-options button {
-  height: 38px;
-  border: 1px solid var(--pub-card-border);
-  border-radius: 10px;
-  color: var(--pub-text);
-  background: var(--pub-soft-bg);
-  cursor: pointer;
-  transition: transform 140ms var(--ease-out), border-color 160ms var(--ease-out),
-    background 160ms var(--ease-out);
-}
-.amount-options button:active { transform: scale(0.97); }
-.amount-options button[aria-pressed="true"] {
-  border-color: var(--pub-accent-border-strong);
-  color: var(--pub-accent);
-  background: var(--pub-accent-soft);
-}
-.custom-amount {
-  height: 38px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 11px;
-  border: 1px solid var(--pub-card-border);
-  border-radius: 10px;
-  background: var(--pub-soft-bg);
-}
-.custom-amount:focus-within {
-  border-color: var(--pub-accent-border-strong);
-  box-shadow: 0 0 0 3px var(--pub-accent-soft);
-}
-.custom-amount b { color: var(--pub-accent); font-weight: 600; }
-.custom-amount input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  color: var(--pub-text-strong);
-  background: transparent;
-}
-.amount-fieldset small { color: var(--pub-text-faint); line-height: 1.55; }
 
 .support-button {
   min-height: 42px;
@@ -2896,7 +2805,6 @@ button { color: inherit; }
   .support-methods { grid-template-columns: 1fr; }
   .support-card { padding: 20px; border-radius: 17px; }
   .support-notes { padding: 4px 18px; }
-  .amount-fieldset label { grid-template-columns: 1fr; }
   .claim-dialog { padding: 20px; border-radius: 17px; }
   .claim-field-row { grid-template-columns: 1fr; }
   .site-footer { padding: 18px 0; flex-direction: column; align-items: flex-start; gap: 10px; }

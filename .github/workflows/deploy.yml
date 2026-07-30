@@ -50,10 +50,7 @@ jobs:
           # 客户端的构建时公开变量。未设置时客户端同源访问 Cloud，
           # 并保持严格的 CSP connect-src。绝不能在这里放任何密钥。
           VITE_CLOUD_BASE_URL: ${{ vars.VITE_CLOUD_BASE_URL }}
-          VITE_SUPPORT_WECHAT_QR_URL: ${{ vars.VITE_SUPPORT_WECHAT_QR_URL }}
           VITE_SUPPORT_AFDIAN_URL: ${{ vars.VITE_SUPPORT_AFDIAN_URL }}
-          VITE_SUPPORT_BILIBILI_URL: ${{ vars.VITE_SUPPORT_BILIBILI_URL }}
-          VITE_SUPPORT_DOUYIN_URL: ${{ vars.VITE_SUPPORT_DOUYIN_URL }}
 
       # 内测 Worker（静态资源 + /v1 API）只随开发环境部署，生产构建保持纯静态，
       # 不会因为多一个 Worker 而让每个静态资源都消耗请求额度。

@@ -82,12 +82,12 @@ LiteTavern 的开源部分可以免费使用。
 
 如果项目对你有帮助，可以自愿支持服务器、模型调用、域名及持续开发成本：
 
-- [支持 LiteTavern](https://litetavern.pages.dev/support?source=github)（汇总页，含各渠道入口）
+- [支持 LiteTavern](https://litetavern.pages.dev/support?source=github)（汇总页）
 - [爱发电 · LiteTavern 开发者](https://afdian.com/a/litetavern)（按月赞助，5 / 15 / 50 元三档）
 
 支持完全自愿，不影响任何功能使用。所有核心功能保持免费开源，不会有功能被放到付费墙后面。
 
-支持页的微信二维码、爱发电、B 站和抖音入口均通过公开环境变量配置；仓库不保存真实二维码或私人账号信息。详见 [`.env.example`](./.env.example)。
+支持页的爱发电入口通过公开环境变量配置；仓库不保存私人账号信息。详见 [`.env.example`](./.env.example)。
 
 ## 本地开发
 

@@ -33,39 +33,25 @@ describe('support configuration', () => {
 
   it('accepts http(s) URLs and same-origin relative assets', () => {
     expect(
-      safePublicUrl('https://static.example/support/wechat.png', 'https://litetavern.example')
-    ).toBe('https://static.example/support/wechat.png');
-    expect(safePublicUrl('/support/wechat.png', 'https://litetavern.example')).toBe(
-      'https://litetavern.example/support/wechat.png'
+      safePublicUrl('https://static.example/support/afdian.png', 'https://litetavern.example')
+    ).toBe('https://static.example/support/afdian.png');
+    expect(safePublicUrl('/support/afdian.png', 'https://litetavern.example')).toBe(
+      'https://litetavern.example/support/afdian.png'
     );
   });
 
-  it('returns null instead of empty or unsafe configured links', () => {
+  it('returns null instead of an unsafe configured link', () => {
     expect(
       resolveSupportConfig(
-        {
-          VITE_SUPPORT_WECHAT_QR_URL: '',
-          VITE_SUPPORT_AFDIAN_URL: 'javascript:alert(1)',
-          VITE_SUPPORT_BILIBILI_URL: 'https://space.bilibili.com/123',
-          VITE_SUPPORT_DOUYIN_URL: undefined
-        },
+        { VITE_SUPPORT_AFDIAN_URL: 'javascript:alert(1)' },
         'https://litetavern.example'
       )
-    ).toEqual({
-      wechatQrUrl: null,
-      afdianUrl: null,
-      bilibiliUrl: 'https://space.bilibili.com/123',
-      douyinUrl: null,
-      kofiUrl: null,
-      githubSponsorsUrl: null
-    });
+    ).toEqual({ afdianUrl: null });
   });
 
   it('falls back to the published project page only when afdian is unconfigured', () => {
     const resolved = resolveSupportConfig({}, 'https://litetavern.example');
 
     expect(resolved.afdianUrl).toBe(DEFAULT_AFDIAN_URL);
-    // A deployment-supplied payment code has no safe default and stays absent.
-    expect(resolved.wechatQrUrl).toBeNull();
   });
 });

@@ -741,7 +741,6 @@ export const zhCN = {
       devBody: '新功能、问题修复与长期维护投入。'
     },
     methodsTitle: '支持方式',
-    cadenceOneOff: '单次',
     cadenceMonthly: '按月',
     thanksTitle: '我们怎么感谢你',
     thanks: {
@@ -765,41 +764,15 @@ export const zhCN = {
     suggestedAmountLabel: '建议支持金额',
     customAmount: '自定义支持金额',
     customAmountPlaceholder: '其他',
-    wechat: {
-      title: '微信扫码',
-      openQr: '在新窗口打开微信二维码',
-      qrAlt: '微信收款二维码',
-      unavailable: '微信支持入口暂未开放',
-      unavailableBody: '配置完成后将在这里显示二维码。',
-      amountNote: '金额请在微信支付页中填写；本页不会记录金额。'
-    },
     afdian: {
       title: '爱发电',
       body: '按月的支持让服务器与额度有稳定的预期，随时可以调整或取消。',
       action: '通过爱发电持续支持',
       unavailable: '爱发电支持入口暂未开放'
     },
-    kofi: {
-      title: 'Ko-fi',
-      body: '按月或一次性都可以，随时可以调整或取消。',
-      action: '在 Ko-fi 上支持',
-      unavailable: 'Ko-fi 支持入口暂未开放'
-    },
-    sponsors: {
-      title: 'GitHub Sponsors',
-      body: '直接在项目所在的平台上赞助开发。',
-      action: '成为 GitHub Sponsor',
-      unavailable: 'GitHub Sponsors 入口暂未开放'
-    },
     sources: {
-      bilibiliTitle: '在 B 站看到 LiteTavern？',
-      bilibiliBody: '你也可以直接在 B 站为创作者充电，这通常是最方便的支持方式。',
-      bilibiliButton: '前往 B 站支持',
-      douyinTitle: '在抖音看到 LiteTavern？',
-      douyinBody: '直播或内容平台内的礼物与支持通常更加方便。',
-      douyinButton: '前往抖音支持',
       githubTitle: '感谢你关注 LiteTavern 的开源开发。',
-      githubBody: 'GitHub Sponsors 等开发者赞助入口将在后续根据实际需要增加。',
+      githubBody: '下面列出的是当前真正可用的赞助渠道，尚未开通的不会显示出来。',
       websiteTitle: '感谢你愿意了解 LiteTavern。',
       websiteBody: '你可以选择最适合自己的方式；不支持也不会影响任何功能。'
     }

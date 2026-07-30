@@ -51,26 +51,6 @@ function cloudConnectSrc(): Plugin {
   };
 }
 
-function supportQrImgSrc(): Plugin {
-  return {
-    name: 'support-qr-img-src',
-    apply: 'build',
-    transformIndexHtml(html) {
-      const configured = process.env.VITE_SUPPORT_WECHAT_QR_URL?.trim();
-      if (!configured || !/^https?:\/\//i.test(configured)) return html;
-      try {
-        const origin = new URL(configured).origin;
-        return html.replace(
-          /(content="[^"]*)img-src 'self'/,
-          (_all, prefix: string) => `${prefix}img-src 'self' ${origin}`
-        );
-      } catch {
-        return html;
-      }
-    }
-  };
-}
-
 export function shouldWriteGithubPagesFallback(target: string | undefined): boolean {
   return target === 'github-pages';
 }
@@ -104,7 +84,6 @@ export default defineConfig({
     react(),
     devCspRelax(),
     cloudConnectSrc(),
-    supportQrImgSrc(),
     githubPagesFallback()
   ],
   server: {
