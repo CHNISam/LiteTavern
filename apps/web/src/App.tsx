@@ -21,6 +21,7 @@ import {
   type AnonymousIdentity, type Character, type Message, type ModelConfiguration
 } from './lib/api';
 import { patchCharacterCard, type CharacterModel } from './lib/character-card';
+import { t as translate, useT } from './lib/i18n';
 import { analytics, type AnalyticsPageName } from './lib/analytics';
 import {
   fetchCloudStatus,
@@ -84,10 +85,11 @@ function avatarUrl(character: Character) {
 }
 
 function Avatar({ character, className = '' }: { character: Character; className?: string }) {
+  const t = useT();
   return (
     <span className={`hsr-avatar ${className}`} aria-hidden="false">
       <span className="avatar-fallback">{character.name.slice(0, 1)}</span>
-      <img src={avatarUrl(character)} alt={`${character.name}头像`} onError={(event) => { event.currentTarget.hidden = true; }} />
+      <img src={avatarUrl(character)} alt={t.chat.avatarAlt(character.name)} onError={(event) => { event.currentTarget.hidden = true; }} />
     </span>
   );
 }
@@ -108,6 +110,7 @@ export function App() {
 }
 
 function ProductApp() {
+  const t = useT();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [active, setActive] = useState<Character | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -208,7 +211,7 @@ function ProductApp() {
       },
       onError: (reason) => {
         setTyping(false);
-        const message = reason instanceof Error ? reason.message : '发送失败，请稍后重试。';
+        const message = reason instanceof Error ? reason.message : translate().chat.sendFailed;
         const apiError = reason instanceof ApiError ? reason : null;
         setError(message);
         setErrorCode(apiError?.code ?? 'GENERATION_FAILED');
@@ -517,9 +520,9 @@ function ProductApp() {
   async function resolveModelSelector(): Promise<Record<string, unknown>> {
     if (usageMode !== 'BYOK') return { usage_mode: 'PLATFORM' };
     const configuration = configurations.find((item) => item.model_configuration_id === selectedConfigurationId);
-    if (!configuration) throw new Error('请先添加一个用户自带模型。');
+    if (!configuration) throw new Error(t.chat.byokMissingConfiguration);
     const key = await credentialStore.readSecret(configuration.credential_id);
-    if (!key) throw new Error('当前浏览器中找不到该配置的 API Key，请重新绑定。');
+    if (!key) throw new Error(t.chat.byokMissingKey);
     return {
       usage_mode: 'BYOK',
       model_configuration_id: configuration.model_configuration_id,
@@ -607,8 +610,8 @@ function ProductApp() {
       setErrorCode(code);
       setError(
         freeQuotaEnabled
-          ? 'LiteTavern Cloud 的额度已用完。你可以接入自己的模型继续聊天。'
-          : 'LiteTavern Cloud 平台模型当前已关闭。你可以接入自己的模型继续聊天。'
+          ? t.chat.quotaExhausted
+          : t.chat.platformDisabled
       );
       analytics.blockingError(analyticsErrorCode(code), 'chat', {
         errorStage: 'quota_check',
@@ -784,14 +787,13 @@ function ProductApp() {
         onAccount={() => setAccountOpen(true)}
         onProvider={() => openProviderSettings('overview')}
         onSettings={() => setAppSettingsOpen(true)}
-        {...(view === 'memories' && active ? { title: `与${active.name}的记忆` } : {})}
+        {...(view === 'memories' && active ? { title: t.chrome.memoriesTitle(active.name) } : {})}
       />
 
       <section className="hsr-stage">
         {cloudOffline && (
           <p className="cloud-offline-banner" role="status">
-            LiteTavern Cloud 暂时不可用。本地角色、已缓存的对话和自带模型仍可使用；
-            未同步的内容会在恢复后重试，数据没有丢失。
+            {t.chat.offlineBanner}
           </p>
         )}
         {view === 'chat' && contactRail}
@@ -918,7 +920,7 @@ function ProductApp() {
       <CharacterWorldbookPanel
         open={characterWorldbookOpen}
         characterId={active?.character_id ?? null}
-        characterName={active?.name ?? '角色'}
+        characterName={active?.name ?? t.chat.fallbackName}
         onClose={() => setCharacterWorldbookOpen(false)}
       />
       <AccountSyncPanel
@@ -975,30 +977,31 @@ function TopChrome({
   account?: AnonymousIdentity | null; syncError?: boolean;
   onAccount: () => void; onProvider: () => void; onSettings: () => void;
 }) {
+  const t = useT();
   const registered = account?.registered ?? account?.identity_type === 'EMAIL';
   return (
     <header className="top-chrome">
-      <div className="sms-title"><SmsIcon size={30} /><span><strong>短信</strong>{title && <small>{title}</small>}</span></div>
+      <div className="sms-title"><SmsIcon size={30} /><span><strong>{t.chrome.appName}</strong>{title && <small>{title}</small>}</span></div>
       <div className="chrome-actions">
-        <button type="button" className="chrome-nav" onClick={onProvider} aria-label="模型服务">
-          <KeyRound size={16} /><span className="chrome-action-label">模型服务</span>
+        <button type="button" className="chrome-nav" onClick={onProvider} aria-label={t.chrome.modelService}>
+          <KeyRound size={16} /><span className="chrome-action-label">{t.chrome.modelService}</span>
         </button>
-        <button type="button" className="chrome-nav" onClick={onSettings} aria-label="设置">
-          <Settings size={16} /><span className="chrome-action-label">设置</span>
+        <button type="button" className="chrome-nav" onClick={onSettings} aria-label={t.chrome.settings}>
+          <Settings size={16} /><span className="chrome-action-label">{t.chrome.settings}</span>
         </button>
         <button
           type="button"
           className={registered ? 'account-chip account-entry' : 'chrome-login account-entry'}
           onClick={onAccount}
-          aria-label={registered ? '管理账号与同步' : '登录'}
+          aria-label={registered ? t.chrome.manageAccount : t.chrome.signIn}
           title={registered ? account?.email ?? undefined : undefined}
         >
           <UserRound size={16} />
-          <span className="account-email">{registered ? account?.email || '账号' : '登录'}</span>
-          {syncError && <span className="sync-warning">同步异常</span>}
+          <span className="account-email">{registered ? account?.email || t.chrome.account : t.chrome.signIn}</span>
+          {syncError && <span className="sync-warning">{t.chrome.syncWarning}</span>}
         </button>
         {onToggleMute && (
-          <button className="chrome-mute" onClick={onToggleMute} aria-label={muted ? '开启音效' : '关闭音效'} aria-pressed={muted}>
+          <button className="chrome-mute" onClick={onToggleMute} aria-label={muted ? t.chrome.soundOn : t.chrome.soundOff} aria-pressed={muted}>
             {muted ? <VolumeX size={22} /> : <Volume2 size={22} />}
           </button>
         )}
@@ -1011,31 +1014,33 @@ function ContactRail({ characters, active, tone, onSelect, onCreate }: {
   characters: Character[]; active: Character | null; tone: 'dark' | 'light';
   onSelect: (character: Character) => void; onCreate: () => void;
 }) {
+  const t = useT();
   return (
     <aside className={`contact-rail rail-${tone}`}>
       <div className="contact-scroll">
         {characters.map((character) => (
           <button key={character.character_id} className={`contact-item ${active?.character_id === character.character_id ? 'selected' : ''}`} onClick={() => onSelect(character)}>
             <Avatar character={character} />
-            <span className="contact-copy"><strong>{character.name}</strong><small>{character.last_message || character.first_message || character.profile_summary || '等待新的消息'}</small></span>
+            <span className="contact-copy"><strong>{character.name}</strong><small>{character.last_message || character.first_message || character.profile_summary || t.contacts.waitingMessage}</small></span>
             <ChevronRight size={24} />
           </button>
         ))}
-        {!characters.length && <div className="empty-contacts"><MessageCircle size={28} /><strong>还没有联系人</strong><span>从下方新建角色；角色卡可从顶部设置导入</span></div>}
+        {!characters.length && <div className="empty-contacts"><MessageCircle size={28} /><strong>{t.contacts.emptyTitle}</strong><span>{t.contacts.emptyBody}</span></div>}
       </div>
       <div className="rail-actions">
-        <button className="rail-action" onClick={onCreate}><Plus size={21} /> 新建角色</button>
+        <button className="rail-action" onClick={onCreate}><Plus size={21} /> {t.contacts.newCharacter}</button>
       </div>
     </aside>
   );
 }
 
 function EmptyCharacter() {
+  const t = useT();
   return (
     <section className="main-paper empty-paper">
       <MessageCircle size={42} />
-      <h1>等待第一条短信</h1>
-      <p>从左侧“新建角色”开始；已有角色卡可在“设置 → 数据导入与迁移”中导入。</p>
+      <h1>{t.contacts.emptyStateTitle}</h1>
+      <p>{t.contacts.emptyStateBody}</p>
     </section>
   );
 }
@@ -1048,6 +1053,7 @@ function autoGrow(element: HTMLTextAreaElement) {
 // Copy is always available; editing is held back while a reply streams so an edit
 // can never race the generation it would invalidate.
 function MessageActions({ text, editable = false, onEdit }: { text: string; editable?: boolean; onEdit?: () => void }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   const revert = useRef<number>(0);
   useEffect(() => () => window.clearTimeout(revert.current), []);
@@ -1061,11 +1067,11 @@ function MessageActions({ text, editable = false, onEdit }: { text: string; edit
 
   return (
     <div className="message-actions">
-      <button type="button" onClick={() => void copy()} title={copied ? '已复制' : '复制'} aria-label={copied ? '已复制' : '复制消息'}>
+      <button type="button" onClick={() => void copy()} title={copied ? t.chat.copied : t.chat.copy} aria-label={copied ? t.chat.copiedMessage : t.chat.copyMessage}>
         {copied ? <Check size={16} /> : <Copy size={16} />}
       </button>
       {editable && onEdit && (
-        <button type="button" onClick={onEdit} title="编辑消息" aria-label="编辑消息">
+        <button type="button" onClick={onEdit} title={t.chat.editMessage} aria-label={t.chat.editMessage}>
           <Pencil size={16} />
         </button>
       )}
@@ -1076,6 +1082,7 @@ function MessageActions({ text, editable = false, onEdit }: { text: string; edit
 function MessageEditor({ initial, onCancel, onSubmit }: {
   initial: string; onCancel: () => void; onSubmit: (text: string) => void;
 }) {
+  const t = useT();
   const [value, setValue] = useState(initial);
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -1091,7 +1098,7 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   return (
     <div className="message-editor">
       <textarea
-        ref={ref} value={value} rows={1} aria-label="编辑消息内容"
+        ref={ref} value={value} rows={1} aria-label={t.chat.editMessageContent}
         onChange={(event) => { setValue(event.target.value); autoGrow(event.target); }}
         onKeyDown={(event) => {
           if (event.key === 'Escape') { event.preventDefault(); onCancel(); }
@@ -1102,8 +1109,8 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
         }}
       />
       <div className="editor-actions">
-        <button type="button" className="editor-cancel" onClick={onCancel}>取消</button>
-        <button type="button" className="editor-save" disabled={!dirty} onClick={() => onSubmit(value)}>发送</button>
+        <button type="button" className="editor-cancel" onClick={onCancel}>{t.common.cancel}</button>
+        <button type="button" className="editor-save" disabled={!dirty} onClick={() => onSubmit(value)}>{t.common.send}</button>
       </div>
     </div>
   );
@@ -1120,8 +1127,9 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
   onUsageMode: (mode: 'PLATFORM' | 'BYOK') => void; onConfiguration: (id: string) => void; onProvider: () => void;
   onPlatformQuota: () => void;
 }) {
+  const t = useT();
   const lastLine = [...messages].reverse().find((message) => message.role === 'ASSISTANT' && message.content_text.trim())?.content_text
-    || character.first_message || character.profile_summary || '角色档案';
+    || character.first_message || character.profile_summary || t.chat.characterProfile;
 
   // The server decides whether anything is left to spend; the legacy counter only
   // covers the moment before the first Cloud status arrives.
@@ -1177,7 +1185,7 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
 
   return (
     <section className="main-paper chat-paper">
-      <button className="chat-heading" onClick={onProfile} aria-label={`打开${character.name}档案`}>
+      <button className="chat-heading" onClick={onProfile} aria-label={t.chat.openProfile(character.name)}>
         <strong>{character.name}</strong><small>{lastLine}</small>
       </button>
       <div className="chat-scroll-wrap">
@@ -1220,11 +1228,11 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
               </div>
             </div>
           )}
-          {!messages.length && !typing && <div className="chat-placeholder">开始你们的第一段对话。</div>}
+          {!messages.length && !typing && <div className="chat-placeholder">{t.chat.firstConversation}</div>}
           {error && <p className="inline-error"><CircleAlert size={17} />{error}</p>}
         </div>
         {!pinned && (
-          <button className="scroll-bottom" aria-label="滚动到底部" onClick={() => scrollToBottom('smooth')}>
+          <button className="scroll-bottom" aria-label={t.chat.scrollToBottom} onClick={() => scrollToBottom('smooth')}>
             <ChevronDown size={20} />
           </button>
         )}
@@ -1234,18 +1242,18 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
           <div className="quota-notice" role="status">
             <span>
               <CircleAlert size={16} />
-              当前没有可用模型。请接入自己的模型，或查看 LiteTavern Cloud 的平台额度。
+              {t.chat.noModelAvailable}
             </span>
             <div className="quota-notice-actions">
-              <button type="button" onClick={onProvider}>接入自己的模型</button>
-              <button type="button" onClick={onPlatformQuota}>查看 LiteTavern Cloud 额度</button>
+              <button type="button" onClick={onProvider}>{t.chat.connectOwnModel}</button>
+              <button type="button" onClick={onPlatformQuota}>{t.chat.viewCloudQuota}</button>
             </div>
           </div>
         )}
         {(suggestions.length > 0 || suggesting) && (
-          <div className="reply-suggestions" role="group" aria-label="快捷回复">
+          <div className="reply-suggestions" role="group" aria-label={t.chat.quickReplies}>
             {suggesting && suggestions.length === 0 ? (
-              <span className="suggestion-hint"><LoaderCircle className="spin" size={14} /> 正在想几句回复…</span>
+              <span className="suggestion-hint"><LoaderCircle className="spin" size={14} /> {t.chat.thinkingOfReplies}</span>
             ) : (
               suggestions.map((text) => (
                 <button key={text} className="suggestion-chip" disabled={sending} onClick={() => onPick(text)}>{text}</button>
@@ -1263,7 +1271,7 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
           >
             LiteTavern Cloud
           </button>
-          <button className={usageMode === 'BYOK' ? 'active' : ''} onClick={() => configurations.length ? onUsageMode('BYOK') : onProvider()}>自己的模型</button>
+          <button className={usageMode === 'BYOK' ? 'active' : ''} onClick={() => configurations.length ? onUsageMode('BYOK') : onProvider()}>{t.chat.ownModel}</button>
           {usageMode === 'BYOK' && configurations.length > 0 && (
             <select value={selectedConfigurationId} onChange={(event) => onConfiguration(event.target.value)}>
               {configurations.map((item) => <option value={item.model_configuration_id} key={item.model_configuration_id}>{item.display_name} · {item.model_name}</option>)}
@@ -1273,11 +1281,11 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
         <form className="reply-composer" onSubmit={onSend}>
           <Send size={23} />
           <textarea
-            value={draft} rows={1} placeholder={`给${character.name}发送短信…`}
+            value={draft} rows={1} placeholder={t.chat.placeholder(character.name)}
             onChange={(event) => onDraft(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}
           />
-          <button disabled={!draft.trim() || sending || officialBlocked} aria-label="发送消息">{sending ? <LoaderCircle className="spin" size={20} /> : '发送'}</button>
+          <button disabled={!draft.trim() || sending || officialBlocked} aria-label={t.chat.sendMessage}>{sending ? <LoaderCircle className="spin" size={20} /> : t.common.send}</button>
         </form>
       </footer>
     </section>
@@ -1302,6 +1310,7 @@ function InlineField({
   onSave: (next: string) => Promise<void>;
   children: ReactNode;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState(false);
@@ -1325,7 +1334,7 @@ function InlineField({
       await onSave(draft.trim());
       setEditing(false);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '保存失败，请稍后重试。');
+      setError(reason instanceof Error ? reason.message : t.profile.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -1336,7 +1345,7 @@ function InlineField({
       <div className="info-block-head">
         <h2>{label}</h2>
         {!editing && (
-          <button type="button" className="info-edit" onClick={() => setEditing(true)} aria-label={`编辑${label}`}>
+          <button type="button" className="info-edit" onClick={() => setEditing(true)} aria-label={t.profile.editField(label)}>
             <Pencil size={14} />
           </button>
         )}
@@ -1361,10 +1370,10 @@ function InlineField({
           {error && <p className="inline-error">{error}</p>}
           <div className="editor-actions">
             <button type="button" className="editor-cancel" onClick={() => setEditing(false)} disabled={saving}>
-              取消
+              {t.common.cancel}
             </button>
             <button type="button" className="editor-save" onClick={() => void commit()} disabled={saving}>
-              {saving ? '保存中…' : '保存'}
+              {saving ? t.common.saving : t.common.save}
             </button>
           </div>
         </div>
@@ -1411,6 +1420,7 @@ function ProfilePage({
   onDelete: () => Promise<void>;
   onFieldSaved: () => Promise<void>;
 }) {
+  const t = useT();
   const traits = character.personality_summary ? splitTraits(character.personality_summary) : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -1435,7 +1445,7 @@ function ProfilePage({
     try {
       await onDelete();
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : '删除失败，请稍后重试。');
+      setDeleteError(error instanceof Error ? error.message : t.profile.deleteFailed);
       setDeleting(false);
     }
   }
@@ -1443,15 +1453,15 @@ function ProfilePage({
   return (
     <section className="main-paper profile-paper">
       <div className="detail-topbar">
-        <button className="detail-back" onClick={onChat}><ArrowLeft size={19} /> 返回短信</button>
+        <button className="detail-back" onClick={onChat}><ArrowLeft size={19} /> {t.profile.backToChat}</button>
         <div className="detail-topbar-actions">
           <button className="topbar-action" onClick={onEdit}>
-            <Pencil size={15} /> 编辑
+            <Pencil size={15} /> {t.profile.edit}
           </button>
           <div className="overflow-menu" onClick={(event) => event.stopPropagation()}>
             <button
               className="topbar-action topbar-action-icon"
-              aria-label="更多操作"
+              aria-label={t.profile.moreActions}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen((open) => !open)}
@@ -1461,14 +1471,14 @@ function ProfilePage({
             {menuOpen && (
               <div className="overflow-items" role="menu">
                 <button role="menuitem" onClick={() => { setMenuOpen(false); onImport(); }}>
-                  <Upload size={15} /> 用角色卡更新设定
+                  <Upload size={15} /> {t.profile.updateFromCard}
                 </button>
                 <a role="menuitem" href={onExportHref}>
-                  <Download size={15} /> 导出角色卡
+                  <Download size={15} /> {t.profile.exportCard}
                 </a>
                 {character.is_owned && (
                   <button role="menuitem" className="overflow-danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
-                    <Trash2 size={15} /> 删除角色
+                    <Trash2 size={15} /> {t.profile.deleteCharacter}
                   </button>
                 )}
               </div>
@@ -1482,79 +1492,79 @@ function ProfilePage({
             <Avatar character={character} className="profile-avatar" />
             <div className="profile-id">
               <h1>{character.name}</h1>
-              <p>{character.profile_summary || '角色卡暂未填写简介。'}</p>
+              <p>{character.profile_summary || t.profile.noSummary}</p>
             </div>
           </header>
 
           <div className="profile-info">
             <InlineField
-              label="简介"
+              label={t.profile.summary}
               value={character.profile_summary}
-              placeholder="外貌、身份、背景"
+              placeholder={t.profile.summaryPlaceholder}
               rows={4}
               onSave={(next) => saveField({ description: next })}
             >
-              <p>{character.profile_summary || '角色卡暂未填写简介。'}</p>
+              <p>{character.profile_summary || t.profile.noSummary}</p>
             </InlineField>
 
             <InlineField
-              label="核心性格"
-              hint="用顿号分隔可显示为标签，例如：温柔、坚定、话少"
+              label={t.profile.personality}
+              hint={t.profile.personalityHint}
               value={character.personality_summary}
-              placeholder="温柔、坚定、话少"
+              placeholder={t.profile.personalityPlaceholder}
               rows={3}
               onSave={(next) => saveField({ personality: next })}
             >
               {traits
                 ? <div className="trait-chips">{traits.map((trait) => <span key={trait}>{trait}</span>)}</div>
-                : <p>{character.personality_summary || '角色卡暂未填写性格描述。'}</p>}
+                : <p>{character.personality_summary || t.profile.noPersonality}</p>}
             </InlineField>
 
             {/* Written by the Cloud's post-turn worker, so the page says what
                 produces it instead of promising something that never appears. */}
             <section className="info-block">
-              <h2>你们的关系</h2>
+              <h2>{t.profile.relationship}</h2>
               {relationship ? (
                 <>
                   <p>{relationship}</p>
-                  <small className="info-note">每次对话结束后自动更新。</small>
+                  <small className="info-note">{t.profile.relationshipUpdated}</small>
                 </>
               ) : (
                 <p className="muted">
-                  你和{character.name}聊过之后，这里会自动出现一段关系摘要，并随对话更新。
+                  {t.profile.relationshipEmpty(character.name)}
                 </p>
               )}
             </section>
           </div>
 
           <nav className="profile-actions">
-            <button onClick={onMemories} aria-label="记忆">
+            <button onClick={onMemories} aria-label={t.profile.memories}>
               <span className="pa-icon"><Brain size={22} /></span>
               <span className="pa-copy">
-                <strong>记忆</strong>
+                <strong>{t.profile.memories}</strong>
                 <small>
                   {memoryCount === null
-                    ? '对话中值得记住的片段'
+                    ? t.profile.memoriesHint
                     : memoryCount > 0
-                      ? `${memoryCount} 条，会随对话一起提供给${character.name}`
-                      : '还没有记下任何片段'}
+                      ? t.profile.memoriesCount(memoryCount, character.name)
+                      : t.profile.memoriesNone}
                 </small>
               </span>
               <ChevronRight size={19} />
             </button>
-            <button onClick={onPersona} aria-label="本次对话的身份">
+            <button onClick={onPersona} aria-label={t.profile.persona}>
               <span className="pa-icon"><UserRound size={22} /></span>
               <span className="pa-copy">
-                <strong>本次对话的身份</strong>
-                <small>选择你在这段对话里是谁</small>
+                <strong>{t.profile.persona}</strong>
+                <small>{t.profile.personaHint}</small>
               </span>
               <ChevronRight size={19} />
             </button>
-            <button onClick={onWorldbooks} aria-label="关联世界书">
+            <button onClick={onWorldbooks} aria-label={t.profile.worldbooks}>
               <span className="pa-icon"><BookOpen size={22} /></span>
               <span className="pa-copy">
-                <strong>关联世界书</strong>
-                <small>选择对话时参与匹配的世界设定</small>
+                <strong>{t.profile.worldbooks}</strong>
+                <small>{t.profile.worldbooksHint}</small>
               </span>
               <ChevronRight size={19} />
             </button>
@@ -1565,13 +1575,13 @@ function ProfilePage({
       {confirming && (
         <div className="modal-backdrop" onClick={() => !deleting && setConfirming(false)}>
           <div className="confirm-dialog" onClick={(event) => event.stopPropagation()}>
-            <h2>删除「{character.name}」？</h2>
-            <p>删除后将无法在联系人中找到该角色，聊天记录也会一并移除，此操作无法撤销。</p>
+            <h2>{t.profile.deleteTitle(character.name)}</h2>
+            <p>{t.profile.deleteBody}</p>
             {deleteError && <p className="confirm-error">{deleteError}</p>}
             <div className="confirm-actions">
-              <button className="confirm-cancel" onClick={() => setConfirming(false)} disabled={deleting}>取消</button>
+              <button className="confirm-cancel" onClick={() => setConfirming(false)} disabled={deleting}>{t.common.cancel}</button>
               <button className="confirm-delete" onClick={() => void confirmDelete()} disabled={deleting}>
-                {deleting ? '删除中…' : '删除角色'}
+                {deleting ? t.profile.deleting : t.profile.deleteCharacter}
               </button>
             </div>
           </div>
@@ -1590,16 +1600,17 @@ interface MemoryItem {
   created_at?: string;
 }
 
-// The kinds the Cloud actually stores. Anything unrecognised falls into 其他
-// rather than being shown as a raw enum name, which is what the page used to do.
-const MEMORY_KINDS: { key: string; label: string; blurb: string }[] = [
-  { key: 'FACT', label: '事实', blurb: '关于你的确定信息' },
-  { key: 'PREFERENCE', label: '偏好', blurb: '你喜欢或不喜欢的' },
-  { key: 'EXPERIENCE', label: '共同经历', blurb: '你们一起发生过的事' },
-  { key: 'COMMITMENT', label: '约定', blurb: '你们约好的事' },
-  { key: 'CORRECTION', label: '更正', blurb: '你纠正过的说法' },
-  { key: 'OTHER', label: '其他', blurb: '尚未归类的片段' }
-];
+// The kinds the Cloud actually stores. The keys are its enum; the labels come
+// from the dictionary, so an unrecognised kind still falls into "other" rather
+// than being shown as a raw enum name, in whichever language is active.
+const MEMORY_KIND_KEYS = [
+  'FACT',
+  'PREFERENCE',
+  'EXPERIENCE',
+  'COMMITMENT',
+  'CORRECTION',
+  'OTHER'
+] as const;
 
 function MemoryPage({ character, onBack, onChat, onCountChange }: {
   character: Character;
@@ -1607,9 +1618,11 @@ function MemoryPage({ character, onBack, onChat, onCountChange }: {
   onChat: () => void;
   onCountChange: (count: number) => void;
 }) {
+  const t = useT();
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<MemoryItem | null>(null);
+  const memoryKinds = MEMORY_KIND_KEYS.map((key) => ({ key, ...t.memory.kinds[key] }));
 
   async function load() {
     setLoading(true);
@@ -1629,36 +1642,36 @@ function MemoryPage({ character, onBack, onChat, onCountChange }: {
     await load();
   }
 
-  const grouped = MEMORY_KINDS.map((kind) => ({
+  const grouped = memoryKinds.map((kind) => ({
     ...kind,
     items: memories.filter((memory) => (memory.memory_kind || 'OTHER') === kind.key)
   })).filter((group) => group.items.length > 0);
   const unknown = memories.filter(
-    (memory) => !MEMORY_KINDS.some((kind) => kind.key === (memory.memory_kind || 'OTHER'))
+    (memory) => !memoryKinds.some((kind) => kind.key === (memory.memory_kind || 'OTHER'))
   );
 
   return (
     <section className="main-paper memory-paper">
       <div className="detail-topbar">
-        <button className="detail-back" onClick={onBack}><ArrowLeft size={19} /> 返回资料</button>
-        <span className="detail-title">记忆</span>
+        <button className="detail-back" onClick={onBack}><ArrowLeft size={19} /> {t.memory.backToProfile}</button>
+        <span className="detail-title">{t.memory.title}</span>
       </div>
       <div className="detail-scroll">
         <div className="detail-column">
           <div className="memory-head">
             <div>
-              <h1>记忆</h1>
+              <h1>{t.memory.title}</h1>
               {/* Answers the only question that matters here: what is this for? */}
-              <p>这些片段会随对话一起提供给{character.name}，删掉的不再参与。</p>
+              <p>{t.memory.purpose(character.name)}</p>
             </div>
             <span className="memory-count">{memories.length}</span>
           </div>
 
           {loading ? (
-            <p className="import-state"><LoaderCircle className="spin" size={18} /> 正在读取记忆…</p>
+            <p className="import-state"><LoaderCircle className="spin" size={18} /> {t.memory.loading}</p>
           ) : memories.length > 0 ? (
             <>
-              {[...grouped, ...(unknown.length ? [{ key: 'UNSORTED', label: '其他', blurb: '尚未归类的片段', items: unknown }] : [])].map((group) => (
+              {[...grouped, ...(unknown.length ? [{ key: 'UNSORTED', ...t.memory.kinds.OTHER, items: unknown }] : [])].map((group) => (
                 <section className="memory-group" key={group.key}>
                   <header>
                     <h2>{group.label}</h2>
@@ -1670,14 +1683,14 @@ function MemoryPage({ character, onBack, onChat, onCountChange }: {
                         <div className="memory-body">
                           <p>{memory.content}</p>
                           <div className="memory-meta">
-                            <span>{memory.created_by === 'USER' ? '你添加的' : '自动记下的'}</span>
-                            {memory.status === 'CANDIDATE' && <span className="memory-tag">待确认</span>}
+                            <span>{memory.created_by === 'USER' ? t.memory.addedByYou : t.memory.addedAutomatically}</span>
+                            {memory.status === 'CANDIDATE' && <span className="memory-tag">{t.memory.unconfirmed}</span>}
                             {memory.created_at && (
                               <time>{new Date(memory.created_at).toLocaleDateString('zh-CN')}</time>
                             )}
                           </div>
                         </div>
-                        <button aria-label={`删除记忆：${memory.content.slice(0, 12)}`} onClick={() => setPendingDelete(memory)}>
+                        <button aria-label={t.memory.deleteAria(memory.content.slice(0, 12))} onClick={() => setPendingDelete(memory)}>
                           <Trash2 size={17} />
                         </button>
                       </article>
@@ -1689,12 +1702,9 @@ function MemoryPage({ character, onBack, onChat, onCountChange }: {
           ) : (
             <div className="memory-empty">
               <span className="memory-empty-art"><Brain size={44} /></span>
-              <strong>还没有记下任何片段</strong>
-              <p>
-                你和{character.name}每聊完一轮，值得长期记住的信息会被自动挑出来放在这里，
-                之后的对话就会带上它们。
-              </p>
-              <button className="gold-button" onClick={onChat}><MessageCircle size={18} /> 去聊聊</button>
+              <strong>{t.memory.emptyTitle}</strong>
+              <p>{t.memory.emptyBody(character.name)}</p>
+              <button className="gold-button" onClick={onChat}><MessageCircle size={18} /> {t.memory.goChat}</button>
             </div>
           )}
         </div>
@@ -1703,11 +1713,11 @@ function MemoryPage({ character, onBack, onChat, onCountChange }: {
       {pendingDelete && (
         <div className="modal-backdrop" onClick={() => setPendingDelete(null)}>
           <div className="confirm-dialog" onClick={(event) => event.stopPropagation()}>
-            <h2>删除这条记忆？</h2>
-            <p>删除后，{character.name}的后续对话不会再带上它。此操作无法撤销。</p>
+            <h2>{t.memory.deleteTitle}</h2>
+            <p>{t.memory.deleteBody(character.name)}</p>
             <div className="confirm-actions">
-              <button className="confirm-cancel" onClick={() => setPendingDelete(null)}>取消</button>
-              <button className="confirm-delete" onClick={() => void remove(pendingDelete)}>删除</button>
+              <button className="confirm-cancel" onClick={() => setPendingDelete(null)}>{t.common.cancel}</button>
+              <button className="confirm-delete" onClick={() => void remove(pendingDelete)}>{t.common.delete}</button>
             </div>
           </div>
         </div>

@@ -54,6 +54,8 @@ export const zhCN = {
   chat: {
     offlineBanner:
       'LiteTavern Cloud 暂时不可用。本地角色、已缓存的对话和自带模型仍可使用；未同步的内容会在恢复后重试，数据没有丢失。',
+    avatarAlt: (name: string) => `${name}头像`,
+    fallbackName: '角色',
     openProfile: (name: string) => `打开${name}档案`,
     placeholder: (name: string) => `给${name}发送短信…`,
     firstConversation: '开始你们的第一段对话。',
@@ -102,6 +104,10 @@ export const zhCN = {
     memoriesHint: '对话中值得记住的片段',
     memoriesCount: (count: number, name: string) => `${count} 条，会随对话一起提供给${name}`,
     memoriesNone: '还没有记下任何片段',
+    persona: '本次对话的身份',
+    personaHint: '选择你在这段对话里是谁',
+    worldbooks: '关联世界书',
+    worldbooksHint: '选择对话时参与匹配的世界设定',
     deleteTitle: (name: string) => `删除「${name}」？`,
     deleteBody: '删除后将无法在联系人中找到该角色，聊天记录也会一并移除，此操作无法撤销。',
     deleting: '删除中…',

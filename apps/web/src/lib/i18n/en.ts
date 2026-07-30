@@ -58,6 +58,8 @@ export const en: Dictionary = {
   chat: {
     offlineBanner:
       'LiteTavern Cloud is unreachable. Local characters, cached conversations and your own models keep working; anything unsynced will retry once it is back. Nothing has been lost.',
+    avatarAlt: (name: string) => `${name}’s avatar`,
+    fallbackName: 'the character',
     openProfile: (name: string) => `Open ${name}’s profile`,
     placeholder: (name: string) => `Message ${name}…`,
     firstConversation: 'Say something to get started.',
@@ -110,6 +112,10 @@ export const en: Dictionary = {
     memoriesCount: (count: number, name: string) =>
       `${count} ${count === 1 ? 'memory' : 'memories'}, sent to ${name} along with the conversation`,
     memoriesNone: 'Nothing remembered yet',
+    persona: 'Who you are here',
+    personaHint: 'Pick the persona you play in this conversation',
+    worldbooks: 'Linked worldbooks',
+    worldbooksHint: 'Choose which lore is matched against this conversation',
     deleteTitle: (name: string) => `Delete “${name}”?`,
     deleteBody:
       'They will disappear from your contacts and the conversation history goes with them. This cannot be undone.',
