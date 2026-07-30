@@ -1,6 +1,6 @@
-// Routes of the open client only. Operator surfaces for the hosted service are served
-// by the closed Cloud API and must not be routable from here.
-export type PublicRoute = 'support' | 'about';
+// Static Pages routes. /admin contains only a lazy-loaded UI shell; every datum and
+// mutation remains protected by the Cloud API's server-side administrator gate.
+export type PublicRoute = 'support' | 'about' | 'admin';
 
 function normalizedBase(base: string): string {
   const withLeadingSlash = base.startsWith('/') ? base : `/${base}`;
@@ -25,5 +25,6 @@ export function publicRouteForPath(
   const normalized = relative.length > 1 ? relative.replace(/\/+$/, '') : relative;
   if (normalized === '/support') return 'support';
   if (normalized === '/about') return 'about';
+  if (normalized === '/admin' || normalized.startsWith('/admin/')) return 'admin';
   return null;
 }

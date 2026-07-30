@@ -47,6 +47,18 @@ test("staging refuses deployment until Access is explicitly enabled", () => {
   assert.doesNotMatch(source, /CLOUDFLARE_PRODUCTION_PROJECT/);
 });
 
+test("internal Pages deployment copies every static Worker dependency", () => {
+  const source = workflow("deploy");
+  assert.match(
+    source,
+    /cp deploy\/internal-gate\/api\.js apps\/web\/dist\/api\.js/,
+  );
+  assert.match(
+    source,
+    /cp deploy\/internal-gate\/relationship-import\.js apps\/web\/dist\/relationship-import\.js/,
+  );
+});
+
 test("candidate stays draft and stable release requires main", () => {
   const candidate = workflow("release-candidate");
   const stable = workflow("publish-release");

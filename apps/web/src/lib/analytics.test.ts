@@ -94,7 +94,7 @@ describe('analytics client', () => {
     await first.initialize({
       userId: 'user-1',
       anonymousId: 'anonymous-1',
-      url: 'https://litetavern.example/?utm_source=bilibili&utm_campaign=firefly_launch',
+      url: 'https://litetavern.example/start?utm_source=bilibili&utm_medium=video&utm_campaign=firefly_launch&utm_content=profile_link',
       referrer: '',
       appVersion: '0.1.0'
     });
@@ -134,7 +134,12 @@ describe('analytics client', () => {
     expect(sessionEvents).toHaveLength(2);
     expect(sessionEvents[0]).toMatchObject({
       source_channel: 'bilibili',
+      source: 'bilibili',
+      medium: 'video',
       campaign_id: 'firefly_launch',
+      content: 'profile_link',
+      landing_path:
+        '/start?utm_source=bilibili&utm_medium=video&utm_campaign=firefly_launch&utm_content=profile_link',
       properties: {
         is_first_visit: true,
         session_number: 1,

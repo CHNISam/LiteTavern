@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode
+} from 'react';
 import {
   ArrowLeft, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy,
   Download, KeyRound, LoaderCircle, MessageCircle, MoreHorizontal, Pencil, Plus, Send,
@@ -8,6 +16,7 @@ import {
 import { AccountSyncPanel } from './components/CloudPanel';
 import { ProviderSettings } from './components/ProviderSettings';
 import { AppSettingsPanel } from './components/AppSettingsPanel';
+import { ProductFeedback } from './components/ProductFeedback';
 import { ConversationPersonaPanel, PersonaPanel } from './components/PersonaPanel';
 import { CharacterWorldbookPanel, WorldbookPanel } from './components/WorldbookPanel';
 import { CharacterImport } from './components/CharacterImport';
@@ -49,6 +58,8 @@ import { publicRouteForPath } from './public-routing';
 // 'settings' is gone: the character settings page repeated the profile and hid
 // the editor at the bottom of it. Editing lives on the profile now.
 type View = 'chat' | 'profile' | 'memories';
+
+const AdminApp = lazy(() => import('./admin/AdminApp'));
 
 /**
  * Reply suggestions are a paid model call, so they are never issued on the raw
@@ -106,6 +117,13 @@ export function App() {
     );
   }
   if (publicRoute === 'about') return <AboutPage />;
+  if (publicRoute === 'admin') {
+    return (
+      <Suspense fallback={<main className="admin-loading">正在加载管理后台…</main>}>
+        <AdminApp />
+      </Suspense>
+    );
+  }
   return <ProductApp />;
 }
 
@@ -942,6 +960,25 @@ function ProductApp() {
           setAccountOpen(false);
           openProviderSettings('byok');
         }}
+      />
+      <ProductFeedback
+        provider={
+          usageMode === 'PLATFORM'
+            ? 'platform'
+            : configurations.find(
+                (configuration) =>
+                  configuration.model_configuration_id === selectedConfigurationId
+              )?.provider
+        }
+        model={
+          usageMode === 'BYOK'
+            ? configurations.find(
+                (configuration) =>
+                  configuration.model_configuration_id === selectedConfigurationId
+              )?.model_name
+            : undefined
+        }
+        traceId={turnIdRef.current || undefined}
       />
     </main>
   );

@@ -63,6 +63,7 @@ jobs:
         run: |
           cp deploy/internal-gate/_worker.js apps/web/dist/_worker.js
           cp deploy/internal-gate/api.js apps/web/dist/api.js
+          cp deploy/internal-gate/relationship-import.js apps/web/dist/relationship-import.js
 
       - name: Apply internal D1 migrations
         if: github.ref_name != 'main'
