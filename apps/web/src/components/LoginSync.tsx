@@ -215,7 +215,7 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
                 onClick={() => void requestCode()}
                 disabled={busy || cooldown > 0}
               >
-                {cooldown > 0 ? `重新发送（${cooldown}s）` : '重新发送验证码'}
+                {cooldown > 0 ? t.auth.resendIn(cooldown) : t.auth.resendCode}
               </button>
             </div>
           </form>
