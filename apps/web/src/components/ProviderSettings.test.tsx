@@ -20,6 +20,10 @@ describe('OpenAI provider settings', () => {
   function alphaCloud(overrides: Record<string, unknown> = {}) {
     return {
       platform_models_available: true,
+      model_service: {
+        available: true,
+        reason_code: null
+      },
       quota: {
         source: 'ALPHA',
         total: 20,
@@ -85,6 +89,41 @@ describe('OpenAI provider settings', () => {
     expect(
       screen.getByText(/LiteTavern Cloud 暂时无法连接，以上是最后一次同步到的数据。/)
     ).toBeInTheDocument();
+  });
+
+  it('shows remaining quota without claiming an unavailable Cloud service is in use', async () => {
+    const retry = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      if (path === '/v1/providers') return json({ providers: [] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(
+      <ProviderSettings
+        open
+        usageMode="PLATFORM"
+        onClose={() => undefined}
+        onConfigurationsChanged={() => undefined}
+        cloud={alphaCloud({
+          platform_models_available: false,
+          model_service: {
+            available: false,
+            reason_code: 'SERVICE_UNAVAILABLE'
+          }
+        })}
+        {...({ onRetryCloud: retry } as object)}
+      />
+    );
+
+    expect(screen.getByText('暂时不可用')).toBeInTheDocument();
+    expect(screen.getByText('剩余 14 次，服务恢复后可用')).toBeInTheDocument();
+    expect(screen.queryByText('使用中')).not.toBeInTheDocument();
+    expect(screen.queryByText('正在使用此服务')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(retry).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: '连接自己的模型' })).toBeInTheDocument();
   });
 
   it('hides ChatGPT OAuth by default and keeps API Key configuration available', async () => {

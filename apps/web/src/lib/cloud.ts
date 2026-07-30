@@ -51,6 +51,10 @@ export interface CloudQuota {
 export interface CloudStatus {
   stage: CloudStage;
   platform_models_available: boolean;
+  model_service?: {
+    available: boolean;
+    reason_code: 'SERVICE_UNAVAILABLE' | 'QUOTA_EXHAUSTED' | null;
+  };
   identity_type: 'ANONYMOUS' | 'EMAIL';
   registered: boolean;
   membership_status: MembershipStatus;
@@ -67,6 +71,38 @@ export interface CloudStatus {
   quota: CloudQuota;
   support: { enabled: boolean; url: string; headline: string; body: string };
   next_actions: CloudNextAction[];
+}
+
+export interface CloudModelServiceState {
+  availability:
+    | 'checking'
+    | 'available'
+    | 'unavailable'
+    | 'quota_exhausted';
+  selected: boolean;
+}
+
+export function resolveCloudModelServiceState(
+  status: CloudStatus | null,
+  options: {
+    checking?: boolean;
+    offline?: boolean;
+    runtimeUnavailable?: boolean;
+    selected?: boolean;
+  } = {}
+): CloudModelServiceState {
+  const selected = options.selected ?? false;
+  if (options.checking) return { availability: 'checking', selected };
+  if (options.offline || options.runtimeUnavailable || !status?.model_service) {
+    return { availability: 'unavailable', selected };
+  }
+  if (status.model_service.reason_code === 'QUOTA_EXHAUSTED') {
+    return { availability: 'quota_exhausted', selected };
+  }
+  return {
+    availability: status.model_service.available ? 'available' : 'unavailable',
+    selected
+  };
 }
 
 const STATUS_CACHE_KEY = 'litetavern.cloud.status.v1';

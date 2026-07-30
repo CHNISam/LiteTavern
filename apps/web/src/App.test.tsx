@@ -30,10 +30,15 @@ function cloudStatus(
   overrides: Record<string, unknown> = {},
   quota: CloudQuotaOverrides = {}
 ) {
+  const available = quota.available ?? 30;
   return {
     cloud: {
       stage: 'ALPHA',
       platform_models_available: true,
+      model_service: {
+        available: available > 0,
+        reason_code: available > 0 ? null : 'QUOTA_EXHAUSTED'
+      },
       identity_type: 'ANONYMOUS',
       registered: false,
       membership_status: 'ANONYMOUS_TRIAL',
@@ -227,11 +232,12 @@ describe('HSR message shell', () => {
 
     expect(
       await screen.findByText(
-        '当前没有可用模型。请接入自己的模型，或查看 LiteTavern Cloud 的平台额度。'
+        'LiteTavern Cloud 的额度已用完。你可以接入自己的模型继续聊天。'
       )
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '接入自己的模型' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '连接自己的模型' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '查看 LiteTavern Cloud 额度' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'LiteTavern Cloud · 额度已用完' })).not.toHaveClass('active');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
   });
 
@@ -279,16 +285,38 @@ describe('HSR message shell', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
 
     expect(
-      await screen.findByText('官方免费服务暂时繁忙，请稍后再试。本次不会扣除免费次数。')
+      await screen.findByText(
+        'LiteTavern Cloud 暂时不可用。请稍后重试，或连接自己的模型。'
+      )
     ).toBeInTheDocument();
-    expect(screen.getByTitle('LiteTavern Cloud 试用额度：剩余 30 / 30 次')).toBeInTheDocument();
+    expect(screen.queryByText(/官方免费服务|凭证未配置/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'LiteTavern Cloud 暂不可用' })).not.toHaveClass('active');
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '模型服务' }));
+    expect(
+      within(await screen.findByRole('dialog', { name: '模型服务' }))
+        .getByText('剩余 30 次，服务恢复后可用')
+    ).toBeInTheDocument();
   });
 
-  it('shows a clear BYOK path when the platform model channel is disabled', async () => {
+  it('blocks a selected unavailable Cloud service without silently switching to BYOK', async () => {
+    let statusRequest = 0;
+    let finishRetry: ((response: Response) => void) | undefined;
+    const retryResponse = new Promise<Response>((resolve) => {
+      finishRetry = resolve;
+    });
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
       if (path === '/v1/cloud/status') {
-        return json(cloudStatus({ platform_models_available: false }));
+        statusRequest += 1;
+        if (statusRequest > 1) return retryResponse;
+        return json(cloudStatus({
+          platform_models_available: false,
+          model_service: {
+            available: false,
+            reason_code: 'SERVICE_UNAVAILABLE'
+          }
+        }));
       }
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') {
@@ -298,7 +326,7 @@ describe('HSR message shell', () => {
             anonymous_id: 'anonymous-1',
             identity_type: 'ANONYMOUS',
             free_quota_remaining: 30,
-            free_quota_enabled: false
+            free_quota_enabled: true
           }
         });
       }
@@ -307,7 +335,19 @@ describe('HSR message shell', () => {
         character_id: 'firefly-card', name: '流萤', profile_summary: '',
         personality_summary: '', first_message: '', avatar_seed: '流萤'
       }] });
-      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/model-configurations') {
+        return json({
+          configurations: [{
+            model_configuration_id: 'own-model-1',
+            provider: 'openai',
+            model_name: 'gpt-test',
+            display_name: '我的模型',
+            base_url: 'https://example.test/v1',
+            credential_id: 'credential-1',
+            credential_configured: true
+          }]
+        });
+      }
       if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
       if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
       return json({ error: { message: `unexpected ${path}` } }, 404);
@@ -315,14 +355,32 @@ describe('HSR message shell', () => {
 
     render(<App />);
 
-    expect(
-      await screen.findByText(
-        '当前没有可用模型。请接入自己的模型，或查看 LiteTavern Cloud 的平台额度。'
-      )
-    ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '接入自己的模型' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '查看 LiteTavern Cloud 额度' })).toBeInTheDocument();
+    expect(await screen.findByText(
+      'LiteTavern Cloud 暂时不可用。请稍后重试，或连接自己的模型。'
+    )).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'LiteTavern Cloud 暂不可用' })).not.toHaveClass('active');
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '连接自己的模型' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '自己的模型' })).not.toHaveClass('active');
+    expect(screen.queryByText(/凭证|API Key|环境变量|Provider/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(
+      (await screen.findAllByText('正在检查 LiteTavern Cloud…')).length
+    ).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
+
+    finishRetry?.(new Response(JSON.stringify(cloudStatus({
+      platform_models_available: false,
+      model_service: {
+        available: false,
+        reason_code: 'SERVICE_UNAVAILABLE'
+      }
+    })), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    }));
   });
 
   it('shows the exact Alpha daily balance and 08:00 reset without upstream units', async () => {
@@ -564,7 +622,7 @@ describe('HSR message shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByText(/LiteTavern Cloud 暂时不可用/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/LiteTavern Cloud 暂时不可用/)).length).toBeGreaterThan(0);
     expect(screen.getByText('同步异常')).toBeInTheDocument();
     // The character survives the outage, and nothing claims the data is gone.
     expect(screen.getAllByText('流萤').length).toBeGreaterThan(0);
@@ -814,6 +872,7 @@ describe('HSR message shell', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const path = String(input);
+      if (path === '/v1/cloud/status') return json(cloudStatus());
       if (path === '/v1/identities/anonymous') return json({ user_id: 'user-1' });
       if (path === '/v1/characters') return json({ characters: [{
         character_id: 'firefly-card', name: '流萤', profile_summary: '星核猎手成员',
