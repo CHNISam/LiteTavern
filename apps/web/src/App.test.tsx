@@ -629,7 +629,7 @@ describe('HSR message shell', () => {
     );
   });
 
-  it('uses the imported card PNG as the avatar and follows chat → profile → settings', async () => {
+  it('uses the imported card PNG as the avatar and keeps the profile a single page', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
       if (path === '/v1/identities/anonymous') return json({ user_id: 'user-1' });
@@ -650,16 +650,121 @@ describe('HSR message shell', () => {
     expect(avatar).toHaveAttribute('src', '/v1/characters/firefly-card/avatar');
     fireEvent.click(screen.getByRole('button', { name: '打开流萤档案' }));
     expect(await screen.findByRole('heading', { name: '流萤' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /^角色设置/ }));
-    await waitFor(() => {
-      expect(screen.getByText('角色设置', { selector: '.detail-title' })).toBeInTheDocument();
-    });
-    expect(screen.getByText('用角色卡更新设定')).toBeInTheDocument();
+
+    // There is no second character-settings page to walk into any more: editing
+    // is in the header, and the card operations are one menu away.
+    expect(screen.queryByRole('button', { name: /^角色设置/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '编辑' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    expect(screen.getByRole('menuitem', { name: /用角色卡更新设定/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /导出角色卡/ })).toBeInTheDocument();
     expect(screen.queryByText('模型选择')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '模型服务' })).toBeInTheDocument();
   });
 
-  it('deletes the active character from settings and falls back to the empty state', async () => {
+  it('edits a profile field in place instead of opening the editor', async () => {
+    const requests: Array<{ path: string; method: string; body?: string }> = [];
+    let description = '星核猎手成员';
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const path = String(input);
+      requests.push({
+        path,
+        method: init?.method ?? 'GET',
+        ...(init?.body ? { body: String(init.body) } : {})
+      });
+      if (path === '/v1/identities/anonymous') return json({ user_id: 'user-1' });
+      if (path === '/v1/characters') return json({ characters: [{
+        character_id: 'firefly-card', name: '流萤', profile_summary: description,
+        personality_summary: '温柔而坚定', first_message: '又见面了。', avatar_seed: '流萤',
+        is_owned: true, last_message: null
+      }] });
+      if (path === '/v1/characters/firefly-card') {
+        return json({ character: { character_id: 'firefly-card', name: '流萤', relationship_summary: '  ' } });
+      }
+      if (path === '/v1/characters/firefly-card/memories') return json({ memories: [] });
+      if (path === '/v1/characters/firefly-card/card' && init?.method === 'PUT') {
+        description = (JSON.parse(String(init.body)) as { description: string }).description;
+        return json({ character_id: 'firefly-card' });
+      }
+      if (path === '/v1/characters/firefly-card/card') {
+        return json({
+          normalized_data: {
+            name: '流萤', description, personality: '温柔而坚定', scenario: '',
+            first_message: '又见面了。', alternate_greetings: [], example_messages: '',
+            system_prompt: '守住设定', post_history_instructions: '', tags: [],
+            creator: { name: '', notes: '', character_version: '' }
+          },
+          source_metadata: {
+            compatibility_level: 'FORMAL', format: 'INTERNAL',
+            container: 'INTERNAL', unapplied_fields: []
+          },
+          warnings: []
+        });
+      }
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
+      if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: '打开流萤档案' }));
+    fireEvent.click(await screen.findByRole('button', { name: '编辑简介' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '简介' }), {
+      target: { value: '格拉默铁骑士' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(screen.getByText('格拉默铁骑士')).toBeInTheDocument());
+    const update = requests.find((request) => request.method === 'PUT');
+    // The whole card is replaced by this endpoint, so an inline edit must carry
+    // the fields the reader could not see — not blank them out.
+    expect(JSON.parse(String(update?.body))).toMatchObject({
+      description: '格拉默铁骑士',
+      system_prompt: '守住设定',
+      personality: '温柔而坚定'
+    });
+  });
+
+  it('shows the relationship summary the Cloud actually stored', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      if (path === '/v1/identities/anonymous') return json({ user_id: 'user-1' });
+      if (path === '/v1/characters') return json({ characters: [{
+        character_id: 'firefly-card', name: '流萤', profile_summary: '星核猎手成员',
+        personality_summary: '温柔而坚定', first_message: '又见面了。', avatar_seed: '流萤',
+        is_owned: true, last_message: null
+      }] });
+      if (path === '/v1/characters/firefly-card') {
+        return json({
+          character: {
+            character_id: 'firefly-card',
+            name: '流萤',
+            relationship_summary: '你们约好一起去看流星。'
+          }
+        });
+      }
+      if (path === '/v1/characters/firefly-card/memories') {
+        return json({ memories: [{ memory_id: 'm-1', content: '喜欢甜食', memory_kind: 'PREFERENCE' }] });
+      }
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
+      if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: '打开流萤档案' }));
+
+    expect(await screen.findByText('你们约好一起去看流星。')).toBeInTheDocument();
+    expect(screen.getByText('每次对话结束后自动更新。')).toBeInTheDocument();
+    // The old copy promised a section that was never wired to anything.
+    expect(screen.queryByText(/关系摘要与共同经历会自动沉淀在这里/)).not.toBeInTheDocument();
+    // The memory entry states what the memories are for.
+    expect(await screen.findByText('1 条，会随对话一起提供给流萤')).toBeInTheDocument();
+  });
+
+  it('deletes the active character from the profile menu and falls back to the empty state', async () => {
     let deleted = false;
     const requests: Array<{ path: string; method: string }> = [];
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
@@ -687,8 +792,8 @@ describe('HSR message shell', () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole('button', { name: '打开流萤档案' }));
-    fireEvent.click(await screen.findByRole('button', { name: /^角色设置/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /删除角色/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '更多操作' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /删除角色/ }));
 
     // Confirmation dialog gates the destructive action.
     const confirm = await screen.findByRole('button', { name: '删除角色' });
