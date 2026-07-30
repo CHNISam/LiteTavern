@@ -33,7 +33,11 @@ interface PublicHeaderProps {
 export function PublicHeader({ githubUrl, theme, onThemeChange }: PublicHeaderProps) {
   return (
     <header className="public-header">
-      <a className="public-brand" href={siteHref('/')}>
+      {/* One way back, on the left where a back control belongs. The brand and the
+          "return to LiteTavern" link pointed at the same place, so they are one
+          control instead of two — the second one sat in the top-right corner. */}
+      <a className="public-brand" href={siteHref('/')} aria-label="返回 LiteTavern">
+        <span className="public-brand-back"><ArrowLeft size={16} /></span>
         <Sparkles size={21} />
         <span>LiteTavern</span>
       </a>
@@ -66,10 +70,6 @@ export function PublicHeader({ githubUrl, theme, onThemeChange }: PublicHeaderPr
             <Moon size={15} />
           </button>
         </div>
-
-        <a className="public-header-back" href={siteHref('/')}>
-          <ArrowLeft size={15} /> 返回 LiteTavern
-        </a>
       </div>
     </header>
   );

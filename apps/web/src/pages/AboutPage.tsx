@@ -1,9 +1,14 @@
-import { useEffect } from 'react';
-import { ArrowRight, MessageCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowRight } from 'lucide-react';
+import { PublicHeader } from '../components/PublicHeader';
 import { SiteFooter } from '../components/SiteFooter';
+import { githubUrl as resolveGithubUrl } from '../lib/project-links';
+import { preferredPublicTheme, storePublicTheme, type PublicTheme } from '../lib/public-theme';
 import { siteHref } from '../public-routing';
 
-export function AboutPage() {
+export function AboutPage({ githubUrl = resolveGithubUrl() }: { githubUrl?: string } = {}) {
+  const [theme, setTheme] = useState<PublicTheme>(preferredPublicTheme);
+
   useEffect(() => {
     const previousTitle = document.title;
     document.title = '关于 LiteTavern';
@@ -12,18 +17,18 @@ export function AboutPage() {
     };
   }, []);
 
+  function changeTheme(next: PublicTheme) {
+    setTheme(next);
+    storePublicTheme(next);
+  }
+
   return (
-    <main className="public-page">
+    <main className="public-page" data-public-theme={theme}>
       <div className="public-glow public-glow-warm" />
-      <header className="public-header">
-        <a className="public-brand" href={siteHref('/')}>
-          <MessageCircle size={22} />
-          <span>LiteTavern</span>
-        </a>
-        <a className="public-header-link" href={siteHref('/support?source=website')}>
-          支持 LiteTavern
-        </a>
-      </header>
+
+      {/* Shared with the support page, and carrying no support link of its own:
+          this page used to offer the same call to action in three places. */}
+      <PublicHeader githubUrl={githubUrl} theme={theme} onThemeChange={changeTheme} />
 
       <article className="about-page">
         <p className="public-eyebrow">ABOUT LITETAVERN</p>
@@ -49,7 +54,9 @@ export function AboutPage() {
         </section>
       </article>
 
-      <SiteFooter />
+      {/* This page is itself the support call to action, so the footer stays out
+          of the way instead of repeating it in the bottom corner. */}
+      <SiteFooter omit={['about', 'support']} />
     </main>
   );
 }

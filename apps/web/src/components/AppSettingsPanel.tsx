@@ -4,6 +4,7 @@ import {
   BookOpen,
   ChevronRight,
   Download,
+  ExternalLink,
   HeartHandshake,
   Info,
   MessageCircle,
@@ -12,6 +13,7 @@ import {
   X
 } from 'lucide-react';
 import { EXPORT_PATH } from '../lib/cloud';
+import { APP_VERSION, githubUrl } from '../lib/project-links';
 import { cloudUrl } from '../lib/runtime-config';
 import { siteHref } from '../public-routing';
 
@@ -59,8 +61,13 @@ export function AppSettingsPanel({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="app-settings-header">
-          <div>
-            {view !== 'root' && (
+          {/* Grid rows, not inline flow: the back control and the eyebrow used to
+              run together on one line and collide. On a sub-view the back control
+              replaces the eyebrow rather than stacking with it. */}
+          <div className="app-settings-heading">
+            {view === 'root' ? (
+              <span className="eyebrow">LiteTavern</span>
+            ) : (
               <button
                 type="button"
                 className="app-settings-back"
@@ -70,7 +77,6 @@ export function AppSettingsPanel({
                 <ArrowLeft size={17} /> 返回设置
               </button>
             )}
-            <span className="eyebrow">LiteTavern</span>
             <h2>{title}</h2>
           </div>
           <button className="icon-button" aria-label="关闭" onClick={onClose}>
@@ -109,7 +115,7 @@ export function AppSettingsPanel({
                 <span className="app-settings-icon"><Info size={19} /></span>
                 <span>
                   <strong>关于 LiteTavern</strong>
-                  <small>了解项目，并按意愿选择是否支持</small>
+                  <small>版本、开源仓库，以及自愿支持入口</small>
                 </span>
                 <ChevronRight size={18} />
               </button>
@@ -163,14 +169,24 @@ export function AppSettingsPanel({
           )}
 
           {view === 'about' && (
+            // Self-contained: this panel used to hand off to /about, which showed
+            // the same thing again and pushed another page onto the stack.
             <div className="app-about">
-              <span className="app-about-mark"><MessageCircle size={25} /></span>
-              <h3>LiteTavern</h3>
-              <p>
-                一个让角色、对话与共同经历持续延续的开源 AI 客户端。
-              </p>
-              <a className="secondary-button" href={siteHref('/about')}>
-                查看关于 LiteTavern <ChevronRight size={17} />
+              <div className="app-about-identity">
+                <span className="app-about-mark"><MessageCircle size={25} /></span>
+                <div>
+                  <h3>LiteTavern</h3>
+                  <span className="app-about-version">版本 {APP_VERSION}</span>
+                </div>
+              </div>
+              <p>一个让角色、对话与共同经历持续延续的开源 AI 客户端。</p>
+              <a
+                className="app-about-link"
+                href={githubUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                在 GitHub 上查看源码 <ExternalLink size={15} />
               </a>
               <section>
                 <h4>支持 LiteTavern</h4>

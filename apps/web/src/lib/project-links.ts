@@ -7,6 +7,9 @@ import { safePublicUrl } from './support-config';
  */
 export const DEFAULT_GITHUB_URL = 'https://github.com/CHNISam/LiteTavern';
 
+/** Shown in the about panel and reported with analytics, so it lives in one place. */
+export const APP_VERSION = '0.1.0';
+
 interface ProjectLinkEnvironment {
   VITE_GITHUB_URL?: string | undefined;
 }

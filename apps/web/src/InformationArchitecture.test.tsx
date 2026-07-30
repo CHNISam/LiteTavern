@@ -172,10 +172,11 @@ describe('home information architecture', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '模型服务' }));
     const models = screen.getByRole('dialog', { name: '模型服务' });
-    expect(within(models).getByText('LiteTavern 提供的平台模型额度')).toBeInTheDocument();
-    expect(within(models).getByText('用户自带模型 API')).toBeInTheDocument();
-    expect(within(models).getByText('当前 Provider')).toBeInTheDocument();
-    expect(within(models).getByText('试用额度剩余 30 次')).toBeInTheDocument();
+    expect(within(models).getByRole('heading', { name: 'LiteTavern Cloud' })).toBeInTheDocument();
+    expect(within(models).getByRole('heading', { name: '自己的模型' })).toBeInTheDocument();
+    // Nothing is connected yet, so the BYOK card states where a key would live.
+    expect(within(models).getByText(/API Key 只保存在这台设备上/)).toBeInTheDocument();
+    expect(within(models).getByRole('meter', { name: '试用额度剩余量' })).toBeInTheDocument();
   });
 
   it('shows one accurate chat prompt only when no model is available', async () => {
@@ -183,10 +184,10 @@ describe('home information architecture', () => {
     render(<App />);
 
     const message =
-      '当前没有可用模型。请配置自己的模型，或查看 LiteTavern 提供的模型额度。';
+      '当前没有可用模型。请接入自己的模型，或查看 LiteTavern Cloud 的平台额度。';
     expect(await screen.findAllByText(message)).toHaveLength(1);
-    expect(screen.getByRole('button', { name: '配置自己的模型' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '查看平台额度' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '接入自己的模型' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '查看 LiteTavern Cloud 额度' })).toBeInTheDocument();
     expect(screen.queryByText('查看 LiteTavern Cloud')).not.toBeInTheDocument();
     expect(screen.queryByText('自愿支持 LiteTavern')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /连接自己的模型继续聊天/ })).not.toBeInTheDocument();

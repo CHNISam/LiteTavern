@@ -15,6 +15,20 @@ export interface Character {
   last_message?: string | null;
 }
 
+/**
+ * A character plus the state that accumulates between this reader and them.
+ * `relationship_summary` is written by the Cloud's post-turn worker; it is a
+ * single evolving summary, which is why it is not one of the discrete memories.
+ */
+export interface CharacterDetail extends Character {
+  relationship_summary?: string | null;
+}
+
+export async function fetchCharacterDetail(characterId: string): Promise<CharacterDetail> {
+  const response = await api<{ character: CharacterDetail }>(`/v1/characters/${characterId}`);
+  return response.character;
+}
+
 export interface Message {
   message_id: string;
   // EVENT is a system note in the transcript (e.g. a relationship migration). It is

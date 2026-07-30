@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowLeft, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy,
-  Download, KeyRound, LoaderCircle, MessageCircle, Pencil, Plus, Send, Settings,
+  Download, KeyRound, LoaderCircle, MessageCircle, MoreHorizontal, Pencil, Plus, Send,
+  Settings,
   Trash2, Upload, UserRound, Volume2, VolumeX
 } from 'lucide-react';
 import { AccountSyncPanel } from './components/CloudPanel';
@@ -16,9 +17,10 @@ import { LoginSync } from './components/LoginSync';
 import { AboutPage } from './pages/AboutPage';
 import { SupportPage } from './pages/SupportPage';
 import {
-  ApiError, api, deleteCharacter, generateTurn, logout, saveTurnBubble,
+  ApiError, api, deleteCharacter, fetchCharacterDetail, generateTurn, logout, saveTurnBubble,
   type AnonymousIdentity, type Character, type Message, type ModelConfiguration
 } from './lib/api';
+import { patchCharacterCard, type CharacterModel } from './lib/character-card';
 import { analytics, type AnalyticsPageName } from './lib/analytics';
 import {
   fetchCloudStatus,
@@ -43,7 +45,9 @@ import { TurnPlaybackController } from './lib/turn-playback';
 import { playClick, isMuted, setMuted } from './lib/sound';
 import { publicRouteForPath } from './public-routing';
 
-type View = 'chat' | 'profile' | 'memories' | 'settings';
+// 'settings' is gone: the character settings page repeated the profile and hid
+// the editor at the bottom of it. Editing lives on the profile now.
+type View = 'chat' | 'profile' | 'memories';
 
 /**
  * Reply suggestions are a paid model call, so they are never issued on the raw
@@ -120,8 +124,8 @@ function ProductApp() {
   const [conversationPersonaOpen, setConversationPersonaOpen] = useState(false);
   const [characterWorldbookOpen, setCharacterWorldbookOpen] = useState(false);
   // Which identity the open conversation speaks as. The server binds the default
-  // persona when a conversation is first created and returns it here; from then on
-  // only an explicit choice in this session changes it.
+  // persona when a conversation is first created and reports it here; from then on
+  // only an explicit choice changes it.
   const [conversationPersonaId, setConversationPersonaId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importCharacterId, setImportCharacterId] = useState<string | undefined>();
@@ -146,6 +150,10 @@ function ProductApp() {
   const [suggesting, setSuggesting] = useState(false);
   const [typing, setTyping] = useState(false);
   const [muted, setMutedState] = useState(isMuted());
+  // Relationship summary and memory count belong to the character, not the
+  // conversation, so they are fetched when the profile is opened.
+  const [relationship, setRelationship] = useState<string | null>(null);
+  const [memoryCount, setMemoryCount] = useState<number | null>(null);
   const started = useRef(false);
 
   function toggleMute() {
@@ -262,8 +270,8 @@ function ProductApp() {
     if (token !== openTokenRef.current) return;
     conversationIdRef.current = created.conversation_id;
     setConversationId(created.conversation_id);
-    // The server is the source of truth for which persona this conversation is bound
-    // to; a deployment without personas simply reports none.
+    // The server owns which persona this conversation is bound to; a deployment
+    // without personas simply reports none.
     setConversationPersonaId(created.persona_id ?? null);
     if (trackSelection) {
       analytics.criticalAction('character_selected', 'home', {
@@ -302,6 +310,38 @@ function ProductApp() {
     setMessages(cachedId ? cachedMessages(cachedId) : []);
   }
 
+  /**
+   * Pulls the character-scoped state the profile shows. Failures are silent by
+   * design: the profile still renders from the list data, and an outage must not
+   * replace a readable page with an error.
+   */
+  async function loadProfileState(characterId: string) {
+    try {
+      const detail = await fetchCharacterDetail(characterId);
+      setRelationship(detail.relationship_summary?.trim() || null);
+    } catch {
+      setRelationship(null);
+    }
+    try {
+      const result = await api<{ memories: unknown[] }>(`/v1/characters/${characterId}/memories`);
+      setMemoryCount(result.memories.length);
+    } catch {
+      setMemoryCount(null);
+    }
+  }
+
+  // After an inline profile edit, re-read the character so the page shows what
+  // was actually stored rather than the text that was typed.
+  async function refreshActiveCharacter() {
+    const response = await api<{ characters: Character[] }>('/v1/characters');
+    setCharacters(response.characters);
+    cacheCharacters(response.characters);
+    const current = activeRef.current;
+    if (!current) return;
+    const updated = response.characters.find((item) => item.character_id === current.character_id);
+    if (updated) setActive(updated);
+  }
+
   async function refreshCloudStatus() {
     try {
       const result = await fetchCloudStatus();
@@ -324,8 +364,10 @@ function ProductApp() {
     const response = await api<{ characters: Character[] }>('/v1/characters');
     setCharacters(response.characters);
     if (openImported && response.characters[0]) {
+      // After an import or an edit, land back on the profile that was just
+      // changed so the result is visible.
       const next = response.characters.find((item) => item.character_id === active?.character_id) ?? response.characters[0];
-      await openCharacter(next, active ? 'settings' : 'chat');
+      await openCharacter(next, active ? 'profile' : 'chat');
     }
   }
 
@@ -438,6 +480,11 @@ function ProductApp() {
     if (response.characters[0]) await openCharacter(response.characters[0]);
   }
 
+  useEffect(() => {
+    if (view !== 'profile' || !active) return;
+    void loadProfileState(active.character_id);
+  }, [active?.character_id, view]);
+
   const analyticsPage: AnalyticsPageName = providerOpen
     ? 'model_config'
     : migrationOpen
@@ -454,9 +501,7 @@ function ProductApp() {
             ? 'chat'
             : view === 'profile'
               ? 'character_detail'
-              : view === 'memories'
-                ? 'character_memories'
-                : 'character_settings';
+              : 'character_memories';
 
   useEffect(() => {
     if (!analyticsReady) return;
@@ -562,8 +607,8 @@ function ProductApp() {
       setErrorCode(code);
       setError(
         freeQuotaEnabled
-          ? '你的官方免费回复次数已用完。你可以配置自己的模型服务继续聊天。'
-          : '官方免费服务当前已关闭。你可以配置自己的模型服务继续聊天。'
+          ? 'LiteTavern Cloud 的额度已用完。你可以接入自己的模型继续聊天。'
+          : 'LiteTavern Cloud 平台模型当前已关闭。你可以接入自己的模型继续聊天。'
       );
       analytics.blockingError(analyticsErrorCode(code), 'chat', {
         errorStage: 'quota_check',
@@ -739,7 +784,7 @@ function ProductApp() {
         onAccount={() => setAccountOpen(true)}
         onProvider={() => openProviderSettings('overview')}
         onSettings={() => setAppSettingsOpen(true)}
-        {...(view === 'memories' && active ? { title: `与${active.name}的回忆` } : view === 'settings' ? { title: 'LiteTavern' } : {})}
+        {...(view === 'memories' && active ? { title: `与${active.name}的记忆` } : {})}
       />
 
       <section className="hsr-stage">
@@ -774,6 +819,8 @@ function ProductApp() {
         ) : view === 'profile' ? (
           <ProfilePage
             character={active}
+            relationship={relationship}
+            memoryCount={memoryCount}
             onChat={() => {
               analytics.criticalAction('chat_start_clicked', 'character_detail', {
                 characterId: active.character_id,
@@ -783,22 +830,23 @@ function ProductApp() {
               setView('chat');
             }}
             onMemories={() => setView('memories')}
-            onSettings={() => setView('settings')}
-          />
-        ) : view === 'memories' ? (
-          <MemoryPage character={active} onBack={() => setView('profile')} onChat={() => setView('chat')} />
-        ) : (
-          <CharacterSettingsPage
-            character={active}
-            onBack={() => setView('profile')}
             onPersona={() => setConversationPersonaOpen(true)}
             onWorldbooks={() => setCharacterWorldbookOpen(true)}
-            onImport={() => openCharacterImport(active.character_id)}
             onEdit={() => {
               setEditorCharacterId(active.character_id);
               setEditorOpen(true);
             }}
+            onImport={() => openCharacterImport(active.character_id)}
+            onExportHref={cloudUrl(`/v1/characters/${active.character_id}/export`)}
             onDelete={deleteActiveCharacter}
+            onFieldSaved={refreshActiveCharacter}
+          />
+        ) : (
+          <MemoryPage
+            character={active}
+            onBack={() => setView('profile')}
+            onChat={() => setView('chat')}
+            onCountChange={setMemoryCount}
           />
         )}
       </section>
@@ -807,6 +855,7 @@ function ProductApp() {
         open={providerOpen}
         onClose={() => setProviderOpen(false)}
         cloud={cloud}
+        offline={cloudOffline}
         freeQuotaEnabled={freeQuotaEnabled}
         usageMode={usageMode}
         initialSection={providerInitialSection}
@@ -1185,11 +1234,11 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
           <div className="quota-notice" role="status">
             <span>
               <CircleAlert size={16} />
-              当前没有可用模型。请配置自己的模型，或查看 LiteTavern 提供的模型额度。
+              当前没有可用模型。请接入自己的模型，或查看 LiteTavern Cloud 的平台额度。
             </span>
             <div className="quota-notice-actions">
-              <button type="button" onClick={onProvider}>配置自己的模型</button>
-              <button type="button" onClick={onPlatformQuota}>查看平台额度</button>
+              <button type="button" onClick={onProvider}>接入自己的模型</button>
+              <button type="button" onClick={onPlatformQuota}>查看 LiteTavern Cloud 额度</button>
             </div>
           </div>
         )}
@@ -1212,9 +1261,9 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
             onClick={() => onUsageMode('PLATFORM')}
             title={quotaLabel(cloud)}
           >
-            平台额度
+            LiteTavern Cloud
           </button>
-          <button className={usageMode === 'BYOK' ? 'active' : ''} onClick={() => configurations.length ? onUsageMode('BYOK') : onProvider()}>自带模型</button>
+          <button className={usageMode === 'BYOK' ? 'active' : ''} onClick={() => configurations.length ? onUsageMode('BYOK') : onProvider()}>自己的模型</button>
           {usageMode === 'BYOK' && configurations.length > 0 && (
             <select value={selectedConfigurationId} onChange={(event) => onConfiguration(event.target.value)}>
               {configurations.map((item) => <option value={item.model_configuration_id} key={item.model_configuration_id}>{item.display_name} · {item.model_name}</option>)}
@@ -1235,6 +1284,97 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
   );
 }
 
+/** Inline editor for one profile field. Escape abandons, the button commits. */
+function InlineField({
+  label,
+  hint,
+  value,
+  placeholder,
+  rows,
+  onSave,
+  children
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  placeholder: string;
+  rows: number;
+  onSave: (next: string) => Promise<void>;
+  children: ReactNode;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!editing) return;
+    setDraft(value);
+    setError(null);
+  }, [editing, value]);
+
+  useEffect(() => {
+    if (editing) ref.current?.focus();
+  }, [editing]);
+
+  async function commit() {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(draft.trim());
+      setEditing(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '保存失败，请稍后重试。');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="info-block">
+      <div className="info-block-head">
+        <h2>{label}</h2>
+        {!editing && (
+          <button type="button" className="info-edit" onClick={() => setEditing(true)} aria-label={`编辑${label}`}>
+            <Pencil size={14} />
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <div className="info-editor">
+          <textarea
+            ref={ref}
+            rows={rows}
+            value={draft}
+            placeholder={placeholder}
+            aria-label={label}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setEditing(false);
+              }
+            }}
+          />
+          {hint && <small>{hint}</small>}
+          {error && <p className="inline-error">{error}</p>}
+          <div className="editor-actions">
+            <button type="button" className="editor-cancel" onClick={() => setEditing(false)} disabled={saving}>
+              取消
+            </button>
+            <button type="button" className="editor-save" onClick={() => void commit()} disabled={saving}>
+              {saving ? '保存中…' : '保存'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        children
+      )}
+    </section>
+  );
+}
+
 function splitTraits(text: string): string[] | null {
   const parts = text
     .split(/[、,，/／·|｜;；]/)
@@ -1244,128 +1384,50 @@ function splitTraits(text: string): string[] | null {
   return null;
 }
 
-function ProfilePage({ character, onChat, onMemories, onSettings }: { character: Character; onChat: () => void; onMemories: () => void; onSettings: () => void }) {
+/**
+ * One page per character.
+ *
+ * There used to be a second "角色设置" page that repeated the avatar and the
+ * summary and hid 编辑角色设定 at the bottom of a list — so reaching the editor
+ * meant opening a page, scrolling past what you had just read, and clicking
+ * again. Editing now lives in the header, the card operations live behind the
+ * overflow menu, and the fields the profile shows can be changed where they are
+ * shown.
+ */
+function ProfilePage({
+  character, relationship, memoryCount, onChat, onMemories, onPersona, onWorldbooks,
+  onEdit, onImport, onExportHref, onDelete, onFieldSaved
+}: {
+  character: Character;
+  relationship: string | null;
+  memoryCount: number | null;
+  onChat: () => void;
+  onMemories: () => void;
+  onPersona: () => void;
+  onWorldbooks: () => void;
+  onEdit: () => void;
+  onImport: () => void;
+  onExportHref: string;
+  onDelete: () => Promise<void>;
+  onFieldSaved: () => Promise<void>;
+}) {
   const traits = character.personality_summary ? splitTraits(character.personality_summary) : null;
-  return (
-    <section className="main-paper profile-paper">
-      <div className="detail-topbar">
-        <button className="detail-back" onClick={onChat}><ArrowLeft size={19} /> 返回短信</button>
-      </div>
-      <div className="detail-scroll">
-        <div className="detail-column">
-          <header className="profile-hero">
-            <Avatar character={character} className="profile-avatar" />
-            <div className="profile-id">
-              <h1>{character.name}</h1>
-              <p>{character.profile_summary || '角色卡暂未填写简介。'}</p>
-            </div>
-          </header>
-
-          <nav className="profile-actions">
-            <button onClick={onMemories} aria-label="记忆">
-              <span className="pa-icon"><Brain size={22} /></span>
-              <span className="pa-copy"><strong>记忆</strong><small>与该角色的重要记忆片段</small></span>
-              <ChevronRight size={19} />
-            </button>
-            <button onClick={onSettings} aria-label="角色设置">
-              <span className="pa-icon"><Settings size={22} /></span>
-              <span className="pa-copy"><strong>角色设置</strong><small>调整短信偏好与回复风格</small></span>
-              <ChevronRight size={19} />
-            </button>
-          </nav>
-
-          <div className="profile-info">
-            <section className="info-block">
-              <h2>简介</h2>
-              <p>{character.profile_summary || '角色卡暂未填写简介。'}</p>
-            </section>
-            <section className="info-block">
-              <h2>核心性格</h2>
-              {traits
-                ? <div className="trait-chips">{traits.map((trait) => <span key={trait}>{trait}</span>)}</div>
-                : <p>{character.personality_summary || '角色卡暂未填写性格描述。'}</p>}
-            </section>
-            <section className="info-block">
-              <h2>关系与共同经历</h2>
-              <p className="muted">随着你与{character.name}的对话深入，关系摘要与共同经历会自动沉淀在这里。</p>
-            </section>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-interface MemoryItem { memory_id: string; content: string; memory_kind: string; created_at?: string }
-
-function MemoryPage({ character, onBack, onChat }: { character: Character; onBack: () => void; onChat: () => void }) {
-  const [memories, setMemories] = useState<MemoryItem[]>([]);
-  async function load() {
-    const result = await api<{ memories: MemoryItem[] }>(`/v1/characters/${character.character_id}/memories`);
-    setMemories(result.memories);
-  }
-  useEffect(() => { void load(); }, [character.character_id]);
-  async function remove(memoryId: string) {
-    if (!window.confirm('确定删除这条记忆吗？')) return;
-    await api(`/v1/memories/${memoryId}`, { method: 'DELETE' });
-    await load();
-  }
-  return (
-    <section className="main-paper memory-paper">
-      <div className="detail-topbar">
-        <button className="detail-back" onClick={onBack}><ArrowLeft size={19} /> 返回资料</button>
-        <span className="detail-title">共同回忆</span>
-      </div>
-      <div className="detail-scroll">
-        <div className="detail-column">
-          <div className="memory-head">
-            <div><h1>共同回忆</h1><p>与{character.name}的特殊回忆</p></div>
-            <span className="memory-count">{memories.length}<i>/50</i></span>
-          </div>
-          {memories.length > 0 ? (
-            <>
-              <div className="memory-cards">
-                {memories.map((memory) => (
-                  <article key={memory.memory_id}>
-                    <div className="memory-art"><Brain size={36} /></div>
-                    <div><h2>{memory.memory_kind || '共同记忆'}</h2><p>{memory.content}</p></div>
-                    <time>{memory.created_at ? new Date(memory.created_at).toLocaleDateString('zh-CN') : ''}</time>
-                    <button aria-label="删除记忆" onClick={() => void remove(memory.memory_id)}><Trash2 size={19} /></button>
-                  </article>
-                ))}
-              </div>
-              <p className="memory-footnote">这些回忆，会帮助你们走向更远的未来。</p>
-            </>
-          ) : (
-            <div className="memory-empty">
-              <span className="memory-empty-art"><Brain size={44} /></span>
-              <strong>还没有共同回忆</strong>
-              <p>与{character.name}的对话里，有意义的片段会自动沉淀成回忆，出现在这里。</p>
-              <button className="gold-button" onClick={onChat}><MessageCircle size={18} /> 去聊聊</button>
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function SettingRow({ icon, title, description, value, onClick, href, disabled = false }: {
-  icon: ReactNode; title: string; description: string; value?: string; onClick?: () => void; href?: string; disabled?: boolean;
-}) {
-  const content = <>{icon}<span><strong>{title}</strong><small>{description}</small></span>{value && <em>{value}</em>}<ChevronRight /></>;
-  if (href) return <a className="setting-row" href={href}>{content}</a>;
-  return <button className="setting-row" onClick={onClick} disabled={disabled}>{content}</button>;
-}
-
-function CharacterSettingsPage({ character, onBack, onPersona, onWorldbooks, onImport, onEdit, onDelete }: {
-  character: Character; onBack: () => void;
-  onPersona: () => void; onWorldbooks: () => void;
-  onImport: () => void; onEdit: () => void; onDelete: () => Promise<void>;
-}) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => setMenuOpen(false);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [menuOpen]);
+
+  async function saveField(patch: Partial<CharacterModel>) {
+    await patchCharacterCard(character.character_id, patch);
+    await onFieldSaved();
+  }
 
   async function confirmDelete() {
     setDeleting(true);
@@ -1379,42 +1441,127 @@ function CharacterSettingsPage({ character, onBack, onPersona, onWorldbooks, onI
   }
 
   return (
-    <section className="main-paper settings-paper">
+    <section className="main-paper profile-paper">
       <div className="detail-topbar">
-        <button className="detail-back" onClick={onBack}><ArrowLeft size={19} /> 返回资料</button>
-        <span className="detail-title">角色设置</span>
-      </div>
-      <div className="detail-scroll">
-        <div className="detail-column">
-          <div className="settings-character">
-            <Avatar character={character} className="settings-avatar" />
-            <div><h2>{character.name}</h2><p>{character.profile_summary || '角色卡暂未填写简介。'}</p></div>
-          </div>
-          <div className="settings-groups">
-            <label>对话设定</label>
-            <section>
-              <SettingRow icon={<UserRound />} title="本次对话的身份" description="选择你在这段对话里的 Persona" onClick={onPersona} />
-              <SettingRow icon={<BookOpen />} title="关联世界书" description="选择这个角色对话时参与匹配的世界设定" onClick={onWorldbooks} />
-            </section>
-            <label>角色数据</label>
-            <section>
-              <SettingRow icon={<Pencil />} title="编辑角色设定" description="修改名称、头像、描述与高级角色字段" onClick={onEdit} />
-              <SettingRow icon={<Upload />} title="用角色卡更新设定" description="从本地文件更新当前角色的设定与对话数据" onClick={onImport} />
-              <SettingRow icon={<Download />} title="导出角色卡" description="将当前角色卡按原始格式导出" href={`/v1/characters/${character.character_id}/export`} />
-            </section>
-            {character.is_owned && (
-              <>
-                <label>危险操作</label>
-                <section>
-                  <button className="setting-row setting-row-danger" onClick={() => setConfirming(true)}>
-                    <Trash2 className="danger-icon" /><span><strong>删除角色</strong><small>移除该角色及其对话记录，此操作无法撤销</small></span><ChevronRight />
+        <button className="detail-back" onClick={onChat}><ArrowLeft size={19} /> 返回短信</button>
+        <div className="detail-topbar-actions">
+          <button className="topbar-action" onClick={onEdit}>
+            <Pencil size={15} /> 编辑
+          </button>
+          <div className="overflow-menu" onClick={(event) => event.stopPropagation()}>
+            <button
+              className="topbar-action topbar-action-icon"
+              aria-label="更多操作"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <MoreHorizontal size={17} />
+            </button>
+            {menuOpen && (
+              <div className="overflow-items" role="menu">
+                <button role="menuitem" onClick={() => { setMenuOpen(false); onImport(); }}>
+                  <Upload size={15} /> 用角色卡更新设定
+                </button>
+                <a role="menuitem" href={onExportHref}>
+                  <Download size={15} /> 导出角色卡
+                </a>
+                {character.is_owned && (
+                  <button role="menuitem" className="overflow-danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
+                    <Trash2 size={15} /> 删除角色
                   </button>
-                </section>
-              </>
+                )}
+              </div>
             )}
           </div>
         </div>
       </div>
+      <div className="detail-scroll">
+        <div className="detail-column">
+          <header className="profile-hero">
+            <Avatar character={character} className="profile-avatar" />
+            <div className="profile-id">
+              <h1>{character.name}</h1>
+              <p>{character.profile_summary || '角色卡暂未填写简介。'}</p>
+            </div>
+          </header>
+
+          <div className="profile-info">
+            <InlineField
+              label="简介"
+              value={character.profile_summary}
+              placeholder="外貌、身份、背景"
+              rows={4}
+              onSave={(next) => saveField({ description: next })}
+            >
+              <p>{character.profile_summary || '角色卡暂未填写简介。'}</p>
+            </InlineField>
+
+            <InlineField
+              label="核心性格"
+              hint="用顿号分隔可显示为标签，例如：温柔、坚定、话少"
+              value={character.personality_summary}
+              placeholder="温柔、坚定、话少"
+              rows={3}
+              onSave={(next) => saveField({ personality: next })}
+            >
+              {traits
+                ? <div className="trait-chips">{traits.map((trait) => <span key={trait}>{trait}</span>)}</div>
+                : <p>{character.personality_summary || '角色卡暂未填写性格描述。'}</p>}
+            </InlineField>
+
+            {/* Written by the Cloud's post-turn worker, so the page says what
+                produces it instead of promising something that never appears. */}
+            <section className="info-block">
+              <h2>你们的关系</h2>
+              {relationship ? (
+                <>
+                  <p>{relationship}</p>
+                  <small className="info-note">每次对话结束后自动更新。</small>
+                </>
+              ) : (
+                <p className="muted">
+                  你和{character.name}聊过之后，这里会自动出现一段关系摘要，并随对话更新。
+                </p>
+              )}
+            </section>
+          </div>
+
+          <nav className="profile-actions">
+            <button onClick={onMemories} aria-label="记忆">
+              <span className="pa-icon"><Brain size={22} /></span>
+              <span className="pa-copy">
+                <strong>记忆</strong>
+                <small>
+                  {memoryCount === null
+                    ? '对话中值得记住的片段'
+                    : memoryCount > 0
+                      ? `${memoryCount} 条，会随对话一起提供给${character.name}`
+                      : '还没有记下任何片段'}
+                </small>
+              </span>
+              <ChevronRight size={19} />
+            </button>
+            <button onClick={onPersona} aria-label="本次对话的身份">
+              <span className="pa-icon"><UserRound size={22} /></span>
+              <span className="pa-copy">
+                <strong>本次对话的身份</strong>
+                <small>选择你在这段对话里是谁</small>
+              </span>
+              <ChevronRight size={19} />
+            </button>
+            <button onClick={onWorldbooks} aria-label="关联世界书">
+              <span className="pa-icon"><BookOpen size={22} /></span>
+              <span className="pa-copy">
+                <strong>关联世界书</strong>
+                <small>选择对话时参与匹配的世界设定</small>
+              </span>
+              <ChevronRight size={19} />
+            </button>
+          </nav>
+        </div>
+      </div>
+
       {confirming && (
         <div className="modal-backdrop" onClick={() => !deleting && setConfirming(false)}>
           <div className="confirm-dialog" onClick={(event) => event.stopPropagation()}>
@@ -1426,6 +1573,141 @@ function CharacterSettingsPage({ character, onBack, onPersona, onWorldbooks, onI
               <button className="confirm-delete" onClick={() => void confirmDelete()} disabled={deleting}>
                 {deleting ? '删除中…' : '删除角色'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+interface MemoryItem {
+  memory_id: string;
+  content: string;
+  memory_kind: string;
+  status?: string;
+  created_by?: string;
+  created_at?: string;
+}
+
+// The kinds the Cloud actually stores. Anything unrecognised falls into 其他
+// rather than being shown as a raw enum name, which is what the page used to do.
+const MEMORY_KINDS: { key: string; label: string; blurb: string }[] = [
+  { key: 'FACT', label: '事实', blurb: '关于你的确定信息' },
+  { key: 'PREFERENCE', label: '偏好', blurb: '你喜欢或不喜欢的' },
+  { key: 'EXPERIENCE', label: '共同经历', blurb: '你们一起发生过的事' },
+  { key: 'COMMITMENT', label: '约定', blurb: '你们约好的事' },
+  { key: 'CORRECTION', label: '更正', blurb: '你纠正过的说法' },
+  { key: 'OTHER', label: '其他', blurb: '尚未归类的片段' }
+];
+
+function MemoryPage({ character, onBack, onChat, onCountChange }: {
+  character: Character;
+  onBack: () => void;
+  onChat: () => void;
+  onCountChange: (count: number) => void;
+}) {
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pendingDelete, setPendingDelete] = useState<MemoryItem | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const result = await api<{ memories: MemoryItem[] }>(`/v1/characters/${character.character_id}/memories`);
+      setMemories(result.memories);
+      onCountChange(result.memories.length);
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { void load(); }, [character.character_id]);
+
+  async function remove(memory: MemoryItem) {
+    await api(`/v1/memories/${memory.memory_id}`, { method: 'DELETE' });
+    setPendingDelete(null);
+    await load();
+  }
+
+  const grouped = MEMORY_KINDS.map((kind) => ({
+    ...kind,
+    items: memories.filter((memory) => (memory.memory_kind || 'OTHER') === kind.key)
+  })).filter((group) => group.items.length > 0);
+  const unknown = memories.filter(
+    (memory) => !MEMORY_KINDS.some((kind) => kind.key === (memory.memory_kind || 'OTHER'))
+  );
+
+  return (
+    <section className="main-paper memory-paper">
+      <div className="detail-topbar">
+        <button className="detail-back" onClick={onBack}><ArrowLeft size={19} /> 返回资料</button>
+        <span className="detail-title">记忆</span>
+      </div>
+      <div className="detail-scroll">
+        <div className="detail-column">
+          <div className="memory-head">
+            <div>
+              <h1>记忆</h1>
+              {/* Answers the only question that matters here: what is this for? */}
+              <p>这些片段会随对话一起提供给{character.name}，删掉的不再参与。</p>
+            </div>
+            <span className="memory-count">{memories.length}</span>
+          </div>
+
+          {loading ? (
+            <p className="import-state"><LoaderCircle className="spin" size={18} /> 正在读取记忆…</p>
+          ) : memories.length > 0 ? (
+            <>
+              {[...grouped, ...(unknown.length ? [{ key: 'UNSORTED', label: '其他', blurb: '尚未归类的片段', items: unknown }] : [])].map((group) => (
+                <section className="memory-group" key={group.key}>
+                  <header>
+                    <h2>{group.label}</h2>
+                    <small>{group.blurb} · {group.items.length}</small>
+                  </header>
+                  <div className="memory-list">
+                    {group.items.map((memory) => (
+                      <article key={memory.memory_id}>
+                        <div className="memory-body">
+                          <p>{memory.content}</p>
+                          <div className="memory-meta">
+                            <span>{memory.created_by === 'USER' ? '你添加的' : '自动记下的'}</span>
+                            {memory.status === 'CANDIDATE' && <span className="memory-tag">待确认</span>}
+                            {memory.created_at && (
+                              <time>{new Date(memory.created_at).toLocaleDateString('zh-CN')}</time>
+                            )}
+                          </div>
+                        </div>
+                        <button aria-label={`删除记忆：${memory.content.slice(0, 12)}`} onClick={() => setPendingDelete(memory)}>
+                          <Trash2 size={17} />
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </>
+          ) : (
+            <div className="memory-empty">
+              <span className="memory-empty-art"><Brain size={44} /></span>
+              <strong>还没有记下任何片段</strong>
+              <p>
+                你和{character.name}每聊完一轮，值得长期记住的信息会被自动挑出来放在这里，
+                之后的对话就会带上它们。
+              </p>
+              <button className="gold-button" onClick={onChat}><MessageCircle size={18} /> 去聊聊</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {pendingDelete && (
+        <div className="modal-backdrop" onClick={() => setPendingDelete(null)}>
+          <div className="confirm-dialog" onClick={(event) => event.stopPropagation()}>
+            <h2>删除这条记忆？</h2>
+            <p>删除后，{character.name}的后续对话不会再带上它。此操作无法撤销。</p>
+            <div className="confirm-actions">
+              <button className="confirm-cancel" onClick={() => setPendingDelete(null)}>取消</button>
+              <button className="confirm-delete" onClick={() => void remove(pendingDelete)}>删除</button>
             </div>
           </div>
         </div>

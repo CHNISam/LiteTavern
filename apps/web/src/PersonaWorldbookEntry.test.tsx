@@ -170,8 +170,7 @@ describe('persona and worldbook entry points', () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '打开流萤档案' }));
-    fireEvent.click(await screen.findByRole('button', { name: '角色设置' }));
-    fireEvent.click(await screen.findByRole('button', { name: /本次对话的身份/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '本次对话的身份' }));
 
     const dialog = await screen.findByRole('dialog', { name: '本次对话的身份' });
     await waitFor(() => expect(dialog).toHaveTextContent('林岸'));
@@ -180,7 +179,7 @@ describe('persona and worldbook entry points', () => {
     expect(selected?.textContent).toContain('林岸');
   });
 
-  it('opens the character worldbook picker from character settings', async () => {
+  it('opens the character worldbook picker from the character profile', async () => {
     mockShell((path) => {
       if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
       if (path === '/v1/worldbooks') {
@@ -205,8 +204,7 @@ describe('persona and worldbook entry points', () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '打开流萤档案' }));
-    fireEvent.click(await screen.findByRole('button', { name: '角色设置' }));
-    fireEvent.click(await screen.findByRole('button', { name: /关联世界书/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '关联世界书' }));
 
     expect(await screen.findByRole('dialog', { name: '流萤的世界书' })).toBeInTheDocument();
     expect(await screen.findByText('白港设定集')).toBeInTheDocument();
