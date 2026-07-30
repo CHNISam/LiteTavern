@@ -1,3 +1,5 @@
+import { t } from './i18n';
+
 export const AVATAR_IMAGE_POLICY = {
   acceptedTypes: ['image/jpeg', 'image/png', 'image/webp'],
   maxInputBytes: 12 * 1024 * 1024,
@@ -47,7 +49,7 @@ function canvasBlob(
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (blob) resolve(blob);
-      else reject(new Error('浏览器无法生成裁剪后的头像。'));
+      else reject(new Error(t().avatar.processFailed));
     }, type, quality);
   });
 }
@@ -57,7 +59,7 @@ export async function processAvatarImage(
   crop: AvatarCrop = { zoom: 1, x: 0, y: 0 }
 ): Promise<Blob> {
   if (file.size > AVATAR_IMAGE_POLICY.maxInputBytes) {
-    throw new Error('图片不能超过 12 MB。');
+    throw new Error(t().avatar.tooLarge);
   }
   if (
     file.type
@@ -65,14 +67,14 @@ export async function processAvatarImage(
       file.type as typeof AVATAR_IMAGE_POLICY.acceptedTypes[number]
     )
   ) {
-    throw new Error('请选择 JPEG、PNG 或 WebP 图片。');
+    throw new Error(t().avatar.wrongType);
   }
 
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(file);
   } catch {
-    throw new Error('无法解析这张图片，请换一张有效的 JPEG、PNG 或 WebP 图片。');
+    throw new Error(t().avatar.unreadable);
   }
 
   try {
@@ -87,7 +89,7 @@ export async function processAvatarImage(
       canvas.width = attempt.size;
       canvas.height = attempt.size;
       const context = canvas.getContext('2d');
-      if (!context) throw new Error('浏览器不支持头像裁剪。');
+      if (!context) throw new Error(t().avatar.cropUnsupported);
       context.drawImage(
         bitmap,
         geometry.sx,
@@ -106,7 +108,7 @@ export async function processAvatarImage(
       );
       if (blob.size <= AVATAR_IMAGE_POLICY.maxOutputBytes) return blob;
     }
-    throw new Error('裁剪后的头像仍然过大，请选择尺寸更小的图片。');
+    throw new Error(t().avatar.stillTooLarge);
   } finally {
     bitmap.close();
   }

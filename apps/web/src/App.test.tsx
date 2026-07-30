@@ -126,8 +126,10 @@ describe('HSR message shell', () => {
 
     render(<App />);
 
+    // Suggestions settle behind a short debounce so a restless clicker is not
+    // billed per click, so this waits for the outcome rather than the timing.
     expect(
-      await screen.findByRole('button', { name: '当然，一起走吧' })
+      await screen.findByRole('button', { name: '当然，一起走吧' }, { timeout: 5000 })
     ).toBeInTheDocument();
     expect(requested).toContain(
       '/v1/conversations/conversation-1/reply-suggestions'

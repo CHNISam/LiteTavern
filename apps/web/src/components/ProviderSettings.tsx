@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Check, ChevronLeft, ExternalLink, KeyRound, LoaderCircle, Plus, Search, Trash2, X } from 'lucide-react';
 import { api, type ModelConfiguration, type Provider } from '../lib/api';
-import { CLOUD_PROVIDER_NAME, describeQuota, type CloudStatus } from '../lib/cloud';
+import { cloudProviderName, describeQuota, type CloudStatus } from '../lib/cloud';
+import { useLocale } from '../lib/i18n';
 import { credentialStore, type CredentialSummary } from '../lib/credential-store';
 import { createId } from '../lib/id';
 
@@ -33,6 +34,8 @@ export function ProviderSettings({
   onUsageMode,
   offline = false
 }: ProviderSettingsProps) {
+  const { locale, dictionary: t } = useLocale();
+  const cloudName = cloudProviderName();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [configurations, setConfigurations] = useState<ModelConfiguration[]>([]);
   const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
@@ -57,7 +60,7 @@ export function ProviderSettings({
         credentialStore.list()
       ]);
       if (providerResponse.providers.length === 0) {
-        throw new Error('服务商目录为空，请检查 LiteTavern Cloud 配置。');
+        throw new Error(t.models.emptyCatalogue);
       }
       setProviders(providerResponse.providers);
       setConfigurations(configurationResponse.configurations);
@@ -66,8 +69,8 @@ export function ProviderSettings({
     } catch (error) {
       setLoadError(
         error instanceof Error
-          ? `无法加载服务商：${error.message}`
-          : '无法加载服务商，请稍后重试。'
+          ? t.models.loadFailed(error.message)
+          : t.models.loadFailedGeneric
       );
     } finally {
       setLoading(false);
@@ -78,12 +81,12 @@ export function ProviderSettings({
     if (open) void refresh();
   }, [open]);
 
-  const REGIONS = [
-    ['CN', '国内服务商'],
-    ['GLOBAL', '国际服务商'],
-    ['LOCAL', '本地模型'],
-    ['CUSTOM', '自定义厂商']
-  ] as const;
+  // Region order follows the reader's ecosystem: a Chinese reader looks for the
+  // domestic providers first, an English reader for the global ones.
+  const REGION_KEYS = locale === 'en'
+    ? (['GLOBAL', 'LOCAL', 'CN', 'CUSTOM'] as const)
+    : (['CN', 'GLOBAL', 'LOCAL', 'CUSTOM'] as const);
+  const REGIONS = REGION_KEYS.map((key) => [key, t.models.regions[key]] as const);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -113,7 +116,7 @@ export function ProviderSettings({
     event.preventDefault();
     if (!selected || !model || (selected.apiKeyRequired && !apiKey)) return;
     setBusy(true);
-    setStatus('正在验证连接…');
+    setStatus(t.models.validating);
     try {
       const credentialId = createId();
       const validation = await api<{ ok: boolean; models: string[] }>(
@@ -128,7 +131,7 @@ export function ProviderSettings({
           })
         }
       );
-      if (!validation.ok) throw new Error('连接验证失败。');
+      if (!validation.ok) throw new Error(t.models.validationFailed);
       const local = await credentialStore.save({
         provider: selected.id,
         label: label || selected.shortName,
@@ -150,11 +153,11 @@ export function ProviderSettings({
         throw error;
       }
       setApiKey('');
-      setStatus('连接成功，配置已保存到当前浏览器。');
+      setStatus(t.models.connected);
       await refresh();
       setTimeout(() => setSelected(null), 500);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : '连接失败。');
+      setStatus(error instanceof Error ? error.message : t.models.connectFailed);
     } finally {
       setBusy(false);
     }
@@ -169,7 +172,7 @@ export function ProviderSettings({
   }
 
   async function replaceKey(configuration: ModelConfiguration) {
-    const next = window.prompt('输入新的 API Key（保存后仍只显示掩码）');
+    const next = window.prompt(t.models.replaceKeyPrompt);
     if (!next) return;
     await credentialStore.update(configuration.credential_id, next);
     await refresh();
@@ -185,31 +188,31 @@ export function ProviderSettings({
   if (!open) return null;
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="settings-panel" role="dialog" aria-modal="true" aria-label="模型服务" onMouseDown={(event) => event.stopPropagation()}>
+      <section className="settings-panel" role="dialog" aria-modal="true" aria-label={t.models.eyebrow} onMouseDown={(event) => event.stopPropagation()}>
         <header className="settings-header">
           <div>
-            <span className="eyebrow">模型服务</span>
-            <h2>{selected ? selected.name : '选择由谁来生成回复'}</h2>
+            <span className="eyebrow">{t.models.eyebrow}</span>
+            <h2>{selected ? selected.name : t.models.title}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="关闭"><X size={19} /></button>
+          <button className="icon-button" onClick={onClose} aria-label={t.common.close}><X size={19} /></button>
         </header>
 
         {selected ? (
           <form className="provider-form" onSubmit={save}>
-            <button type="button" className="back-link" onClick={() => setSelected(null)}><ChevronLeft size={16} /> 返回服务商</button>
-            <label>配置名称<input value={label} onChange={(event) => setLabel(event.target.value)} required /></label>
-            <label>Base URL<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} disabled={!selected.allowCustomBaseUrl} required={selected.id === 'custom-openai'} placeholder="https://example.com/v1" /></label>
-            <label>模型 ID<input value={model} onChange={(event) => setModel(event.target.value)} required placeholder="从服务商模型页复制" /></label>
-            <label>API Key<input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} required={selected.apiKeyRequired} placeholder={selected.apiKeyRequired ? '仅保存在当前浏览器' : '本地服务可留空'} /></label>
-            <p className="privacy-note"><KeyRound size={16} /> 完整 Key 写入当前浏览器 IndexedDB；服务端仅在验证与生成时临时转发。</p>
+            <button type="button" className="back-link" onClick={() => setSelected(null)}><ChevronLeft size={16} /> {t.models.backToProviders}</button>
+            <label>{t.models.configurationName}<input value={label} onChange={(event) => setLabel(event.target.value)} required /></label>
+            <label>{t.models.baseUrl}<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} disabled={!selected.allowCustomBaseUrl} required={selected.id === 'custom-openai'} placeholder="https://example.com/v1" /></label>
+            <label>{t.models.modelId}<input value={model} onChange={(event) => setModel(event.target.value)} required placeholder={t.models.modelIdPlaceholder} /></label>
+            <label>{t.models.apiKey}<input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} required={selected.apiKeyRequired} placeholder={selected.apiKeyRequired ? t.models.apiKeyPlaceholder : t.models.apiKeyOptional} /></label>
+            <p className="privacy-note"><KeyRound size={16} /> {t.models.privacyNote}</p>
             {selected.notice && <p className="provider-notice">{selected.notice}</p>}
-            {selected.helpUrl && <a className="docs-link" href={selected.helpUrl} target="_blank" rel="noreferrer">查看服务商文档 <ExternalLink size={14} /></a>}
+            {selected.helpUrl && <a className="docs-link" href={selected.helpUrl} target="_blank" rel="noreferrer">{t.models.providerDocs} <ExternalLink size={14} /></a>}
             {status && <p className="form-status" role="status">{status}</p>}
-            <button className="primary-button" disabled={busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />} 验证并保存</button>
+            <button className="primary-button" disabled={busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />} {t.models.validateAndSave}</button>
           </form>
         ) : (
           <div className="provider-content">
-            <section className="model-service-overview" aria-label="模型服务状态">
+            <section className="model-service-overview" aria-label={t.models.statusLabel}>
               {/* The allowance is named, metered and sourced. It used to be one
                   bare number, which read as invented — and it never said which
                   service was paying for it. */}
@@ -219,27 +222,27 @@ export function ProviderSettings({
                 <div className="service-card-head">
                   <span className="service-mark">LT</span>
                   <div>
-                    <h3>{CLOUD_PROVIDER_NAME}</h3>
-                    <small>由 LiteTavern 运营的托管模型服务</small>
+                    <h3>{cloudName}</h3>
+                    <small>{t.models.cloudBlurb}</small>
                   </div>
                   {usageMode === 'PLATFORM' && platformUsable && (
-                    <span className="service-badge">使用中</span>
+                    <span className="service-badge">{t.models.inUse}</span>
                   )}
                 </div>
 
                 {!platformUsable ? (
                   <p className="service-unavailable">
                     {quotaDescription?.exhausted
-                      ? `${quotaDescription.poolName}已用完，${quotaDescription.renewal}。`
-                      : `${CLOUD_PROVIDER_NAME} 平台模型当前不可用。`}
-                    你可以在下方接入自己的模型继续聊天。
+                      ? t.models.poolExhausted(quotaDescription.poolName, quotaDescription.renewal)
+                      : t.models.platformUnavailable(cloudName)}{' '}
+                    {t.models.connectOwnInstead}
                   </p>
                 ) : quotaDescription ? (
                   <div className="quota-readout">
                     <div className="quota-figure">
                       <strong>{quotaDescription.available}</strong>
                       <span>
-                        / {quotaDescription.total} {quotaDescription.unitName}剩余
+                        {t.models.quotaRemaining(quotaDescription.total, quotaDescription.unitName)}
                       </span>
                     </div>
                     <div
@@ -248,35 +251,35 @@ export function ProviderSettings({
                       aria-valuemin={0}
                       aria-valuemax={quotaDescription.total}
                       aria-valuenow={quotaDescription.available}
-                      aria-label={`${quotaDescription.poolName}剩余量`}
+                      aria-label={t.models.quotaMeterLabel(quotaDescription.poolName)}
                     >
                       <i style={{ width: `${percent(quotaDescription.ratio)}%` }} />
                     </div>
                     <dl className="quota-facts">
                       <div>
-                        <dt>额度来源</dt>
+                        <dt>{t.models.quotaSource}</dt>
                         <dd>{quotaDescription.poolName}</dd>
                       </div>
                       <div>
-                        <dt>已用</dt>
+                        <dt>{t.models.quotaUsed}</dt>
                         <dd>
                           {quotaDescription.used} {quotaDescription.unitName}
                         </dd>
                       </div>
                       <div>
-                        <dt>恢复方式</dt>
+                        <dt>{t.models.quotaRenewal}</dt>
                         <dd>{quotaDescription.renewal}</dd>
                       </div>
                     </dl>
                     {offline && (
                       <p className="quota-stale" role="status">
-                        {CLOUD_PROVIDER_NAME} 暂时无法连接，以上是最后一次同步到的数据。
+                        {t.models.quotaStale(cloudName)}
                       </p>
                     )}
                   </div>
                 ) : (
                   <p className="service-unavailable">
-                    这个账号还没有 {CLOUD_PROVIDER_NAME} 平台额度。
+                    {t.models.noQuotaOnAccount(cloudName)}
                   </p>
                 )}
 
@@ -286,7 +289,7 @@ export function ProviderSettings({
                   aria-pressed={usageMode === 'PLATFORM'}
                   onClick={() => onUsageMode?.('PLATFORM')}
                 >
-                  {usageMode === 'PLATFORM' ? '正在使用此服务' : `使用 ${CLOUD_PROVIDER_NAME}`}
+                  {usageMode === 'PLATFORM' ? t.models.usingThis : t.models.useCloud(cloudName)}
                 </button>
               </article>
 
@@ -296,32 +299,32 @@ export function ProviderSettings({
                 <div className="service-card-head">
                   <span className="service-mark service-mark-byok"><KeyRound size={17} /></span>
                   <div>
-                    <h3>自己的模型</h3>
-                    <small>用你自己的 API Key，费用与额度由服务商结算</small>
+                    <h3>{t.models.ownModel}</h3>
+                    <small>{t.models.ownModelBlurb}</small>
                   </div>
                   {usageMode === 'BYOK' && configurations.length > 0 && (
-                    <span className="service-badge">使用中</span>
+                    <span className="service-badge">{t.models.inUse}</span>
                   )}
                 </div>
 
                 {configurations.length > 0 ? (
                   <dl className="quota-facts">
                     <div>
-                      <dt>已连接</dt>
-                      <dd>{configurations.length} 个配置</dd>
+                      <dt>{t.models.connectedLabel}</dt>
+                      <dd>{t.models.connectedCount(configurations.length)}</dd>
                     </div>
                     <div>
-                      <dt>当前</dt>
+                      <dt>{t.models.currentLabel}</dt>
                       <dd>{configurations[0]!.display_name}</dd>
                     </div>
                     <div>
-                      <dt>Key 保存位置</dt>
-                      <dd>仅当前浏览器</dd>
+                      <dt>{t.models.keyLocation}</dt>
+                      <dd>{t.models.keyLocationValue}</dd>
                     </div>
                   </dl>
                 ) : (
                   <p className="service-unavailable">
-                    还没有接入任何服务商。从下方选择一个开始，API Key 只保存在这台设备上。
+                    {t.models.ownModelEmpty}
                   </p>
                 )}
 
@@ -331,7 +334,7 @@ export function ProviderSettings({
                     aria-pressed={usageMode === 'BYOK'}
                     onClick={() => onUsageMode?.('BYOK')}
                   >
-                    {usageMode === 'BYOK' ? '正在使用此服务' : '使用自己的模型'}
+                    {usageMode === 'BYOK' ? t.models.usingThis : t.models.useOwnModel}
                   </button>
                 )}
               </article>
@@ -339,36 +342,36 @@ export function ProviderSettings({
             {loading ? (
               <div className="provider-empty-state" role="status">
                 <LoaderCircle className="spin" size={24} />
-                <strong>正在加载服务商…</strong>
+                <strong>{t.models.loadingProviders}</strong>
               </div>
             ) : loadError ? (
               <div className="provider-empty-state provider-load-error" role="alert">
                 <strong>{loadError}</strong>
-                <span>API Key 不受影响，仍只保存在当前浏览器。</span>
+                <span>{t.models.keysUnaffected}</span>
                 <button className="secondary-button" type="button" onClick={() => void refresh()}>
-                  重新加载
+                  {t.common.retry}
                 </button>
               </div>
             ) : (
               <>
-            {configurations.length > 0 && <section><h3>已连接</h3><div className="connected-list">{configurations.map((configuration) => {
+            {configurations.length > 0 && <section><h3>{t.models.connectedLabel}</h3><div className="connected-list">{configurations.map((configuration) => {
               const local = credentials.find((item) => item.credentialId === configuration.credential_id);
-              return <article className="connected-card" key={configuration.model_configuration_id}><div><strong>{configuration.display_name}</strong><span>{configuration.model_name}</span><small>{local?.maskedKey ?? '本浏览器未找到 Key'}</small></div><div className="row-actions"><button onClick={() => void replaceKey(configuration)}>更换 Key</button><button className="danger-icon" aria-label="删除配置" onClick={() => void remove(configuration)}><Trash2 size={16} /></button></div></article>;
+              return <article className="connected-card" key={configuration.model_configuration_id}><div><strong>{configuration.display_name}</strong><span>{configuration.model_name}</span><small>{local?.maskedKey ?? t.models.keyMissing}</small></div><div className="row-actions"><button onClick={() => void replaceKey(configuration)}>{t.models.replaceKey}</button><button className="danger-icon" aria-label={t.models.deleteConfiguration} onClick={() => void remove(configuration)}><Trash2 size={16} /></button></div></article>;
             })}</div></section>}
 
             <div className="provider-search">
               <Search size={15} />
               <input
                 type="search"
-                aria-label="搜索服务商"
-                placeholder="搜索服务商或地址"
+                aria-label={t.models.searchLabel}
+                placeholder={t.models.searchPlaceholder}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
             </div>
 
             {visibleRegions.length === 0 ? (
-              <p className="provider-no-match" role="status">没有匹配「{query}」的服务商。</p>
+              <p className="provider-no-match" role="status">{t.models.noMatch(query)}</p>
             ) : (
               visibleRegions.map(([region, title]) => (
                 <section key={region}>
@@ -383,9 +386,9 @@ export function ProviderSettings({
                           <span className="provider-mark">{provider.shortName.slice(0, 1)}</span>
                           <span>
                             <strong>{provider.shortName}</strong>
-                            <small>{provider.id === 'custom-openai' ? '任意 OpenAI-compatible 服务' : provider.baseUrl.replace(/^https?:\/\//, '')}</small>
+                            <small>{provider.id === 'custom-openai' ? t.models.anyOpenAiCompatible : provider.baseUrl.replace(/^https?:\/\//, '')}</small>
                           </span>
-                          {connected ? <span className="provider-connected">已连接</span> : <Plus size={17} />}
+                          {connected ? <span className="provider-connected">{t.models.alreadyConnected}</span> : <Plus size={17} />}
                         </button>
                       );
                     })}

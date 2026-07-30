@@ -207,6 +207,9 @@ export const en: Dictionary = {
     tooLarge: 'Images must be under 12 MB.',
     wrongType: 'Choose a JPEG, PNG or WebP image.',
     processFailed: 'Could not process the image.',
+    unreadable: 'That image could not be read. Try another JPEG, PNG or WebP file.',
+    cropUnsupported: 'This browser cannot crop images.',
+    stillTooLarge: 'The cropped avatar is still too large. Try a smaller image.',
     uploadFailed: 'Could not upload the avatar.',
     deleteFailed: 'Could not remove the avatar.'
   },
@@ -218,6 +221,10 @@ export const en: Dictionary = {
     dataTitle: 'Import and migrate',
     dataBody: 'Import character cards, migrate relationships, or export your cloud data',
     dataLead: 'Occasional data work lives here. New characters still start from the contact list.',
+    personasTitle: 'Personas',
+    personasBody: 'Manage who you play in a story — unrelated to your account details',
+    worldbooksTitle: 'Worldbooks',
+    worldbooksBody: 'Manage lore entries; they enter the conversation only when matched',
     aboutTitle: 'About LiteTavern',
     aboutBody: 'Version, source code, and how to support the project',
     importCard: 'Import a character card',
@@ -320,6 +327,50 @@ export const en: Dictionary = {
     requestFailed: 'The request failed. Please try again.',
     streamUnsupported: 'This browser does not support streaming responses.',
     modelUnavailable: 'The model service is temporarily unavailable.'
+  },
+
+  account: {
+    dialogLabel: 'Account and sync',
+    eyebrow: 'Provided by LiteTavern Cloud',
+    title: 'Account and sync',
+    offline:
+      'Sync problem: LiteTavern Cloud is unreachable. Below is the last known state. Local data and your own models are unaffected.',
+    cloudAccount: 'Cloud account',
+    signedIn: 'Signed in',
+    signedOut: 'Not signed in',
+    syncedData: 'Synced',
+    syncedScope: 'Characters, conversations and memories',
+    syncOk: 'Syncing normally',
+    syncBroken: 'Sync problem',
+    syncAfterLogin: 'Sign in to sync across devices',
+    plan: 'Plan',
+    planFree: 'LiteTavern Free',
+    notRegistered: 'No account',
+    platformQuota: 'Platform allowance',
+    alphaStatus: 'Alpha access',
+    alphaStates: {
+      waitlisted: 'On the waitlist',
+      granted: 'Granted, not started',
+      active: 'Active',
+      paused: 'Paused',
+      ended: 'Ended',
+      none: 'Not applied for'
+    },
+    registrationCopy:
+      'Creating a LiteTavern Cloud account puts you on LiteTavern Free and syncs characters, conversations and memories across devices. Signing up does not grant Alpha access — that is applied for separately — and using your own model stays an independent option.',
+    appliedAt: 'Applied: ',
+    grantedAt: 'Granted: ',
+    quotaTodayLabel: 'Platform replies today',
+    quotaTrialLabel: 'LiteTavern Cloud trial allowance',
+    quotaRemainingOf: (available: number, total: number) => `${available} of ${total} left`,
+    quotaRemainingCount: (available: number) => `${available} left`,
+    dailyReset: 'Renews daily at 08:00',
+    register: 'Create a LiteTavern Cloud account',
+    applyAlpha: 'Apply for Alpha access',
+    enterAlpha: 'Start using Alpha access',
+    connectOwnModel: 'Connect your own model instead',
+    signOut: 'Sign out',
+    actionFailed: 'That did not work. Please try again.'
   },
 
   membership: {

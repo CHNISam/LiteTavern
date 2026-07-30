@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   BookOpen,
+  Languages,
   ChevronRight,
   Download,
   ExternalLink,
@@ -16,6 +17,7 @@ import { EXPORT_PATH } from '../lib/cloud';
 import { APP_VERSION, githubUrl } from '../lib/project-links';
 import { cloudUrl } from '../lib/runtime-config';
 import { siteHref } from '../public-routing';
+import { LOCALES, LOCALE_NAMES, useLocale, type Locale } from '../lib/i18n';
 
 interface AppSettingsPanelProps {
   open: boolean;
@@ -36,6 +38,7 @@ export function AppSettingsPanel({
   onPersonas,
   onWorldbooks
 }: AppSettingsPanelProps) {
+  const { locale, dictionary: t, setLocale } = useLocale();
   const [view, setView] = useState<SettingsView>('root');
 
   useEffect(() => {
@@ -46,10 +49,10 @@ export function AppSettingsPanel({
 
   const title =
     view === 'data'
-      ? '数据导入与迁移'
+      ? t.settings.dataTitle
       : view === 'about'
-        ? '关于 LiteTavern'
-        : '设置';
+        ? t.settings.aboutTitle
+        : t.settings.title;
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -57,7 +60,7 @@ export function AppSettingsPanel({
         className="app-settings-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="设置"
+        aria-label={t.settings.title}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="app-settings-header">
@@ -71,51 +74,69 @@ export function AppSettingsPanel({
               <button
                 type="button"
                 className="app-settings-back"
-                aria-label="返回设置"
+                aria-label={t.settings.backToSettings}
                 onClick={() => setView('root')}
               >
-                <ArrowLeft size={17} /> 返回设置
+                <ArrowLeft size={17} /> {t.settings.backToSettings}
               </button>
             )}
             <h2>{title}</h2>
           </div>
-          <button className="icon-button" aria-label="关闭" onClick={onClose}>
+          <button className="icon-button" aria-label={t.common.close} onClick={onClose}>
             <X size={20} />
           </button>
         </header>
 
         <div className="app-settings-body">
           {view === 'root' && (
-            <nav className="app-settings-list" aria-label="设置项目">
+            <nav className="app-settings-list" aria-label={t.settings.sections}>
+              {/* Top of the list, not buried in a sub-view: someone who opened
+                  Settings because they cannot read the UI must find this first. */}
+              <label className="app-settings-locale">
+                <span className="app-settings-icon"><Languages size={19} /></span>
+                <span>
+                  <strong>{t.language.label}</strong>
+                  <small>{t.language.description}</small>
+                </span>
+                <select
+                  aria-label={t.language.ariaLabel}
+                  value={locale}
+                  onChange={(event) => setLocale(event.target.value as Locale)}
+                >
+                  {LOCALES.map((option) => (
+                    <option key={option} value={option}>{LOCALE_NAMES[option]}</option>
+                  ))}
+                </select>
+              </label>
               <button type="button" onClick={onPersonas}>
                 <span className="app-settings-icon"><UserRound size={19} /></span>
                 <span>
-                  <strong>用户身份</strong>
-                  <small>管理你在故事中的 Persona，与账号资料无关</small>
+                  <strong>{t.settings.personasTitle}</strong>
+                  <small>{t.settings.personasBody}</small>
                 </span>
                 <ChevronRight size={18} />
               </button>
               <button type="button" onClick={onWorldbooks}>
                 <span className="app-settings-icon"><BookOpen size={19} /></span>
                 <span>
-                  <strong>世界书</strong>
-                  <small>管理世界设定条目，命中时才进入对话</small>
+                  <strong>{t.settings.worldbooksTitle}</strong>
+                  <small>{t.settings.worldbooksBody}</small>
                 </span>
                 <ChevronRight size={18} />
               </button>
               <button type="button" onClick={() => setView('data')}>
                 <span className="app-settings-icon"><Upload size={19} /></span>
                 <span>
-                  <strong>数据导入与迁移</strong>
-                  <small>导入角色卡、迁移角色关系或导出云端数据</small>
+                  <strong>{t.settings.dataTitle}</strong>
+                  <small>{t.settings.dataBody}</small>
                 </span>
                 <ChevronRight size={18} />
               </button>
               <button type="button" onClick={() => setView('about')}>
                 <span className="app-settings-icon"><Info size={19} /></span>
                 <span>
-                  <strong>关于 LiteTavern</strong>
-                  <small>版本、开源仓库，以及自愿支持入口</small>
+                  <strong>{t.settings.aboutTitle}</strong>
+                  <small>{t.settings.aboutBody}</small>
                 </span>
                 <ChevronRight size={18} />
               </button>
@@ -125,7 +146,7 @@ export function AppSettingsPanel({
           {view === 'data' && (
             <>
               <p className="app-settings-lead">
-                在这里处理低频的数据操作；新建角色仍从联系人栏开始。
+                {t.settings.dataLead}
               </p>
               <div className="app-settings-list">
                 <button
@@ -137,8 +158,8 @@ export function AppSettingsPanel({
                 >
                   <span className="app-settings-icon"><Upload size={19} /></span>
                   <span>
-                    <strong>导入角色卡</strong>
-                    <small>从本地 JSON 或 PNG 创建角色</small>
+                    <strong>{t.settings.importCard}</strong>
+                    <small>{t.settings.importCardBody}</small>
                   </span>
                   <ChevronRight size={18} />
                 </button>
@@ -151,16 +172,16 @@ export function AppSettingsPanel({
                 >
                   <span className="app-settings-icon"><HeartHandshake size={19} /></span>
                   <span>
-                    <strong>迁移角色关系</strong>
-                    <small>导入其他平台的关系、资料与记忆</small>
+                    <strong>{t.settings.migrate}</strong>
+                    <small>{t.settings.migrateBody}</small>
                   </span>
                   <ChevronRight size={18} />
                 </button>
                 <a href={cloudUrl(EXPORT_PATH)} download>
                   <span className="app-settings-icon"><Download size={19} /></span>
                   <span>
-                    <strong>导出云端数据</strong>
-                    <small>下载当前 Cloud 账号的数据副本</small>
+                    <strong>{t.settings.exportCloud}</strong>
+                    <small>{t.settings.exportCloudBody}</small>
                   </span>
                   <ChevronRight size={18} />
                 </a>
@@ -176,29 +197,28 @@ export function AppSettingsPanel({
                 <span className="app-about-mark"><MessageCircle size={25} /></span>
                 <div>
                   <h3>LiteTavern</h3>
-                  <span className="app-about-version">版本 {APP_VERSION}</span>
+                  <span className="app-about-version">{t.settings.version(APP_VERSION)}</span>
                 </div>
               </div>
-              <p>一个让角色、对话与共同经历持续延续的开源 AI 客户端。</p>
+              <p>{t.settings.appTagline}</p>
               <a
                 className="app-about-link"
                 href={githubUrl()}
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                在 GitHub 上查看源码 <ExternalLink size={15} />
+                {t.settings.viewSource} <ExternalLink size={15} />
               </a>
               <section>
-                <h4>支持 LiteTavern</h4>
+                <h4>{t.settings.supportHeading}</h4>
                 <p>
-                  支持属于低频、自愿贡献，不影响正常使用、Cloud 注册、同步、套餐或
-                  Alpha 资格。
+                  {t.settings.supportBody}
                 </p>
                 <a
                   className="secondary-button"
                   href={siteHref('/support?source=website&placement=about')}
                 >
-                  支持 LiteTavern <ChevronRight size={17} />
+                  {t.settings.supportAction} <ChevronRight size={17} />
                 </a>
               </section>
             </div>

@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { CloudOff, Gift, LoaderCircle, LogOut, X } from 'lucide-react';
 import {
-  ALPHA_DISCLAIMER,
   activateAlpha,
+  alphaDisclaimer,
   joinAlphaWaitlist,
   membershipNotice,
   quotaLabel,
   type CloudStatus
 } from '../lib/cloud';
 import { analytics } from '../lib/analytics';
+import { useLocale } from '../lib/i18n';
 import type { AnonymousIdentity } from '../lib/api';
 
 interface AccountSyncPanelProps {
@@ -42,6 +43,7 @@ export function AccountSyncPanel({
   onLogout,
   onConnectModel
 }: AccountSyncPanelProps) {
+  const { locale, dictionary: t } = useLocale();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +59,7 @@ export function AccountSyncPanel({
         result: result.joined ? 'success' : 'already'
       });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '操作失败，请稍后重试。');
+      setError(reason instanceof Error ? reason.message : t.account.actionFailed);
     } finally {
       setBusy(false);
     }
@@ -73,7 +75,7 @@ export function AccountSyncPanel({
         result: result.activated ? 'success' : 'already'
       });
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '操作失败，请稍后重试。');
+      setError(reason instanceof Error ? reason.message : t.account.actionFailed);
     } finally {
       setBusy(false);
     }
@@ -96,12 +98,12 @@ export function AccountSyncPanel({
     status?.registered === true;
   const alphaLabel = (() => {
     switch (status?.membership_status) {
-      case 'REGISTERED_WAITLIST': return '候补中';
-      case 'ALPHA_GRANTED': return '已获得，待启用';
-      case 'ALPHA_ACTIVE': return '使用中';
-      case 'ALPHA_PAUSED': return '已暂停';
-      case 'ALPHA_ENDED': return '已结束';
-      default: return '未申请';
+      case 'REGISTERED_WAITLIST': return t.account.alphaStates.waitlisted;
+      case 'ALPHA_GRANTED': return t.account.alphaStates.granted;
+      case 'ALPHA_ACTIVE': return t.account.alphaStates.active;
+      case 'ALPHA_PAUSED': return t.account.alphaStates.paused;
+      case 'ALPHA_ENDED': return t.account.alphaStates.ended;
+      default: return t.account.alphaStates.none;
     }
   })();
 
@@ -111,15 +113,15 @@ export function AccountSyncPanel({
         className="cloud-panel account-sync-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="账号与同步"
+        aria-label={t.account.dialogLabel}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="cloud-header">
           <div>
-            <span className="eyebrow">LiteTavern Cloud 提供</span>
-            <h2>账号与同步</h2>
+            <span className="eyebrow">{t.account.eyebrow}</span>
+            <h2>{t.account.title}</h2>
           </div>
-          <button className="icon-button" aria-label="关闭" onClick={onClose}>
+          <button className="icon-button" aria-label={t.common.close} onClick={onClose}>
             <X size={20} />
           </button>
         </header>
@@ -127,42 +129,39 @@ export function AccountSyncPanel({
         <div className="cloud-body">
           {offline && (
             <p className="cloud-offline" role="status">
-              <CloudOff size={16} /> 同步异常：LiteTavern Cloud 暂时不可用。
-              以下是最近一次已知状态，本地数据和自带模型不受影响。
+              <CloudOff size={16} /> {t.account.offline}
             </p>
           )}
 
           <dl className="account-facts">
             <div>
-              <dt>Cloud 账号</dt>
-              <dd>{registered ? account?.email || '已登录' : '未登录'}</dd>
+              <dt>{t.account.cloudAccount}</dt>
+              <dd>{registered ? account?.email || t.account.signedIn : t.account.signedOut}</dd>
             </div>
             <div>
-              <dt>同步数据</dt>
+              <dt>{t.account.syncedData}</dt>
               <dd>
-                <strong>角色、对话与记忆</strong>
-                <small>{offline ? '同步异常' : registered ? '同步正常' : '登录后可跨设备同步'}</small>
+                <strong>{t.account.syncedScope}</strong>
+                <small>{offline ? t.account.syncBroken : registered ? t.account.syncOk : t.account.syncAfterLogin}</small>
               </dd>
             </div>
             <div>
-              <dt>当前套餐</dt>
-              <dd>{registered ? 'LiteTavern Free' : '未注册'}</dd>
+              <dt>{t.account.plan}</dt>
+              <dd>{registered ? t.account.planFree : t.account.notRegistered}</dd>
             </div>
             <div>
-              <dt>平台模型额度</dt>
+              <dt>{t.account.platformQuota}</dt>
               <dd>{quotaLabel(status)}</dd>
             </div>
             <div>
-              <dt>Alpha 资格</dt>
+              <dt>{t.account.alphaStatus}</dt>
               <dd>{alphaLabel}</dd>
             </div>
           </dl>
 
           {!registered && (
             <p className="account-registration-copy">
-              注册 LiteTavern Cloud 账号后，会建立云端账号并进入 LiteTavern Free，
-              可跨设备同步角色、对话与记忆。注册不会自动获得 Alpha 资格，Alpha
-              需要单独申请；自带模型仍是独立的接入方式。
+              {t.account.registrationCopy}
             </p>
           )}
 
@@ -172,16 +171,16 @@ export function AccountSyncPanel({
 
           {status?.on_waitlist && status.waitlist_joined_at && (
             <small className="cloud-waitlist-meta">
-              申请时间：
-              {new Date(status.waitlist_joined_at).toLocaleString('zh-CN')}
+              {t.account.appliedAt}
+              {new Date(status.waitlist_joined_at).toLocaleString(locale)}
             </small>
           )}
 
           {status?.membership_status === 'ALPHA_GRANTED' &&
             status.alpha_granted_at && (
               <small className="cloud-waitlist-meta">
-                获得资格时间：
-                {new Date(status.alpha_granted_at).toLocaleString('zh-CN')}
+                {t.account.grantedAt}
+                {new Date(status.alpha_granted_at).toLocaleString(locale)}
               </small>
             )}
 
@@ -189,12 +188,12 @@ export function AccountSyncPanel({
             <div className="cloud-quota">
               <div className="cloud-quota-head">
                 <span>
-                  {quota.source === 'ALPHA' ? '今日平台回复' : 'LiteTavern Cloud 试用额度'}
+                  {quota.source === 'ALPHA' ? t.account.quotaTodayLabel : t.account.quotaTrialLabel}
                 </span>
                 <strong>
                   {quota.source === 'ALPHA'
-                    ? `剩余 ${quota.available} / ${quota.total}`
-                    : `剩余 ${quota.available} 次`}
+                    ? t.account.quotaRemainingOf(quota.available, quota.total)
+                    : t.account.quotaRemainingCount(quota.available)}
                 </strong>
               </div>
               <div
@@ -206,7 +205,7 @@ export function AccountSyncPanel({
               >
                 <i style={{ width: `${percent(quota.remaining_ratio)}%` }} />
               </div>
-              {quota.source === 'ALPHA' && <small>每天 08:00 恢复</small>}
+              {quota.source === 'ALPHA' && <small>{t.account.dailyReset}</small>}
             </div>
           )}
 
@@ -225,12 +224,12 @@ export function AccountSyncPanel({
           <div className="cloud-actions">
             {!registered && (
               <button className="gold-button" onClick={onLogin}>
-                注册 LiteTavern Cloud 账号
+                {t.account.register}
               </button>
             )}
             {showJoin && (
               <button className="gold-button" disabled={busy} onClick={() => void join()}>
-                {busy ? <LoaderCircle className="spin" size={16} /> : '申请 Alpha 资格'}
+                {busy ? <LoaderCircle className="spin" size={16} /> : t.account.applyAlpha}
               </button>
             )}
             {showEnterAlpha && (
@@ -239,22 +238,22 @@ export function AccountSyncPanel({
                 disabled={busy}
                 onClick={() => void enterAlpha()}
               >
-                {busy ? <LoaderCircle className="spin" size={16} /> : '开始使用 Alpha 资格'}
+                {busy ? <LoaderCircle className="spin" size={16} /> : t.account.enterAlpha}
               </button>
             )}
             {status?.alpha_active && (
               <button className="secondary-button" onClick={onConnectModel}>
-                连接自己的模型继续聊天
+                {t.account.connectOwnModel}
               </button>
             )}
             {registered && (
               <button className="secondary-button" onClick={onLogout}>
-                <LogOut size={16} /> 退出登录
+                <LogOut size={16} /> {t.account.signOut}
               </button>
             )}
           </div>
 
-          <p className="cloud-disclaimer">{ALPHA_DISCLAIMER}</p>
+          <p className="cloud-disclaimer">{alphaDisclaimer()}</p>
         </div>
       </section>
     </div>
