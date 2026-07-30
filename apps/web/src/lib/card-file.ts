@@ -1,3 +1,5 @@
+import { t } from './i18n';
+
 /**
  * Read a character card in the browser.
  *
@@ -145,13 +147,13 @@ export function previewCardData(
   cardData: Record<string, unknown> | null,
   png = false
 ): LocalCardPreview {
-  if (!cardData) throw new Error('角色卡数据无法读取。');
+  if (!cardData) throw new Error(t().localAssets.cardDataUnreadable);
   const data =
     cardData.data && typeof cardData.data === 'object'
       ? (cardData.data as Record<string, unknown>)
       : cardData;
   const name = text(data, 'name', 'char_name').trim();
-  if (!name) throw new Error('角色卡缺少角色名称。');
+  if (!name) throw new Error(t().localAssets.cardNameMissing);
   const spec = text(cardData, 'spec').toLowerCase();
   const version = spec.includes('v3')
     ? 'CCV3'
@@ -293,7 +295,7 @@ export function rewritePngCardMetadata(
   bytes: Uint8Array,
   cardData: Record<string, unknown>
 ): Uint8Array {
-  if (!isPng(bytes)) throw new Error('不是有效的 PNG 角色卡。');
+  if (!isPng(bytes)) throw new Error(t().localAssets.pngInvalid);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const ascii = new TextDecoder('latin1');
   const parts: Uint8Array[] = [bytes.slice(0, PNG_SIGNATURE.length)];
@@ -305,7 +307,7 @@ export function rewritePngCardMetadata(
   while (offset + 12 <= bytes.length) {
     const length = view.getUint32(offset);
     const end = offset + 12 + length;
-    if (end > bytes.length) throw new Error('PNG 角色卡已损坏。');
+    if (end > bytes.length) throw new Error(t().localAssets.pngCorrupt);
     const type = ascii.decode(bytes.subarray(offset + 4, offset + 8));
     let isCardChunk = false;
     if (type === 'tEXt') {
@@ -333,7 +335,7 @@ export async function rewriteCardFile(
 ): Promise<Blob> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const card = await readCardFile(file);
-  if (!card) throw new Error('角色卡数据无法读取。');
+  if (!card) throw new Error(t().localAssets.cardDataUnreadable);
   const overlaid = overlayLocalCardExtensions(card, characterBook, regexScripts);
   if (isPng(bytes)) {
     const rewritten = Uint8Array.from(rewritePngCardMetadata(bytes, overlaid));

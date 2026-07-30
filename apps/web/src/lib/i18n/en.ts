@@ -394,6 +394,36 @@ export const en: Dictionary = {
     actionFailed: 'That did not work. Please try again.'
   },
 
+  localAssets: {
+    cardDataUnreadable: 'Could not read the character card data.',
+    cardNameMissing: 'The character card has no character name.',
+    pngInvalid: 'This is not a valid PNG character card.',
+    pngCorrupt: 'The PNG character card is damaged.',
+    legacyAssetsReadFailed:
+      'Could not read the old Cloud assets. You can retry the migration later.',
+    legacyWorldbooksReadFailed:
+      'Could not read the old Cloud worldbooks. You can retry the migration later.',
+    legacyWorldbookName: 'Cloud worldbook',
+    characterWorldbookName: (characterName: string) =>
+      `${characterName} character worldbook`,
+    cardExportFailed: 'Could not export the character card.',
+    cloudCardUnreadable: 'Could not read the character card returned by Cloud.',
+    storageQuotaExceeded:
+      'This browser is out of local storage space. Delete some local assets and try again.',
+    storageSaveFailed: 'Could not save to this device. Please try again.',
+    indexedDbUnsupported:
+      'This browser does not support IndexedDB, so local personas and worldbooks are unavailable.',
+    defaultUserLabel: 'User',
+    personaNameRequired: 'The persona needs a name.',
+    personaNotFound: 'The persona no longer exists.',
+    personaImportEmpty: 'This file contains no personas to import.',
+    worldbookNotFound: 'The worldbook no longer exists.',
+    unnamedWorldbook: 'Untitled worldbook',
+    worldbookEntryNotFound: 'The worldbook entry no longer exists.',
+    importedWorldbookName: 'Imported worldbook',
+    worldbookImportEmpty: 'This file contains no worldbook entries to import.'
+  },
+
   persona: {
     panelTitle: 'Personas',
     eyebrow: 'Persona',

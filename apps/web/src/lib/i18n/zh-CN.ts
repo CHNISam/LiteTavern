@@ -370,6 +370,34 @@ export const zhCN = {
     actionFailed: '操作失败，请稍后重试。'
   },
 
+  localAssets: {
+    cardDataUnreadable: '角色卡数据无法读取。',
+    cardNameMissing: '角色卡缺少角色名称。',
+    pngInvalid: '不是有效的 PNG 角色卡。',
+    pngCorrupt: 'PNG 角色卡已损坏。',
+    legacyAssetsReadFailed: '旧 Cloud 资产读取失败，可稍后重试迁移。',
+    legacyWorldbooksReadFailed: '旧 Cloud 世界书读取失败，可稍后重试迁移。',
+    legacyWorldbookName: 'Cloud 世界书',
+    characterWorldbookName: (characterName: string) =>
+      `${characterName}的角色世界书`,
+    cardExportFailed: '角色卡导出失败。',
+    cloudCardUnreadable: 'Cloud 返回的角色卡无法读取。',
+    storageQuotaExceeded:
+      '浏览器本地存储空间不足，无法保存。请先删除一些本地资产。',
+    storageSaveFailed: '保存到此设备失败，请稍后重试。',
+    indexedDbUnsupported:
+      '此浏览器不支持 IndexedDB，无法使用本地 Persona 与世界书。',
+    defaultUserLabel: '用户',
+    personaNameRequired: 'Persona 名称不能为空。',
+    personaNotFound: 'Persona 不存在。',
+    personaImportEmpty: '这个文件里没有可导入的 Persona。',
+    worldbookNotFound: '世界书不存在。',
+    unnamedWorldbook: '未命名世界书',
+    worldbookEntryNotFound: '世界书条目不存在。',
+    importedWorldbookName: '导入的世界书',
+    worldbookImportEmpty: '这个文件里没有可导入的世界书条目。'
+  },
+
   persona: {
     panelTitle: '用户身份',
     eyebrow: 'Persona',

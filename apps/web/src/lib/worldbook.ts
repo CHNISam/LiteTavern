@@ -1,4 +1,5 @@
 import { createId } from './id';
+import { t } from './i18n';
 import {
   deleteLocalRecord,
   getAllByIndex,
@@ -363,7 +364,7 @@ export async function readWorldbook(
       worldbookId
     )
   ]);
-  if (!book) throw new Error('世界书不存在。');
+  if (!book) throw new Error(t().localAssets.worldbookNotFound);
   return {
     worldbook: { ...book, entry_count: entries.length },
     entries: entries.sort(
@@ -383,7 +384,8 @@ export async function createWorldbook(
   const book: WorldbookAsset = {
     worldbook_id: worldbookId,
     name:
-      draft.name.trim().slice(0, MAX_WORLDBOOK_NAME_LENGTH) || '未命名世界书',
+      draft.name.trim().slice(0, MAX_WORLDBOOK_NAME_LENGTH) ||
+      t().localAssets.unnamedWorldbook,
     description: draft.description ?? '',
     enabled: true,
     scan_depth:
@@ -423,7 +425,7 @@ export async function updateWorldbook(
   patch: Partial<Pick<WorldbookAsset, 'name' | 'description' | 'enabled'>>
 ): Promise<void> {
   const book = await getLocalRecord<WorldbookAsset>('worldbooks', worldbookId);
-  if (!book) throw new Error('世界书不存在。');
+  if (!book) throw new Error(t().localAssets.worldbookNotFound);
   await putLocalRecord<WorldbookAsset>('worldbooks', {
     ...book,
     ...patch,
@@ -467,7 +469,7 @@ export async function createWorldbookEntry(
   draft: WorldbookEntryDraft
 ): Promise<void> {
   const book = await getLocalRecord<WorldbookAsset>('worldbooks', worldbookId);
-  if (!book) throw new Error('世界书不存在。');
+  if (!book) throw new Error(t().localAssets.worldbookNotFound);
   const entry: WorldbookEntryAsset = {
     ...entryFromDraft(draft),
     worldbook_id: worldbookId
@@ -489,7 +491,7 @@ export async function updateWorldbookEntry(
     'worldbook_entries',
     entryId
   );
-  if (!entry) throw new Error('世界书条目不存在。');
+  if (!entry) throw new Error(t().localAssets.worldbookEntryNotFound);
   const next: WorldbookEntryAsset = {
     ...entry,
     ...(patch.title !== undefined
@@ -723,14 +725,14 @@ export async function sourcedEntriesForTurn(
 
 export async function importWorldbook(
   value: unknown,
-  fallbackName = '导入的世界书',
+  fallbackName = t().localAssets.importedWorldbookName,
   options: Pick<
     WorldbookDraft,
     'origin' | 'source_character_id' | 'legacy_cloud_id'
   > = {}
 ): Promise<Worldbook> {
   const draft = worldbookDraftFromData(value, fallbackName);
-  if (!draft) throw new Error('这个文件里没有可导入的世界书条目。');
+  if (!draft) throw new Error(t().localAssets.worldbookImportEmpty);
   const worldbookId = await createWorldbook({ ...draft, ...options });
   const detail = await readWorldbook(worldbookId);
   if (options.source_character_id) {

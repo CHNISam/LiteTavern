@@ -5,6 +5,7 @@ import {
   rewriteCardFile
 } from './card-file';
 import { readApiJson } from './api';
+import { t } from './i18n';
 import {
   regexScriptsForExport,
   saveCharacterRegexBundle
@@ -25,7 +26,7 @@ export async function storeImportedCardExtensions(
   await replaceCharacterCardWorldbook(
     characterId,
     embeddedCharacterBook(cardData),
-    `${characterName}的角色世界书`
+    t().localAssets.characterWorldbookName(characterName)
   );
   await saveCharacterRegexBundle(
     characterId,
@@ -45,11 +46,11 @@ export async function buildLocalCharacterExport(
   );
   if (!response.ok) {
     const payload = await readApiJson<{ error?: { message?: string } }>(response);
-    throw new Error(payload.error?.message ?? '角色卡导出失败。');
+    throw new Error(payload.error?.message ?? t().localAssets.cardExportFailed);
   }
   const base = await response.blob();
   const card = await readCardFile(base);
-  if (!card) throw new Error('Cloud 返回的角色卡无法读取。');
+  if (!card) throw new Error(t().localAssets.cloudCardUnreadable);
   const localBook = await characterCardWorldbook(characterId);
   const characterBook = localBook
     ? await exportWorldbook(localBook.worldbook_id)

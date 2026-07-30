@@ -1,4 +1,5 @@
 import { createId } from './id';
+import { t } from './i18n';
 import {
   deleteLocalRecord,
   getAllLocalRecords,
@@ -34,7 +35,9 @@ export interface PersonaDraft {
 
 export const MAX_PERSONA_NAME_LENGTH = 100;
 export const MAX_PERSONA_DESCRIPTION_LENGTH = 4_000;
-export const DEFAULT_USER_LABEL = '用户';
+export function defaultUserLabel(): string {
+  return t().localAssets.defaultUserLabel;
+}
 const DEFAULT_PERSONA_META = 'default_persona_id';
 
 function clampDepth(value: unknown, fallback = 2): number {
@@ -121,7 +124,7 @@ export async function defaultPersonaId(): Promise<string | null> {
 
 export async function createPersona(draft: PersonaDraft): Promise<Persona> {
   const persona = assetFromDraft(draft);
-  if (!persona.name) throw new Error('Persona 名称不能为空。');
+  if (!persona.name) throw new Error(t().localAssets.personaNameRequired);
   const currentDefault = await defaultPersonaId();
   await mutateLocalAssets(
     currentDefault ? ['personas'] : ['personas', 'meta'],
@@ -143,7 +146,7 @@ export async function updatePersona(
   patch: Partial<PersonaDraft> & { is_default?: true }
 ): Promise<Persona> {
   const current = await getLocalRecord<PersonaAsset>('personas', personaId);
-  if (!current) throw new Error('Persona 不存在。');
+  if (!current) throw new Error(t().localAssets.personaNotFound);
   const next: PersonaAsset = {
     ...current,
     ...(patch.name !== undefined
@@ -165,7 +168,7 @@ export async function updatePersona(
       : {}),
     updated_at: nowIso()
   };
-  if (!next.name) throw new Error('Persona 名称不能为空。');
+  if (!next.name) throw new Error(t().localAssets.personaNameRequired);
   await mutateLocalAssets(
     patch.is_default ? ['personas', 'meta'] : ['personas'],
     (transaction) => {
@@ -183,7 +186,7 @@ export async function updatePersona(
 
 export async function setDefaultPersona(personaId: string | null): Promise<void> {
   if (personaId && !(await getLocalRecord('personas', personaId))) {
-    throw new Error('Persona 不存在。');
+    throw new Error(t().localAssets.personaNotFound);
   }
   await setMeta(DEFAULT_PERSONA_META, personaId);
 }
@@ -394,7 +397,7 @@ function draftsFromImport(value: unknown): {
 
 export async function importPersonas(value: unknown): Promise<PersonaImportResult> {
   const { drafts, defaultAvatarName } = draftsFromImport(value);
-  if (!drafts.length) throw new Error('这个文件里没有可导入的 Persona。');
+  if (!drafts.length) throw new Error(t().localAssets.personaImportEmpty);
   const assets = drafts.map(assetFromDraft);
   const defaultAsset = assets.find(
     (persona) => persona.avatar_name === defaultAvatarName

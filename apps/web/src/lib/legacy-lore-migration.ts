@@ -1,4 +1,5 @@
 import { createId } from './id';
+import { t } from './i18n';
 import {
   getAllLocalRecords,
   getMeta,
@@ -53,7 +54,7 @@ export async function migrateLegacyCloudAssets(
     (!personaResponse.ok && personaResponse.status !== 404) ||
     (!worldbookResponse.ok && worldbookResponse.status !== 404)
   ) {
-    throw new Error('旧 Cloud 资产读取失败，可稍后重试迁移。');
+    throw new Error(t().localAssets.legacyAssetsReadFailed);
   }
 
   const [personaPayload, worldbookPayload]: [
@@ -84,7 +85,9 @@ export async function migrateLegacyCloudAssets(
       const response = await fetcher(`/v1/worldbooks/${id}`, {
         credentials: 'include'
       });
-      if (!response.ok) throw new Error('旧 Cloud 世界书读取失败，可稍后重试迁移。');
+  if (!response.ok) {
+    throw new Error(t().localAssets.legacyWorldbooksReadFailed);
+  }
       return { legacyId: id, payload: await responseJson(response) };
     })
   );
@@ -160,7 +163,9 @@ export async function migrateLegacyCloudAssets(
       : [];
     const draft = worldbookDraftFromData(
       { ...rawBook, entries: rawEntries },
-      typeof rawBook.name === 'string' ? rawBook.name : 'Cloud 世界书'
+      typeof rawBook.name === 'string'
+        ? rawBook.name
+        : t().localAssets.legacyWorldbookName
     );
     if (!draft) continue;
     const id = createId();

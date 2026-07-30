@@ -1,3 +1,5 @@
+import { t } from './i18n';
+
 /**
  * Versioned browser-local asset database.
  *
@@ -142,11 +144,11 @@ function localStoreError(reason: unknown): Error {
     reason instanceof DOMException &&
     (reason.name === 'QuotaExceededError' || reason.name === 'UnknownError')
   ) {
-    return new Error('浏览器本地存储空间不足，无法保存。请先删除一些本地资产。');
+    return new Error(t().localAssets.storageQuotaExceeded);
   }
   return reason instanceof Error
     ? reason
-    : new Error('保存到此设备失败，请稍后重试。');
+    : new Error(t().localAssets.storageSaveFailed);
 }
 
 function createSchema(database: IDBDatabase): void {
@@ -182,7 +184,7 @@ export function openLoreDatabase(): Promise<IDBDatabase> {
   if (databasePromise) return databasePromise;
   databasePromise = new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
-      reject(new Error('此浏览器不支持 IndexedDB，无法使用本地 Persona 与世界书。'));
+      reject(new Error(t().localAssets.indexedDbUnsupported));
       return;
     }
     const request = indexedDB.open(LORE_DB_NAME, LORE_DB_VERSION);
