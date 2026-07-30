@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode
+} from 'react';
 import {
   ArrowLeft, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download,
   KeyRound, LoaderCircle, MessageCircle, Pencil, Plus, Send, Settings,
@@ -7,6 +15,7 @@ import {
 import { AccountSyncPanel } from './components/CloudPanel';
 import { ProviderSettings } from './components/ProviderSettings';
 import { AppSettingsPanel } from './components/AppSettingsPanel';
+import { ProductFeedback } from './components/ProductFeedback';
 import { CharacterImport } from './components/CharacterImport';
 import { CharacterEditor } from './components/CharacterEditor';
 import { RelationshipImport } from './components/RelationshipImport';
@@ -42,6 +51,8 @@ import { playClick, isMuted, setMuted } from './lib/sound';
 import { publicRouteForPath } from './public-routing';
 
 type View = 'chat' | 'profile' | 'memories' | 'settings';
+
+const AdminApp = lazy(() => import('./admin/AdminApp'));
 
 /**
  * Reply suggestions are a paid model call, so they are never issued on the raw
@@ -98,6 +109,13 @@ export function App() {
     );
   }
   if (publicRoute === 'about') return <AboutPage />;
+  if (publicRoute === 'admin') {
+    return (
+      <Suspense fallback={<main className="admin-loading">正在加载管理后台…</main>}>
+        <AdminApp />
+      </Suspense>
+    );
+  }
   return <ProductApp />;
 }
 
@@ -852,6 +870,25 @@ function ProductApp() {
           setAccountOpen(false);
           openProviderSettings('byok');
         }}
+      />
+      <ProductFeedback
+        provider={
+          usageMode === 'PLATFORM'
+            ? 'platform'
+            : configurations.find(
+                (configuration) =>
+                  configuration.model_configuration_id === selectedConfigurationId
+              )?.provider
+        }
+        model={
+          usageMode === 'BYOK'
+            ? configurations.find(
+                (configuration) =>
+                  configuration.model_configuration_id === selectedConfigurationId
+              )?.model_name
+            : undefined
+        }
+        traceId={turnIdRef.current || undefined}
       />
     </main>
   );

@@ -54,7 +54,12 @@ export interface AnalyticsEventPayload {
   character_id?: string;
   conversation_id?: string;
   source_channel?: AnalyticsSourceChannel;
+  source?: string;
+  medium?: string;
   campaign_id?: string;
+  content?: string;
+  landing_path?: string;
+  referrer?: string;
   properties: Record<string, PropertyValue>;
 }
 
@@ -72,6 +77,11 @@ interface SessionState {
 interface AttributionState {
   firstSourceChannel: AnalyticsSourceChannel;
   firstCampaignId: string | null;
+  firstSource?: string;
+  firstMedium?: string | null;
+  firstContent?: string | null;
+  firstLandingPath?: string;
+  firstReferrer?: string | null;
 }
 
 interface AnalyticsClientOptions {
@@ -163,31 +173,61 @@ function knownSource(value: string): AnalyticsSourceChannel {
 function attributionFor(urlValue: string, referrer: string) {
   const url = new URL(urlValue);
   const utmSource = url.searchParams.get('utm_source');
+  const medium = url.searchParams.get('utm_medium');
+  const content = url.searchParams.get('utm_content');
   const ref = url.searchParams.get('ref');
+  const landingPath = `${url.pathname}${url.search}`;
+  const referrerValue = referrer.slice(0, 500);
   if (utmSource) {
     return {
       source: knownSource(utmSource),
+      rawSource: utmSource.slice(0, 200),
       entrySource: 'utm_source',
+      medium,
+      content,
+      landingPath,
+      referrer: referrerValue,
       campaignId: url.searchParams.get('utm_campaign')
     };
   }
   if (ref) {
     return {
       source: knownSource(ref),
+      rawSource: ref.slice(0, 200),
       entrySource: 'ref',
+      medium,
+      content,
+      landingPath,
+      referrer: referrerValue,
       campaignId: url.searchParams.get('utm_campaign')
     };
   }
   if (referrer) {
+    let referrerHost = referrer;
+    try {
+      referrerHost = new URL(referrer).hostname;
+    } catch {
+      // Keep the bounded raw referrer when it is not a URL.
+    }
     return {
       source: knownSource(referrer),
+      rawSource: referrerHost.slice(0, 200),
       entrySource: 'referrer',
+      medium: medium ?? 'referral',
+      content,
+      landingPath,
+      referrer: referrerValue,
       campaignId: url.searchParams.get('utm_campaign')
     };
   }
   return {
     source: 'direct' as const,
+    rawSource: 'direct',
     entrySource: 'direct',
+    medium,
+    content,
+    landingPath,
+    referrer: '',
     campaignId: url.searchParams.get('utm_campaign')
   };
 }
@@ -241,7 +281,12 @@ export class AnalyticsClient {
       storedAttribution ??
       ({
         firstSourceChannel: current.source,
-        firstCampaignId: current.campaignId
+        firstCampaignId: current.campaignId,
+        firstSource: current.rawSource,
+        firstMedium: current.medium,
+        firstContent: current.content,
+        firstLandingPath: current.landingPath,
+        firstReferrer: current.referrer || null
       } satisfies AttributionState);
     if (!storedAttribution) {
       writeJson(this.storage, ATTRIBUTION_KEY, attribution);
@@ -277,7 +322,12 @@ export class AnalyticsClient {
         session_id: this.session.sessionId,
         occurred_at: new Date(now).toISOString(),
         source_channel: current.source,
+        source: current.rawSource,
+        ...(current.medium ? { medium: current.medium } : {}),
         ...(current.campaignId ? { campaign_id: current.campaignId } : {}),
+        ...(current.content ? { content: current.content } : {}),
+        landing_path: current.landingPath,
+        ...(current.referrer ? { referrer: current.referrer } : {}),
         properties: {
           is_first_visit: isFirstVisit,
           session_number: this.session.sessionNumber,
