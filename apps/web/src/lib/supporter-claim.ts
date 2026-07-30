@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import { api } from './api';
 
 export const SUPPORTER_CONTACT_TYPES = ['WECHAT', 'QQ', 'EMAIL', 'OTHER'] as const;
@@ -6,14 +7,14 @@ export type SupporterContactType = (typeof SUPPORTER_CONTACT_TYPES)[number];
 export type SupporterClaimStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export const SUPPORTER_CONTACT_LABELS: Record<SupporterContactType, string> = {
-  WECHAT: '微信',
+  WECHAT: t().claim.contactTypes.wechat,
   QQ: 'QQ',
-  EMAIL: '邮箱',
-  OTHER: '其他'
+  EMAIL: t().claim.contactTypes.email,
+  OTHER: t().claim.contactTypes.other
 };
 
 export const SUPPORTER_CONSENT_TEXT =
-  '联系方式仅用于核验身份、致谢、内测邀请及重要项目通知，不用于无关营销。';
+  t().claim.consent;
 
 export interface SupporterClaimInput {
   nickname: string;
@@ -44,12 +45,12 @@ export interface SupporterClaimResult {
  * server validates the same rules again and remains the authority.
  */
 export function validateSupporterClaim(input: SupporterClaimInput): string | null {
-  if (!input.nickname.trim()) return '请填写昵称。';
-  if (!input.contactValue.trim()) return '请填写联系方式。';
+  if (!input.nickname.trim()) return t().claim.nicknameRequired;
+  if (!input.contactValue.trim()) return t().claim.contactRequired;
   const amount = Number(input.amount);
-  if (!Number.isFinite(amount) || amount <= 0) return '请填写大于 0 的支持金额。';
-  if (!input.paidAt.trim()) return '请选择大致的支付时间。';
-  if (!input.consent) return '请先勾选联系方式的使用说明。';
+  if (!Number.isFinite(amount) || amount <= 0) return t().claim.amountRequired;
+  if (!input.paidAt.trim()) return t().claim.paidAtRequired;
+  if (!input.consent) return t().claim.consentRequired;
   return null;
 }
 

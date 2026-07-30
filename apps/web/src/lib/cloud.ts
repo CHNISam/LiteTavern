@@ -1,4 +1,5 @@
 import { ApiError, api } from './api';
+import { t } from './i18n';
 
 /**
  * LiteTavern Cloud client state.
@@ -254,40 +255,50 @@ export interface QuotaDescription {
   available: number;
   /** 0–1, for a meter. */
   ratio: number;
-  /** How the pool comes back, or null when it does not. */
-  renewal: string | null;
+  /** How the pool comes back, stated even when the answer is "it does not". */
+  renewal: string;
   exhausted: boolean;
   /** What one unit buys, in the user's terms. */
   unitName: string;
 }
 
-export const CLOUD_PROVIDER_NAME = 'LiteTavern Cloud';
+/** The service name is a proper noun, so it comes from the dictionary but never
+ *  actually differs — the point is that the copy around it does. */
+export function cloudProviderName(): string {
+  return t().cloud.providerName;
+}
 
 export function describeQuota(status: CloudStatus | null): QuotaDescription | null {
   if (!status || status.quota.source === 'NONE') return null;
   const { quota } = status;
   const alpha = quota.source === 'ALPHA';
   return {
-    provider: CLOUD_PROVIDER_NAME,
-    poolName: alpha ? 'Alpha 每日额度' : '试用额度',
+    provider: cloudProviderName(),
+    poolName: alpha ? t().cloud.alphaPool : t().cloud.trialPool,
     // `used` is authoritative; deriving it from total - available would hide
     // anything the server has reserved but not yet spent.
     used: quota.used,
     total: quota.total,
     available: quota.available,
     ratio: quota.total > 0 ? quota.available / quota.total : 0,
-    renewal: alpha ? '每天 08:00 恢复' : '用完后不再恢复',
+    renewal: alpha ? t().cloud.alphaRenewal : t().cloud.trialRenewal,
     exhausted: quota.available === 0,
-    unitName: '次回复'
+    unitName: t().cloud.replyUnit
   };
 }
 
 /** One-line form for compact surfaces such as the composer's mode switch. */
 export function quotaLabel(status: CloudStatus | null): string {
   const described = describeQuota(status);
-  if (!described) return `暂无 ${CLOUD_PROVIDER_NAME} 额度`;
-  const scope = described.poolName === 'Alpha 每日额度' ? '今日剩余' : '剩余';
-  return `${described.provider} ${described.poolName}：${scope} ${described.available} / ${described.total} 次`;
+  if (!described) return t().cloud.noQuota(cloudProviderName());
+  const daily = status?.quota.source === 'ALPHA';
+  return t().cloud.quotaLabel(
+    described.provider,
+    described.poolName,
+    daily ? t().cloud.scopeToday : t().cloud.scopeRemaining,
+    described.available,
+    described.total
+  );
 }
 
 export function membershipNotice(status: CloudStatus | null): string | null {
@@ -295,31 +306,32 @@ export function membershipNotice(status: CloudStatus | null): string | null {
   switch (status.membership_status) {
     case 'ANONYMOUS_TRIAL':
       return status.quota.available > 0
-        ? '正在使用 LiteTavern Cloud 提供的试用额度'
-        : 'LiteTavern Cloud 试用额度已用完。注册后可加入 Alpha 候补名单，或切换到自己的模型服务继续聊天。';
+        ? t().membership.anonymousTrialActive
+        : t().membership.anonymousTrialSpent;
     case 'REGISTERED_WAITLIST':
       // No queue position is shown: it moves as people join, leave and are released,
       // so a number here would be a promise the program cannot keep.
       return status.founding_supporter
-        ? '已加入 LiteTavern Cloud Alpha 候补名单。感谢你成为 LiteTavern 的早期支持者——你在候补排序中会被优先考虑，但支持本身不等于购买资格，我们也无法承诺确切的开放日期。'
-        : '已加入 LiteTavern Cloud Alpha 候补名单。名额有限，我们会按候补顺序逐批开放，暂时无法承诺确切的开放日期。';
+        ? t().membership.waitlistSupporter
+        : t().membership.waitlist;
     case 'ALPHA_GRANTED':
-      return '你已获得 LiteTavern Cloud Alpha 资格，还没有开始使用。进入 Alpha 后即可使用平台额度和云服务。';
+      return t().membership.alphaGranted;
     case 'ALPHA_ACTIVE':
-      return `今日平台回复：剩余 ${status.quota.available} / ${status.quota.total}。每天 08:00 恢复。`;
+      return t().membership.alphaActive(status.quota.available, status.quota.total);
     case 'ALPHA_PAUSED':
       return status.alpha_status_reason
-        ? `LiteTavern Cloud Alpha 访问已暂停：${status.alpha_status_reason}。你可以切换到自己的模型服务继续聊天。`
-        : 'LiteTavern Cloud Alpha 访问已暂停。你可以切换到自己的模型服务继续聊天。';
+        ? t().membership.alphaPausedWithReason(status.alpha_status_reason)
+        : t().membership.alphaPaused;
     case 'ALPHA_ENDED':
       return status.alpha_status_reason
-        ? `本轮 LiteTavern Cloud Alpha 已结束：${status.alpha_status_reason}。你可以切换到自己的模型服务继续聊天。`
-        : '本轮 LiteTavern Cloud Alpha 已结束。你可以切换到自己的模型服务继续聊天。';
+        ? t().membership.alphaEndedWithReason(status.alpha_status_reason)
+        : t().membership.alphaEnded;
     default:
       return null;
   }
 }
 
 /** The stage disclaimer. Alpha rules may change; granted cycles are not wiped. */
-export const ALPHA_DISCLAIMER =
-  'LiteTavern Cloud Alpha 仍处于测试阶段。额度、模型和云服务规则可能根据实际成本、稳定性和测试结果进行调整。';
+export function alphaDisclaimer(): string {
+  return t().membership.disclaimer;
+}

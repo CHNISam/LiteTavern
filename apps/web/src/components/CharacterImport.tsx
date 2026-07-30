@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, FileJson, LoaderCircle, Upload, X } from 'lucide-react';
 import { readApiJson } from '../lib/api';
 import { processAvatarImage } from '../lib/avatar-image';
+import { useT } from '../lib/i18n';
 import { cloudUrl } from '../lib/runtime-config';
 
 interface Preview {
@@ -20,6 +21,7 @@ interface Preview {
 }
 
 export function CharacterImport({ open, replaceCharacterId, onClose, onImported }: { open: boolean; replaceCharacterId?: string; onClose: () => void; onImported: () => Promise<void> }) {
+  const t = useT();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,7 +49,7 @@ export function CharacterImport({ open, replaceCharacterId, onClose, onImported 
       character_id?: string;
       error?: { message?: string };
     }>(response);
-    if (!response.ok) throw new Error(payload.error?.message ?? '角色卡处理失败。');
+    if (!response.ok) throw new Error(payload.error?.message ?? t.importer.processFailed);
     return payload;
   }
 
@@ -68,7 +70,7 @@ export function CharacterImport({ open, replaceCharacterId, onClose, onImported 
       const payload = await readApiJson<Preview & {
         error?: { message?: string };
       }>(response);
-      if (!response.ok) throw new Error(payload.error?.message ?? '角色卡解析失败。');
+      if (!response.ok) throw new Error(payload.error?.message ?? t.importer.parseFailed);
       setPreview(payload);
       if (next.type === 'image/png' || next.name.toLowerCase().endsWith('.png')) {
         try {
@@ -78,10 +80,10 @@ export function CharacterImport({ open, replaceCharacterId, onClose, onImported 
           setAvatarPreview(url);
           setAvatar(processed);
         } catch {
-          setAvatarWarning('角色设定可以导入，但卡片头像无法读取，将使用默认占位头像。');
+          setAvatarWarning(t.importer.avatarUnreadable);
         }
       }
-    } catch (reason) { setError(reason instanceof Error ? reason.message : '角色卡解析失败。'); }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : t.importer.parseFailed); }
     finally { setBusy(false); }
   }
 
@@ -104,13 +106,15 @@ export function CharacterImport({ open, replaceCharacterId, onClose, onImported 
       setFile(null);
       setPreview(null);
     }
-    catch (reason) { setError(reason instanceof Error ? reason.message : '角色卡导入失败。'); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : t.importer.importFailed); }
     finally { setBusy(false); }
   }
 
   if (!open) return null;
   const compatibilityLabel = preview?.compatibility.level === 'FORMAL'
-    ? '正式支持'
-    : preview?.compatibility.level === 'COMPATIBLE' ? '兼容支持' : '仅保留数据';
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="settings-panel import-panel" role="dialog" aria-modal="true" aria-label="导入角色卡" onMouseDown={(event) => event.stopPropagation()}><header className="settings-header"><div><span className="eyebrow">角色设置</span><h2>{replaceCharacterId ? '更新角色卡' : '导入角色卡'}</h2></div><button className="icon-button" onClick={onClose}><X size={19} /></button></header><div className="import-content"><label className="drop-zone"><input aria-label="选择角色卡文件" type="file" accept=".json,.png,application/json,image/png" onChange={(event) => void inspect(event.target.files?.[0] ?? null)} /><Upload size={24} /><strong>{file?.name ?? '选择 JSON 或 PNG 角色卡'}</strong><span>正式支持 Character Card V2 / V3，兼容 Tavern Card V1，最大 10 MB</span></label>{busy && <p className="import-state"><LoaderCircle className="spin" size={18} /> 正在安全解析…</p>}{error && <p className="inline-error">{error}</p>}{preview && <div className="card-preview"><div className="preview-avatar">{avatarPreview ? <img src={avatarPreview} alt="角色卡头像预览" /> : preview.character.name.slice(0, 1)}</div><div><small><FileJson size={13} /> {preview.format} · {compatibilityLabel}</small><h3>{preview.character.name}</h3><p>{preview.character.description || '暂无简介'}</p><dl><dt>性格</dt><dd>{preview.character.personality || '未填写'}</dd><dt>开场</dt><dd>{preview.character.firstMessage}</dd></dl></div>{avatarWarning && <p className="provider-notice">{avatarWarning}</p>}{preview.compatibility.unapplied_fields.length > 0 && <p className="provider-notice">未生效但会保留：{preview.compatibility.unapplied_fields.join('、')}</p>}{preview.warnings.map((warning) => <p className="provider-notice" key={warning}>{warning}</p>)}</div>}{preview && <button className="primary-button" disabled={busy} onClick={() => void confirm()}><Check size={17} /> 确认{replaceCharacterId ? '更新' : '导入'}</button>}<p className="privacy-footnote">角色卡按不可信文件处理：LiteTavern 不执行其中的脚本，也不会自动访问卡片内的远程地址。</p></div></section></div>;
+    ? t.editor.compatibility.FORMAL
+    : preview?.compatibility.level === 'COMPATIBLE'
+      ? t.editor.compatibility.COMPATIBLE
+      : t.editor.compatibility.PRESERVED;
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="settings-panel import-panel" role="dialog" aria-modal="true" aria-label={t.importer.importTitle} onMouseDown={(event) => event.stopPropagation()}><header className="settings-header"><div><span className="eyebrow">{t.importer.eyebrow}</span><h2>{replaceCharacterId ? t.importer.updateTitle : t.importer.importTitle}</h2></div><button className="icon-button" onClick={onClose}><X size={19} /></button></header><div className="import-content"><label className="drop-zone"><input aria-label={t.importer.chooseFile} type="file" accept=".json,.png,application/json,image/png" onChange={(event) => void inspect(event.target.files?.[0] ?? null)} /><Upload size={24} /><strong>{file?.name ?? t.importer.choosePlaceholder}</strong><span>{t.importer.formatSupport}</span></label>{busy && <p className="import-state"><LoaderCircle className="spin" size={18} /> {t.importer.parsing}</p>}{error && <p className="inline-error">{error}</p>}{preview && <div className="card-preview"><div className="preview-avatar">{avatarPreview ? <img src={avatarPreview} alt={t.importer.avatarPreview} /> : preview.character.name.slice(0, 1)}</div><div><small><FileJson size={13} /> {preview.format} · {compatibilityLabel}</small><h3>{preview.character.name}</h3><p>{preview.character.description || t.importer.noSummary}</p><dl><dt>{t.importer.personality}</dt><dd>{preview.character.personality || t.importer.notFilled}</dd><dt>{t.importer.opening}</dt><dd>{preview.character.firstMessage}</dd></dl></div>{avatarWarning && <p className="provider-notice">{avatarWarning}</p>}{preview.compatibility.unapplied_fields.length > 0 && <p className="provider-notice">{t.importer.preserved(preview.compatibility.unapplied_fields.join('、'))}</p>}{preview.warnings.map((warning) => <p className="provider-notice" key={warning}>{warning}</p>)}</div>}{preview && <button className="primary-button" disabled={busy} onClick={() => void confirm()}><Check size={17} /> {replaceCharacterId ? t.importer.confirmUpdate : t.importer.confirmImport}</button>}<p className="privacy-footnote">{t.importer.safetyNote}</p></div></section></div>;
 }

@@ -1,4 +1,5 @@
 import { analytics } from './analytics';
+import { t } from './i18n';
 import { createId } from './id';
 import { cloudUrl } from './runtime-config';
 
@@ -126,7 +127,7 @@ interface ApiErrorPayload {
   };
 }
 
-const CLOUD_UNAVAILABLE_MESSAGE = 'LiteTavern Cloud 暂不可用，请稍后重试。';
+const cloudUnavailableMessage = () => t().cloud.unavailable;
 
 /**
  * Parse a JSON API response without leaking browser JSON parser errors into the UI.
@@ -138,12 +139,12 @@ const CLOUD_UNAVAILABLE_MESSAGE = 'LiteTavern Cloud 暂不可用，请稍后重�
 export async function readApiJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   if (!text.trim()) {
-    throw new ApiError(CLOUD_UNAVAILABLE_MESSAGE, 'INVALID_API_RESPONSE', true);
+    throw new ApiError(cloudUnavailableMessage(), 'INVALID_API_RESPONSE', true);
   }
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new ApiError(CLOUD_UNAVAILABLE_MESSAGE, 'INVALID_API_RESPONSE', true);
+    throw new ApiError(cloudUnavailableMessage(), 'INVALID_API_RESPONSE', true);
   }
 }
 
@@ -162,7 +163,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const payload = await readApiJson<T & ApiErrorPayload>(response);
   if (!response.ok) {
     throw new ApiError(
-      payload.error?.message ?? '请求失败，请稍后重试。',
+      payload.error?.message ?? t().cloud.requestFailed,
       payload.error?.code,
       payload.error?.retryable,
       payload.error?.request_id,
@@ -234,13 +235,13 @@ export async function streamGeneration(
   if (!response.ok) {
     const body = await readApiJson<ApiErrorPayload>(response);
     throw new ApiError(
-      body.error?.message ?? '发送失败，请稍后重试。',
+      body.error?.message ?? t().chat.sendFailed,
       body.error?.code,
       body.error?.retryable,
       body.error?.request_id
     );
   }
-  if (!response.body) throw new Error('浏览器不支持流式响应。');
+  if (!response.body) throw new Error(t().cloud.streamUnsupported);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -268,7 +269,7 @@ export async function streamGeneration(
       }
       if (event === 'error') {
         throw new ApiError(
-          parsed.message ?? '模型服务暂时不可用。',
+          parsed.message ?? t().cloud.modelUnavailable,
           parsed.code,
           parsed.retryable,
           parsed.request_id

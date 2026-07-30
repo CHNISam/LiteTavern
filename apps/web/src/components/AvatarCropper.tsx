@@ -14,6 +14,7 @@ import {
   processAvatarImage,
   type AvatarCrop
 } from '../lib/avatar-image';
+import { useT } from '../lib/i18n';
 
 /**
  * What the cropper hands back. The viewport is already exact, so nothing is
@@ -57,6 +58,7 @@ function viewportImageStyle(
 }
 
 export function AvatarCropper({ existingUrl, onChange }: AvatarCropperProps) {
+  const t = useT();
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
   const [crop, setCrop] = useState(DEFAULT_CROP);
@@ -100,14 +102,14 @@ export function AvatarCropper({ existingUrl, onChange }: AvatarCropperProps) {
 
   /** Obvious rejections are reported at pick time rather than at save time. */
   function rejectionFor(candidate: File): string | null {
-    if (candidate.size > AVATAR_IMAGE_POLICY.maxInputBytes) return '图片不能超过 12 MB。';
+    if (candidate.size > AVATAR_IMAGE_POLICY.maxInputBytes) return t.avatar.tooLarge;
     if (
       candidate.type &&
       !AVATAR_IMAGE_POLICY.acceptedTypes.includes(
         candidate.type as (typeof AVATAR_IMAGE_POLICY.acceptedTypes)[number]
       )
     ) {
-      return '请选择 JPEG、PNG 或 WebP 图片。';
+      return t.avatar.wrongType;
     }
     return null;
   }
@@ -210,7 +212,7 @@ export function AvatarCropper({ existingUrl, onChange }: AvatarCropperProps) {
           {displayed ? (
             <img
               src={displayed}
-              alt="头像预览"
+              alt={t.avatar.preview}
               draggable={false}
               {...(sourceUrl ? { style: viewportImageStyle(natural, crop, viewport) } : {})}
               onLoad={(event) =>
@@ -230,16 +232,16 @@ export function AvatarCropper({ existingUrl, onChange }: AvatarCropperProps) {
           <div className="avatar-buttons">
             <label className="avatar-file-button">
               <ImagePlus size={15} />
-              <span>{displayed ? '替换' : '选择图片'}</span>
+              <span>{displayed ? t.avatar.replace : t.avatar.chooseShort}</span>
               <input
-                aria-label="选择头像"
+                aria-label={t.avatar.choose}
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 onChange={(event) => choose(event.target.files?.[0] ?? null)}
               />
             </label>
             {displayed && (
-              <button type="button" className="avatar-remove" onClick={remove} aria-label="删除头像">
+              <button type="button" className="avatar-remove" onClick={remove} aria-label={t.avatar.remove}>
                 <Trash2 size={15} />
               </button>
             )}
@@ -247,21 +249,21 @@ export function AvatarCropper({ existingUrl, onChange }: AvatarCropperProps) {
 
           {adjustable ? (
             <label className="avatar-zoom">
-              <span>缩放</span>
+              <span>{t.avatar.zoom}</span>
               <input
                 type="range"
                 min="1"
                 max="3"
                 step="0.02"
-                aria-label="缩放"
+                aria-label={t.avatar.zoom}
                 value={crop.zoom}
                 onChange={(event) => setCrop({ ...crop, zoom: Number(event.target.value) })}
               />
             </label>
           ) : (
-            <small>支持拖入或粘贴图片，保存时裁剪为正方形。</small>
+            <small>{t.avatar.dropHint}</small>
           )}
-          {adjustable && <small>拖动画面调整位置。</small>}
+          {adjustable && <small>{t.avatar.dragHint}</small>}
         </div>
       </div>
 

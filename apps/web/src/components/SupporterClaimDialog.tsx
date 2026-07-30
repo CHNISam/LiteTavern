@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, X } from 'lucide-react';
+import { useT } from '../lib/i18n';
 import {
   SUPPORTER_CONSENT_TEXT,
   SUPPORTER_CONTACT_LABELS,
@@ -33,6 +34,7 @@ export function SupporterClaimDialog({
   onSubmitted,
   submit = submitSupporterClaim
 }: SupporterClaimDialogProps) {
+  const t = useT();
   const [form, setForm] = useState<SupporterClaimInput>(EMPTY);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -86,7 +88,7 @@ export function SupporterClaimDialog({
       onSubmitted?.();
     } catch (reason) {
       setFailure(
-        reason instanceof Error ? reason.message : '提交失败，请稍后重试。'
+        reason instanceof Error ? reason.message : t.claim.submitFailed
       );
     } finally {
       setPending(false);
@@ -103,8 +105,8 @@ export function SupporterClaimDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="claim-dialog-head">
-          <h2 id="claim-title">认领 Founding Supporter 身份</h2>
-          <button type="button" aria-label="关闭" onClick={onClose}>
+          <h2 id="claim-title">{t.claim.title}</h2>
+          <button type="button" aria-label={t.common.close} onClick={onClose}>
             <X size={17} />
           </button>
         </div>
@@ -114,21 +116,20 @@ export function SupporterClaimDialog({
             <span className="claim-done-mark">
               <Check size={22} />
             </span>
-            <strong>申请已提交，核验后将授予 Founding Supporter 身份</strong>
-            <p>我们会人工核对支持记录，处理完成后通过你留下的联系方式告知结果。</p>
+            <strong>{t.claim.submitted}</strong>
+            <p>{t.claim.submittedBody}</p>
             <button type="button" className="support-button support-button-primary" onClick={onClose}>
-              好的
+              {t.common.ok}
             </button>
           </div>
         ) : (
           <form className="claim-form" onSubmit={onSubmit} noValidate>
             <p className="claim-lead">
-              支付本身不需要登录或留下任何信息。只有希望认领这份荣誉身份时，
-              才需要填写下面的内容，方便我们人工核对。
+              {t.claim.lead}
             </p>
 
             <label className="claim-field">
-              <span>昵称</span>
+              <span>{t.claim.nickname}</span>
               <input
                 ref={firstFieldRef}
                 type="text"
@@ -140,7 +141,7 @@ export function SupporterClaimDialog({
 
             <div className="claim-field-row">
               <label className="claim-field">
-                <span>联系方式类型</span>
+                <span>{t.claim.contactType}</span>
                 <select
                   value={form.contactType}
                   onChange={(event) =>
@@ -155,7 +156,7 @@ export function SupporterClaimDialog({
                 </select>
               </label>
               <label className="claim-field">
-                <span>联系方式</span>
+                <span>{t.claim.contact}</span>
                 <input
                   type="text"
                   maxLength={120}
@@ -167,7 +168,7 @@ export function SupporterClaimDialog({
 
             <div className="claim-field-row">
               <label className="claim-field">
-                <span>大致支持金额</span>
+                <span>{t.claim.amount}</span>
                 <input
                   type="number"
                   min="0"
@@ -178,7 +179,7 @@ export function SupporterClaimDialog({
                 />
               </label>
               <label className="claim-field">
-                <span>大致支付时间</span>
+                <span>{t.claim.paidAt}</span>
                 <input
                   type="date"
                   value={form.paidAt}
@@ -188,7 +189,7 @@ export function SupporterClaimDialog({
             </div>
 
             <label className="claim-field">
-              <span>留言（可选）</span>
+              <span>{t.claim.note}</span>
               <textarea
                 rows={3}
                 maxLength={500}
@@ -219,10 +220,10 @@ export function SupporterClaimDialog({
             >
               {pending ? (
                 <>
-                  <Loader2 size={16} className="claim-spinner" /> 提交中…
+                  <Loader2 size={16} className="claim-spinner" /> {t.common.submitting}
                 </>
               ) : (
-                '提交认领申请'
+                t.claim.submit
               )}
             </button>
           </form>

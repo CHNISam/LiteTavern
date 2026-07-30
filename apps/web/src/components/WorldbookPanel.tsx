@@ -19,9 +19,10 @@ import {
   type WorldbookEntryDraft,
   type WorldbookPosition
 } from '../lib/worldbook';
+import { t } from '../lib/i18n';
 
-const UNAVAILABLE =
-  '当前连接的服务还不支持世界书，升级 LiteTavern Cloud 后即可使用。';
+const unavailable = () =>
+  t().worldbook.unsupported;
 
 const EMPTY_ENTRY: WorldbookEntryDraft = {
   title: '',
@@ -69,13 +70,13 @@ function PanelShell({
           <div>
             {onBack && (
               <button type="button" className="app-settings-back" onClick={onBack}>
-                <ArrowLeft size={16} /> 返回世界书列表
+                <ArrowLeft size={16} /> {t().worldbook.backToList}
               </button>
             )}
             <span className="eyebrow">Worldbook</span>
             <h2>{title}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="关闭">
+          <button className="icon-button" onClick={onClose} aria-label={t().common.close}>
             <X size={19} />
           </button>
         </header>
@@ -99,34 +100,34 @@ function EntryEditor({
 
   return (
     <div className="editor-section worldbook-form">
-      <h3>新增条目</h3>
+      <h3>{t().worldbook.addEntry}</h3>
       <label>
-        条目标题（仅用于整理，不会进入对话）
+        {t().worldbook.entryTitleLabel}
         <input
-          aria-label="条目标题"
+          aria-label={t().worldbook.entryTitleAria}
           value={draft.title}
           maxLength={200}
           onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
         />
       </label>
       <label>
-        条目内容
+        {t().worldbook.entryContentLabel}
         <textarea
-          aria-label="条目内容"
+          aria-label={t().worldbook.entryContentAria}
           value={draft.content}
           rows={4}
           maxLength={20000}
-          placeholder="这条世界知识本身，会在命中时原样进入对话。"
+          placeholder={t().worldbook.entryContentPlaceholder}
           onChange={(event) => setDraft((current) => ({ ...current, content: event.target.value }))}
         />
       </label>
       <label>
-        触发关键词（逗号分隔）
+        {t().worldbook.keywordsLabel}
         <input
-          aria-label="触发关键词"
+          aria-label={t().worldbook.keywordsAria}
           value={keyText}
           disabled={draft.constant}
-          placeholder="白港, White Harbor"
+          placeholder={t().worldbook.keywordsPlaceholder}
           onChange={(event) => setKeyText(event.target.value)}
         />
       </label>
@@ -138,12 +139,12 @@ function EntryEditor({
             setDraft((current) => ({ ...current, constant: event.target.checked }))
           }
         />
-        常驻条目（不需要关键词，每轮都注入）
+        {t().worldbook.alwaysOn}
       </label>
       <label>
-        注入位置
+        {t().worldbook.positionLabel}
         <select
-          aria-label="注入位置"
+          aria-label={t().worldbook.positionAria}
           value={draft.position}
           onChange={(event) =>
             setDraft((current) => ({
@@ -152,14 +153,14 @@ function EntryEditor({
             }))
           }
         >
-          <option value="BEFORE_CHAR">角色设定之前</option>
-          <option value="AFTER_CHAR">角色设定之后</option>
+          <option value="BEFORE_CHAR">{t().worldbook.positionBeforeChar}</option>
+          <option value="AFTER_CHAR">{t().worldbook.positionAfterChar}</option>
         </select>
       </label>
       <label>
-        排序值（越大越靠近对话）
+        {t().worldbook.orderLabel}
         <input
-          aria-label="排序值"
+          aria-label={t().worldbook.orderAria}
           type="number"
           value={draft.insertion_order}
           onChange={(event) =>
@@ -171,7 +172,7 @@ function EntryEditor({
         />
       </label>
       <div className="persona-form-actions">
-        <button type="button" className="secondary-button" onClick={onCancel}>取消</button>
+        <button type="button" className="secondary-button" onClick={onCancel}>{t().common.cancel}</button>
         <button
           type="button"
           className="primary-button"
@@ -179,7 +180,7 @@ function EntryEditor({
           onClick={() => onSubmit({ ...draft, keys: parseKeys(keyText) })}
         >
           {busy ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />}
-          添加条目
+          {t().worldbook.addEntryAction}
         </button>
       </div>
     </div>
@@ -206,7 +207,7 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
       setSupported(result !== null);
       setWorldbooks(result ?? []);
     } catch (reason) {
-      setError(errorText(reason, '读取世界书失败，请稍后重试。'));
+      setError(errorText(reason, t().worldbook.readFailed));
     } finally {
       setLoading(false);
     }
@@ -220,7 +221,7 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
       setSelected(detail.worldbook);
       setEntries(detail.entries);
     } catch (reason) {
-      setError(errorText(reason, '读取世界书条目失败。'));
+      setError(errorText(reason, t().worldbook.readEntriesFailed));
     } finally {
       setLoading(false);
     }
@@ -263,25 +264,25 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
         }}
       >
         <p className="persona-lead">
-          只有命中关键词的条目和常驻条目会进入对话，其余条目留在这里不占用上下文。
+          {t().worldbook.entriesLead}
         </p>
         {loading ? (
           <p className="import-state">
-            <LoaderCircle className="spin" size={18} /> 正在读取条目…
+            <LoaderCircle className="spin" size={18} /> {t().worldbook.loadingEntries}
           </p>
         ) : (
           <>
             {entries.length === 0 && !adding && (
-              <p className="persona-empty">这本世界书还没有条目。</p>
+              <p className="persona-empty">{t().worldbook.emptyEntries}</p>
             )}
             <ul className="worldbook-entries">
               {entries.map((entry) => (
                 <li key={entry.entry_id} className={entry.enabled ? '' : 'is-disabled'}>
                   <div className="worldbook-entry-head">
-                    <strong>{entry.title || '未命名条目'}</strong>
+                    <strong>{entry.title || t().worldbook.untitledEntry}</strong>
                     <span className="worldbook-tags">
                       {entry.constant ? (
-                        <em className="persona-badge">常驻</em>
+                        <em className="persona-badge">{t().worldbook.alwaysOnBadge}</em>
                       ) : (
                         entry.keys.map((key) => <em key={key}>{key}</em>)
                       )}
@@ -292,24 +293,26 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
                     <button
                       type="button"
                       disabled={busy}
-                      aria-label={entry.enabled ? `停用条目 ${entry.title || '未命名条目'}` : `启用条目 ${entry.title || '未命名条目'}`}
+                      aria-label={entry.enabled
+                        ? t().worldbook.disableEntryAria(entry.title || t().worldbook.untitledEntry)
+                        : t().worldbook.enableEntryAria(entry.title || t().worldbook.untitledEntry)}
                       onClick={() =>
                         void run(
                           () => updateWorldbookEntry(entry.entry_id, { enabled: !entry.enabled }),
-                          '切换条目状态失败。'
+                          t().worldbook.toggleEntryFailed
                         )
                       }
                     >
-                      {entry.enabled ? '停用' : '启用'}
+                      {entry.enabled ? t().worldbook.disable : t().worldbook.enable}
                     </button>
                     <button
                       type="button"
                       className="persona-delete"
                       disabled={busy}
-                      aria-label={`删除条目 ${entry.title || '未命名条目'}`}
+                      aria-label={t().worldbook.deleteEntryAria(entry.title || t().worldbook.untitledEntry)}
                       onClick={() => {
-                        if (!window.confirm('删除这条世界知识？')) return;
-                        void run(() => deleteWorldbookEntry(entry.entry_id), '删除条目失败。');
+                        if (!window.confirm(t().worldbook.deleteEntryConfirm)) return;
+                        void run(() => deleteWorldbookEntry(entry.entry_id), t().worldbook.deleteEntryFailed);
                       }}
                     >
                       <Trash2 size={16} />
@@ -326,13 +329,13 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
                   setAdding(false);
                   void run(
                     () => createWorldbookEntry(selected.worldbook_id, draft),
-                    '添加条目失败。'
+                    t().worldbook.addEntryFailed
                   );
                 }}
               />
             ) : (
               <button type="button" className="secondary-button persona-add" onClick={() => setAdding(true)}>
-                <Plus size={16} /> 新增条目
+                <Plus size={16} /> {t().worldbook.addEntry}
               </button>
             )}
           </>
@@ -343,21 +346,21 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
   }
 
   return (
-    <PanelShell title="世界书" onClose={onClose}>
+    <PanelShell title={t().worldbook.panelTitle} onClose={onClose}>
       <p className="persona-lead">
-        世界书保存长期不变的世界设定。它按关键词命中注入，和「共同回忆」不同——回忆记录你和角色一起经历过的事。
+        {t().worldbook.lead}
       </p>
       {loading && (
         <p className="import-state">
-          <LoaderCircle className="spin" size={18} /> 正在读取世界书…
+          <LoaderCircle className="spin" size={18} /> {t().worldbook.loadingBooks}
         </p>
       )}
-      {!loading && !supported && <p className="persona-empty">{UNAVAILABLE}</p>}
+      {!loading && !supported && <p className="persona-empty">{unavailable()}</p>}
       {!loading && supported && (
         <>
           {worldbooks.length === 0 && (
             <p className="persona-empty">
-              还没有世界书。导入带 Character Book 的角色卡时也会自动生成一本。
+              {t().worldbook.emptyBooks}
             </p>
           )}
           <ul className="persona-list">
@@ -367,40 +370,42 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
                   type="button"
                   className="persona-item"
                   onClick={() => void openBook(book.worldbook_id)}
-                  aria-label={`打开世界书 ${book.name}`}
+                  aria-label={t().worldbook.openAria(book.name)}
                 >
                   <span className="persona-avatar"><BookOpen size={19} /></span>
                   <span className="persona-copy">
                     <strong>
                       {book.name}
-                      {book.origin === 'CHARACTER_BOOK' && <em className="persona-badge">角色卡自带</em>}
-                      {!book.enabled && <em className="persona-badge">已停用</em>}
+                      {book.origin === 'CHARACTER_BOOK' && <em className="persona-badge">{t().worldbook.fromCard}</em>}
+                      {!book.enabled && <em className="persona-badge">{t().worldbook.disabledBadge}</em>}
                     </strong>
-                    <small>{book.entry_count} 条设定</small>
+                    <small>{t().worldbook.entryCount(book.entry_count)}</small>
                   </span>
                 </button>
                 <div className="persona-item-actions">
                   <button
                     type="button"
                     disabled={busy}
-                    aria-label={book.enabled ? `停用世界书 ${book.name}` : `启用世界书 ${book.name}`}
+                    aria-label={book.enabled
+                      ? t().worldbook.disableAria(book.name)
+                      : t().worldbook.enableAria(book.name)}
                     onClick={() =>
                       void run(
                         () => updateWorldbook(book.worldbook_id, { enabled: !book.enabled }),
-                        '切换世界书状态失败。'
+                        t().worldbook.toggleFailed
                       )
                     }
                   >
-                    {book.enabled ? '停用' : '启用'}
+                    {book.enabled ? t().worldbook.disable : t().worldbook.enable}
                   </button>
                   <button
                     type="button"
                     className="persona-delete"
                     disabled={busy}
-                    aria-label={`删除世界书 ${book.name}`}
+                    aria-label={t().worldbook.deleteAria(book.name)}
                     onClick={() => {
-                      if (!window.confirm(`删除世界书「${book.name}」？关联的角色会失去这些设定。`)) return;
-                      void run(() => deleteWorldbook(book.worldbook_id), '删除世界书失败。');
+                      if (!window.confirm(t().worldbook.deleteConfirm(book.name))) return;
+                      void run(() => deleteWorldbook(book.worldbook_id), t().worldbook.deleteFailed);
                     }}
                   >
                     <Trash2 size={16} />
@@ -411,12 +416,12 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
           </ul>
           <div className="editor-section worldbook-form">
             <label>
-              新建世界书
+              {t().worldbook.createTitle}
               <input
-                aria-label="世界书名称"
+                aria-label={t().worldbook.nameAria}
                 value={newName}
                 maxLength={200}
-                placeholder="例如：白港设定集"
+                placeholder={t().worldbook.namePlaceholder}
                 onChange={(event) => setNewName(event.target.value)}
               />
             </label>
@@ -427,10 +432,10 @@ export function WorldbookPanel({ open, onClose }: { open: boolean; onClose: () =
               onClick={() => {
                 const name = newName.trim();
                 setNewName('');
-                void run(() => createWorldbook(name), '创建世界书失败。');
+                void run(() => createWorldbook(name), t().worldbook.createFailed);
               }}
             >
-              <Plus size={17} /> 创建
+              <Plus size={17} /> {t().worldbook.create}
             </button>
           </div>
         </>
@@ -469,7 +474,7 @@ export function CharacterWorldbookPanel({
         setWorldbooks(books ?? []);
         setLinked(links ?? []);
       })
-      .catch((reason: unknown) => setError(errorText(reason, '读取世界书失败。')))
+      .catch((reason: unknown) => setError(errorText(reason, t().worldbook.readFailedShort)))
       .finally(() => setLoading(false));
   }, [open, characterId]);
 
@@ -487,7 +492,7 @@ export function CharacterWorldbookPanel({
       );
       setLinked(result);
     } catch (reason) {
-      setError(errorText(reason, '保存关联失败，请稍后重试。'));
+      setError(errorText(reason, t().worldbook.linkFailed));
     } finally {
       setBusy(false);
     }
@@ -495,18 +500,18 @@ export function CharacterWorldbookPanel({
 
   if (!open) return null;
   return (
-    <PanelShell title={`${characterName}的世界书`} onClose={onClose}>
+    <PanelShell title={t().worldbook.linkTitle(characterName)} onClose={onClose}>
       <p className="persona-lead">
-        勾选的世界书会在与该角色对话时参与匹配。同一本世界书可以同时关联多个角色。
+        {t().worldbook.linkLead}
       </p>
       {loading && (
         <p className="import-state">
-          <LoaderCircle className="spin" size={18} /> 正在读取世界书…
+          <LoaderCircle className="spin" size={18} /> {t().worldbook.loadingBooks}
         </p>
       )}
-      {!loading && !supported && <p className="persona-empty">{UNAVAILABLE}</p>}
+      {!loading && !supported && <p className="persona-empty">{unavailable()}</p>}
       {!loading && supported && worldbooks.length === 0 && (
-        <p className="persona-empty">还没有世界书，可以先在「设置 → 世界书」中创建。</p>
+        <p className="persona-empty">{t().worldbook.linkEmpty}</p>
       )}
       {!loading && supported && (
         <ul className="persona-list persona-choice-list">
@@ -524,7 +529,7 @@ export function CharacterWorldbookPanel({
                   <span className="persona-avatar"><BookOpen size={19} /></span>
                   <span className="persona-copy">
                     <strong>{book.name}</strong>
-                    <small>{book.entry_count} 条设定</small>
+                    <small>{t().worldbook.entryCount(book.entry_count)}</small>
                   </span>
                   {isLinked && <Check size={17} />}
                 </button>

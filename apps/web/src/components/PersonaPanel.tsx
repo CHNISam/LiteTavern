@@ -8,9 +8,10 @@ import {
   updatePersona,
   type Persona
 } from '../lib/persona';
+import { t } from '../lib/i18n';
 
-const UNAVAILABLE =
-  '当前连接的服务还不支持用户身份，升级 LiteTavern Cloud 后即可使用。';
+const unavailable = () =>
+  t().persona.unsupported;
 
 function errorText(reason: unknown, fallback: string): string {
   return reason instanceof Error ? reason.message : fallback;
@@ -41,7 +42,7 @@ function PanelShell({
             <span className="eyebrow">{eyebrow}</span>
             <h2>{title}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="关闭">
+          <button className="icon-button" onClick={onClose} aria-label={t().common.close}>
             <X size={19} />
           </button>
         </header>
@@ -74,7 +75,7 @@ export function PersonaPanel({ open, onClose }: { open: boolean; onClose: () => 
       setSupported(result !== null);
       setPersonas(result ?? []);
     } catch (reason) {
-      setError(errorText(reason, '读取身份失败，请稍后重试。'));
+      setError(errorText(reason, t().persona.readFailed));
     } finally {
       setLoading(false);
     }
@@ -104,7 +105,7 @@ export function PersonaPanel({ open, onClose }: { open: boolean; onClose: () => 
 
   async function save() {
     if (!name.trim()) {
-      setError('请填写身份名称。');
+      setError(t().persona.nameRequired);
       return;
     }
     setBusy(true);
@@ -118,7 +119,7 @@ export function PersonaPanel({ open, onClose }: { open: boolean; onClose: () => 
       setEditingId(null);
       await reload();
     } catch (reason) {
-      setError(errorText(reason, '保存身份失败，请稍后重试。'));
+      setError(errorText(reason, t().persona.saveFailed));
     } finally {
       setBusy(false);
     }
@@ -139,24 +140,23 @@ export function PersonaPanel({ open, onClose }: { open: boolean; onClose: () => 
 
   if (!open) return null;
   return (
-    <PanelShell title="用户身份" eyebrow="Persona" onClose={onClose}>
+    <PanelShell title={t().persona.panelTitle} eyebrow={t().persona.eyebrow} onClose={onClose}>
       <p className="persona-lead">
-        身份是你在故事里的样子：角色会怎样称呼你、把你当成谁。它与账号昵称、邮箱和套餐无关，
-        只有身份会进入对话。
+        {t().persona.lead}
       </p>
 
       {loading && (
         <p className="import-state">
-          <LoaderCircle className="spin" size={18} /> 正在读取身份…
+          <LoaderCircle className="spin" size={18} /> {t().persona.loading}
         </p>
       )}
-      {!loading && !supported && <p className="persona-empty">{UNAVAILABLE}</p>}
+      {!loading && !supported && <p className="persona-empty">{unavailable()}</p>}
 
       {!loading && supported && (
         <>
           {personas.length === 0 && editingId === null && (
             <p className="persona-empty">
-              还没有身份。新建一个之后，新的对话会自动使用它。
+              {t().persona.empty}
             </p>
           )}
 
@@ -167,15 +167,15 @@ export function PersonaPanel({ open, onClose }: { open: boolean; onClose: () => 
                   type="button"
                   className="persona-item"
                   onClick={() => startEdit(persona)}
-                  aria-label={`编辑身份 ${persona.name}`}
+                  aria-label={t().persona.editAria(persona.name)}
                 >
                   <span className="persona-avatar"><UserRound size={19} /></span>
                   <span className="persona-copy">
                     <strong>
                       {persona.name}
-                      {persona.is_default && <em className="persona-badge">默认</em>}
+                      {persona.is_default && <em className="persona-badge">{t().persona.defaultBadge}</em>}
                     </strong>
-                    <small>{persona.description || '还没有填写身份描述。'}</small>
+                    <small>{persona.description || t().persona.noDescription}</small>
                   </span>
                 </button>
                 <div className="persona-item-actions">
@@ -183,25 +183,25 @@ export function PersonaPanel({ open, onClose }: { open: boolean; onClose: () => 
                     <button
                       type="button"
                       disabled={busy}
-                      aria-label={`把 ${persona.name} 设为默认身份`}
+                      aria-label={t().persona.setDefaultAria(persona.name)}
                       onClick={() =>
                         void run(
                           () => updatePersona(persona.persona_id, { is_default: true }),
-                          '设置默认身份失败。'
+                          t().persona.setDefaultFailed
                         )
                       }
                     >
-                      <Star size={16} /> 设为默认
+                      <Star size={16} /> {t().persona.setDefault}
                     </button>
                   )}
                   <button
                     type="button"
                     className="persona-delete"
                     disabled={busy}
-                    aria-label={`删除身份 ${persona.name}`}
+                    aria-label={t().persona.deleteAria(persona.name)}
                     onClick={() => {
-                      if (!window.confirm(`删除身份「${persona.name}」？使用它的对话会回到未设置身份。`)) return;
-                      void run(() => deletePersona(persona.persona_id), '删除身份失败。');
+                      if (!window.confirm(t().persona.deleteConfirm(persona.name))) return;
+                      void run(() => deletePersona(persona.persona_id), t().persona.deleteFailed);
                     }}
                   >
                     <Trash2 size={16} />
@@ -213,38 +213,38 @@ export function PersonaPanel({ open, onClose }: { open: boolean; onClose: () => 
 
           {editingId === null ? (
             <button type="button" className="secondary-button persona-add" onClick={startCreate}>
-              <Plus size={16} /> 新建身份
+              <Plus size={16} /> {t().persona.create}
             </button>
           ) : (
             <div className="editor-section persona-form">
-              <h3>{editingId === 'new' ? '新建身份' : '编辑身份'}</h3>
+              <h3>{editingId === 'new' ? t().persona.createTitle : t().persona.editTitle}</h3>
               <label>
-                名称
+                {t().persona.nameLabel}
                 <input
-                  aria-label="身份名称"
+                  aria-label={t().persona.nameAria}
                   value={name}
                   maxLength={100}
                   onChange={(event) => setName(event.target.value)}
                 />
               </label>
               <label>
-                身份描述
+                {t().persona.descriptionLabel}
                 <textarea
-                  aria-label="身份描述"
+                  aria-label={t().persona.descriptionAria}
                   value={description}
                   rows={5}
                   maxLength={4000}
-                  placeholder="外貌、性格、背景，或你希望角色怎样认识你。"
+                  placeholder={t().persona.descriptionPlaceholder}
                   onChange={(event) => setDescription(event.target.value)}
                 />
               </label>
               <div className="persona-form-actions">
                 <button type="button" className="secondary-button" onClick={() => setEditingId(null)}>
-                  取消
+                  {t().common.cancel}
                 </button>
                 <button type="button" className="primary-button" disabled={busy} onClick={() => void save()}>
                   {busy ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />}
-                  保存身份
+                  {t().persona.save}
                 </button>
               </div>
             </div>
@@ -290,7 +290,7 @@ export function ConversationPersonaPanel({
         setSupported(result !== null);
         setPersonas(result ?? []);
       })
-      .catch((reason: unknown) => setError(errorText(reason, '读取身份失败。')))
+      .catch((reason: unknown) => setError(errorText(reason, t().persona.readFailedShort)))
       .finally(() => setLoading(false));
   }, [open]);
 
@@ -303,7 +303,7 @@ export function ConversationPersonaPanel({
       onBound(next);
       onClose();
     } catch (reason) {
-      setError(errorText(reason, '切换身份失败，请稍后重试。'));
+      setError(errorText(reason, t().persona.switchFailed));
     } finally {
       setBusy(false);
     }
@@ -311,16 +311,16 @@ export function ConversationPersonaPanel({
 
   if (!open) return null;
   return (
-    <PanelShell title="本次对话的身份" eyebrow="Persona" onClose={onClose}>
+    <PanelShell title={t().persona.pickerTitle} eyebrow={t().persona.eyebrow} onClose={onClose}>
       <p className="persona-lead">
-        只影响当前这段对话。以后新建的对话仍然使用默认身份。
+        {t().persona.pickerLead}
       </p>
       {loading && (
         <p className="import-state">
-          <LoaderCircle className="spin" size={18} /> 正在读取身份…
+          <LoaderCircle className="spin" size={18} /> {t().persona.loading}
         </p>
       )}
-      {!loading && !supported && <p className="persona-empty">{UNAVAILABLE}</p>}
+      {!loading && !supported && <p className="persona-empty">{unavailable()}</p>}
       {!loading && supported && (
         <ul className="persona-list persona-choice-list">
           <li>
@@ -332,8 +332,8 @@ export function ConversationPersonaPanel({
             >
               <span className="persona-avatar"><UserRound size={19} /></span>
               <span className="persona-copy">
-                <strong>不使用身份</strong>
-                <small>角色只会用一般称呼指代你。</small>
+                <strong>{t().persona.none}</strong>
+                <small>{t().persona.noneHint}</small>
               </span>
               {personaId === null && <Check size={17} />}
             </button>
@@ -350,9 +350,9 @@ export function ConversationPersonaPanel({
                 <span className="persona-copy">
                   <strong>
                     {persona.name}
-                    {persona.is_default && <em className="persona-badge">默认</em>}
+                    {persona.is_default && <em className="persona-badge">{t().persona.defaultBadge}</em>}
                   </strong>
-                  <small>{persona.description || '还没有填写身份描述。'}</small>
+                  <small>{persona.description || t().persona.noDescription}</small>
                 </span>
                 {personaId === persona.persona_id && <Check size={17} />}
               </button>
@@ -361,7 +361,7 @@ export function ConversationPersonaPanel({
         </ul>
       )}
       {!loading && supported && personas.length === 0 && (
-        <p className="persona-empty">还没有身份，可以先在「设置 → 用户身份」中创建。</p>
+        <p className="persona-empty">{t().persona.pickerEmpty}</p>
       )}
       {error && <p className="inline-error">{error}</p>}
     </PanelShell>

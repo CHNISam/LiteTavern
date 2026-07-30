@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { LoaderCircle, Mail, ShieldCheck, X } from 'lucide-react';
+import { t, useT } from '../lib/i18n';
 import {
   ApiError,
   sendEmailCode,
@@ -21,19 +22,19 @@ function friendlyError(reason: unknown): string {
   switch (code) {
     case 'INVALID_EMAIL':
     case 'VALIDATION_ERROR':
-      return '请输入有效的邮箱地址。';
+      return t().auth.invalidEmail;
     case 'CODE_SEND_RATE_LIMITED':
-      return '发送过于频繁，请稍后再试。';
+      return t().auth.rateLimited;
     case 'CODE_INVALID':
-      return '验证码不正确，请重新输入。';
+      return t().auth.codeInvalid;
     case 'CODE_EXPIRED':
-      return '验证码已过期，请重新获取。';
+      return t().auth.codeExpired;
     case 'CODE_ATTEMPTS_EXCEEDED':
-      return '尝试次数过多，请重新获取验证码。';
+      return t().auth.tooManyAttempts;
     case 'AUTH_MERGE_FAILED':
-      return '同步账号时出错，请稍后再试。';
+      return t().auth.mergeFailed;
     default:
-      return reason instanceof Error ? reason.message : '操作失败，请稍后重试。';
+      return reason instanceof Error ? reason.message : t().auth.generic;
   }
 }
 
@@ -45,6 +46,7 @@ function maskEmail(email: string): string {
 }
 
 export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
+  const t = useT();
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -122,15 +124,15 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
         className="login-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="注册或登录 LiteTavern Cloud 账号"
+        aria-label={t.auth.dialogLabel}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="login-header">
           <div>
-            <span className="eyebrow">LiteTavern Cloud 账号</span>
-            <h2>{step === 'email' ? '注册或登录' : '输入验证码'}</h2>
+            <span className="eyebrow">{t.auth.eyebrow}</span>
+            <h2>{step === 'email' ? t.auth.signInOrUp : t.auth.enterCode}</h2>
           </div>
-          <button className="icon-button" aria-label="关闭" onClick={onClose}>
+          <button className="icon-button" aria-label={t.common.close} onClick={onClose}>
             <X size={20} />
           </button>
         </header>
@@ -138,11 +140,10 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
         {step === 'email' ? (
           <form className="login-body" onSubmit={requestCode}>
             <p className="login-lead">
-              输入邮箱后，已有账号将直接登录；新邮箱验证后会创建云端账号并进入
-              LiteTavern Free，可同步角色、对话和记忆。Alpha 资格需要单独申请。
+              {t.auth.lead}
             </p>
             <label className="login-field">
-              <span>邮箱</span>
+              <span>{t.auth.email}</span>
               <div className="login-input">
                 <Mail size={18} />
                 <input
@@ -162,16 +163,16 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
               type="submit"
               disabled={busy || email.trim().length < 3}
             >
-              {busy ? <LoaderCircle className="spin" size={18} /> : '发送验证码'}
+              {busy ? <LoaderCircle className="spin" size={18} /> : t.auth.sendCode}
             </button>
           </form>
         ) : (
           <form className="login-body" onSubmit={submitCode}>
             <p className="login-lead">
-              验证码已发送至 {maskEmail(email.trim())}
+              {t.auth.codeSentTo(maskEmail(email.trim()))}
             </p>
             <label className="login-field">
-              <span>6 位验证码</span>
+              <span>{t.auth.codeLabel}</span>
               <div className="login-input">
                 <ShieldCheck size={18} />
                 <input
@@ -194,7 +195,7 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
               type="submit"
               disabled={busy || code.trim().length !== 6}
             >
-              {busy ? <LoaderCircle className="spin" size={18} /> : '验证 LiteTavern Cloud 账号'}
+              {busy ? <LoaderCircle className="spin" size={18} /> : t.auth.verify}
             </button>
             <div className="login-secondary">
               <button
@@ -206,7 +207,7 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
                 }}
                 disabled={busy}
               >
-                修改邮箱
+                {t.auth.changeEmail}
               </button>
               <button
                 type="button"
@@ -214,7 +215,7 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
                 onClick={() => void requestCode()}
                 disabled={busy || cooldown > 0}
               >
-                {cooldown > 0 ? `重新发送（${cooldown}s）` : '重新发送验证码'}
+                {cooldown > 0 ? t.auth.resendIn(cooldown) : t.auth.resendCode}
               </button>
             </div>
           </form>
