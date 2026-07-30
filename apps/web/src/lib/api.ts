@@ -192,11 +192,12 @@ export interface TurnPlan {
 // persisted server-side here — the client reveals and saves them one by one.
 export async function generateTurn(
   conversationId: string,
-  payload: unknown
+  payload: unknown,
+  idempotencyKey = createId()
 ): Promise<TurnPlan> {
   return api<TurnPlan>(`/v1/conversations/${conversationId}/turns`, {
     method: 'POST',
-    headers: { 'Idempotency-Key': createId() },
+    headers: { 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify(payload)
   });
 }
