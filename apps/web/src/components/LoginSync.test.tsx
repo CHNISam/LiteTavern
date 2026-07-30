@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LoginSync } from './LoginSync';
 
@@ -25,6 +25,7 @@ const registeredUser = {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -92,6 +93,70 @@ describe('LoginSync', () => {
     fireEvent.click(screen.getByRole('button', { name: '验证 LiteTavern Cloud 账号' }));
 
     expect(await screen.findByText('验证码不正确，请重新输入。')).toBeInTheDocument();
+  });
+
+  it('stays on the email step when delivery fails', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      json(
+        {
+          error: {
+            code: 'EMAIL_DELIVERY_FAILED',
+            message: 'provider internals must not be shown'
+          }
+        },
+        503
+      )
+    );
+
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} />);
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
+      target: { value: 'user@example.com' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
+
+    expect(
+      await screen.findByText('验证码邮件未能发送，请稍后重试。')
+    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('you@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('验证码已发送至 u***@example.com')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('______')).not.toBeInTheDocument();
+  });
+
+  it('leaves the stale code step when resend delivery fails', async () => {
+    vi.useFakeTimers();
+    let sends = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      sends += 1;
+      if (sends === 1) return json({ success: true, message: 'ok' });
+      return json(
+        {
+          error: {
+            code: 'EMAIL_DELIVERY_FAILED',
+            message: 'provider internals must not be shown'
+          }
+        },
+        503
+      );
+    });
+
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} />);
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
+      target: { value: 'user@example.com' }
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
+    });
+    expect(screen.getByText('验证码已发送至 u***@example.com')).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(60_000));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '重新发送验证码' }));
+    });
+
+    expect(screen.getByText('验证码邮件未能发送，请稍后重试。')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('you@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('验证码已发送至 u***@example.com')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('______')).not.toBeInTheDocument();
   });
 
   it('lets the user go back and change the email', async () => {

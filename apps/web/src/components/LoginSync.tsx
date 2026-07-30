@@ -25,6 +25,8 @@ function friendlyError(reason: unknown): string {
       return t().auth.invalidEmail;
     case 'CODE_SEND_RATE_LIMITED':
       return t().auth.rateLimited;
+    case 'EMAIL_DELIVERY_FAILED':
+      return t().auth.deliveryFailed;
     case 'CODE_INVALID':
       return t().auth.codeInvalid;
     case 'CODE_EXPIRED':
@@ -95,6 +97,12 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
       setCode('');
       startCooldown();
     } catch (reason) {
+      if (reason instanceof ApiError && reason.code === 'EMAIL_DELIVERY_FAILED') {
+        setStep('email');
+        setCode('');
+        setCooldown(0);
+        window.clearInterval(timerRef.current);
+      }
       setError(friendlyError(reason));
     } finally {
       setBusy(false);
