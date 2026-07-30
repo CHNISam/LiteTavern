@@ -106,23 +106,25 @@ Production 使用独立 Pages 项目，默认名为 `litetavern`。不得用 sta
   `CLOUDFLARE_STAGING_PROJECT`、`LITETAVERN_STAGING_URL`、
   `STAGING_ACCESS_ENABLED`、`CLOUDFLARE_PRODUCTION_PROJECT`、
   `LITETAVERN_PRODUCTION_URL`、`PRODUCTION_RELEASE_ENABLED`。
-- 两个部署开关保持关闭：
+- staging Access 门禁已开启，production 发布门禁继续保持关闭：
 
 ```text
-STAGING_ACCESS_ENABLED=false
+STAGING_ACCESS_ENABLED=true
 PRODUCTION_RELEASE_ENABLED=false
 ```
 
-工作流合入 `develop` 后，由仓库管理员完成：
+当前配置：
 
 - 将默认开发目标设为 `develop`（`main` 仍是生产分支）。
 - 为 `develop` 和 `main` 启用与单人流程兼容的 Ruleset/Branch protection。
 - 不强制 PR 或审批；禁止 force-push 和分支删除。
 - `develop` 在每次 push 后运行 `validate`；`main` 的任何推进仍必须遵守 staging、RC、稳定 Release 与生产审批门禁。
-- 配置 Environment secrets：
-  `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_API_TOKEN`；
-  staging 另配 `CF_ACCESS_CLIENT_ID`、`CF_ACCESS_CLIENT_SECRET`。
-- 在 Cloudflare Access 验证通过后，才把 `STAGING_ACCESS_ENABLED` 改为 `true`。
+- Repository secrets 已配置 `CLOUDFLARE_ACCOUNT_ID`、`CLOUDFLARE_API_TOKEN`。
+- staging 使用 `litetavern-dev` 和
+  `https://staging.litetavern-dev.pages.dev`；2026-07-30 已验证根域、
+  `/v1/`、最新预览域及其 `/v1/` 均返回 Access 挑战。
+- staging 尚未配置可选的 `CF_ACCESS_CLIENT_ID`、`CF_ACCESS_CLIENT_SECRET`；
+  部署验证会检查匿名 Access 挑战，但会跳过登录后的页面路由检查。
 - 在生产后端与持久化决策完成后，才讨论把 `PRODUCTION_RELEASE_ENABLED` 改为 `true`。
 
 ## 禁止事项
