@@ -5,6 +5,7 @@ import {
 import { ApiError, api, type Character } from '../lib/api';
 import { analytics } from '../lib/analytics';
 import { copyText } from '../lib/clipboard';
+import { t } from '../lib/i18n';
 import {
   UNIFIED_RELATIONSHIP_MIGRATION_PROMPT, memoryCountBucket
 } from '../lib/migration-prompts';
@@ -77,7 +78,7 @@ interface CommitResponse {
   already_committed: boolean;
 }
 
-const SEVERITY_LABEL = { FATAL: '错误', WARNING: '警告', INFO: '提示' } as const;
+const severityLabel = () => t().migration.severity;
 
 function CopyButton({ label, text, onCopied }: {
   label: string; text: string; onCopied: () => void;
@@ -91,7 +92,7 @@ function CopyButton({ label, text, onCopied }: {
   }
   return (
     <button type="button" className="secondary-button" onClick={() => void run()}>
-      {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? '已复制' : label}
+      {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? t().migration.copied : label}
     </button>
   );
 }
@@ -101,7 +102,7 @@ function ListField({ label, items, onChange }: {
 }) {
   return (
     <label>
-      {label}（每行一条）
+      {t().migration.perLine(label)}
       <textarea
         aria-label={label}
         rows={Math.min(6, Math.max(2, items.length + 1))}
@@ -122,7 +123,7 @@ function IssueList({ issues }: { issues: ImportIssue[] }) {
             ? <CircleAlert size={15} />
             : issue.severity === 'WARNING' ? <TriangleAlert size={15} /> : <Info size={15} />}
           <span>
-            <strong>{SEVERITY_LABEL[issue.severity]}</strong>
+            <strong>{severityLabel()[issue.severity]}</strong>
             {issue.path && <code>{issue.path}</code>}
             {issue.message}
           </span>
@@ -193,11 +194,11 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
     const isJson = file.name.toLowerCase().endsWith('.json')
       || file.type === 'application/json';
     if (!isJson) {
-      setError('只支持 .json 文件。请上传外部模型输出的标准 JSON，不要上传原始聊天记录。');
+      setError(t().migration.jsonOnly);
       return;
     }
     if (file.size > MAX_FILE_BYTES) {
-      setError(`文件为 ${Math.round(file.size / 1024)} KB，超过 ${MAX_FILE_BYTES / 1024} KB 上限。`);
+      setError(t().migration.tooLarge(Math.round(file.size / 1024), MAX_FILE_BYTES / 1024));
       return;
     }
     setFileName(file.name);
@@ -228,7 +229,7 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
         memory_count_bucket: memoryCountBucket(response.preview.memories.length)
       });
     } catch (reason) {
-      const message = reason instanceof ApiError ? reason.message : '校验失败，请稍后重试。';
+      const message = reason instanceof ApiError ? reason.message : t().migration.validateFailed;
       setError(message);
       track('relationship_import_validated', 'failure');
     } finally {
@@ -280,7 +281,7 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
       await onImported(response);
       onClose();
     } catch (reason) {
-      setError(reason instanceof ApiError ? reason.message : '导入失败，请稍后重试。');
+      setError(reason instanceof ApiError ? reason.message : t().migration.importFailed);
       track('relationship_import_completed', 'failure');
     } finally {
       setBusy(false);
@@ -316,34 +317,34 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
         className="settings-panel migration-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="迁移角色关系"
+        aria-label={t().migration.dialogLabel}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="settings-header">
-          <div><span className="eyebrow">角色数据</span><h2>迁移角色关系</h2></div>
-          <button className="icon-button" onClick={onClose} aria-label="关闭"><X size={19} /></button>
+          <div><span className="eyebrow">{t().migration.eyebrow}</span><h2>{t().migration.title}</h2></div>
+          <button className="icon-button" onClick={onClose} aria-label={t().common.close}><X size={19} /></button>
         </header>
 
         <div className="migration-content">
           {step === 'intro' && (
             <>
               <ol className="migration-steps">
-                <li>LiteTavern 不会读取你在豆包、星野、猫箱等平台的账号，也不会代你抓取任何数据。</li>
-                <li>请自行从原平台取得聊天记录。</li>
-                <li>复制下面的迁移 Prompt，在你自己使用的 ChatGPT / Claude / Gemini 等模型里整理这段记录。</li>
-                <li>LiteTavern 只接收整理后的结构化 JSON，原始聊天内容不需要上传到 LiteTavern。</li>
-                <li>外部 AI 平台可能会接触到你提交的聊天内容，请自行判断隐私风险。</li>
+                <li>{t().migration.steps.noAccountAccess}</li>
+                <li>{t().migration.steps.exportYourself}</li>
+                <li>{t().migration.steps.usePrompt}</li>
+                <li>{t().migration.steps.structuredOnly}</li>
+                <li>{t().migration.steps.privacyRisk}</li>
               </ol>
               <div className="migration-actions">
                 <CopyButton
-                  label="复制迁移已有关系 Prompt"
+                  label={t().migration.copyPrompt}
                   text={UNIFIED_RELATIONSHIP_MIGRATION_PROMPT}
                   onCopied={() => track('relationship_import_prompt_copied', 'success', { prompt_kind: 'unified' })}
                 />
               </div>
-              <button className="primary-button" onClick={() => setStep('input')}>进入导入</button>
+              <button className="primary-button" onClick={() => setStep('input')}>{t().migration.enterImport}</button>
               <p className="privacy-footnote">
-                迁移不需要配置 API Key，LiteTavern 全流程不调用外部模型，也不会承担你的整理费用。
+                {t().migration.noKeyNeeded}
               </p>
             </>
           )}
@@ -352,19 +353,19 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
             <>
               <label className="drop-zone">
                 <input
-                  aria-label="选择迁移 JSON 文件"
+                  aria-label={t().migration.chooseFileAria}
                   type="file"
                   accept=".json,application/json"
                   onChange={(event) => void readFile(event.target.files?.[0] ?? null)}
                 />
                 <Upload size={24} />
-                <strong>{fileName ?? '选择整理后的 .json 文件'}</strong>
-                <span>只接受 .json，最大 {MAX_FILE_BYTES / 1024} KB；不要上传原始聊天记录</span>
+                <strong>{fileName ?? t().migration.choosePlaceholder}</strong>
+                <span>{t().migration.fileHint(MAX_FILE_BYTES / 1024)}</span>
               </label>
               <label>
-                或直接粘贴 JSON
+                {t().migration.orPaste}
                 <textarea
-                  aria-label="粘贴迁移 JSON"
+                  aria-label={t().migration.pasteAria}
                   rows={10}
                   value={rawText}
                   placeholder='{"schema_version": "litetavern_relationship_import_v1", ...}'
@@ -373,13 +374,13 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
               </label>
               {error && <p className="inline-error">{error}</p>}
               <div className="migration-actions">
-                <button className="secondary-button" onClick={() => setStep('intro')}>返回说明</button>
+                <button className="secondary-button" onClick={() => setStep('intro')}>{t().migration.backToIntro}</button>
                 <button
                   className="primary-button"
                   disabled={busy || !rawText.trim()}
                   onClick={() => void validate()}
                 >
-                  {busy ? <LoaderCircle className="spin" size={17} /> : <FileJson size={17} />} 校验数据
+                  {busy ? <LoaderCircle className="spin" size={17} /> : <FileJson size={17} />} {t().migration.validate}
                 </button>
               </div>
             </>
@@ -391,88 +392,88 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
               {error && <p className="inline-error">{error}</p>}
               {!draft ? (
                 <div className="migration-actions">
-                  <button className="primary-button" onClick={() => setStep('input')}>返回修改 JSON</button>
+                  <button className="primary-button" onClick={() => setStep('input')}>{t().migration.backToJson}</button>
                 </div>
               ) : (
                 <>
                   <div className="editor-section">
-                    <h3>角色</h3>
-                    <label>角色名称<input aria-label="角色名称" value={draft.character.name} maxLength={200} onChange={(event) => editDraft({ character: { ...draft.character, name: event.target.value } })} /></label>
-                    <label>角色描述<textarea aria-label="角色描述" rows={4} value={draft.character.description} onChange={(event) => editDraft({ character: { ...draft.character, description: event.target.value } })} /></label>
-                    <ListField label="性格特征" items={draft.character.personality_traits} onChange={(next) => editDraft({ character: { ...draft.character, personality_traits: next } })} />
-                    <ListField label="说话风格" items={draft.character.speaking_style} onChange={(next) => editDraft({ character: { ...draft.character, speaking_style: next } })} />
+                    <h3>{t().migration.sectionCharacter}</h3>
+                    <label>{t().migration.characterName}<input aria-label={t().migration.characterName} value={draft.character.name} maxLength={200} onChange={(event) => editDraft({ character: { ...draft.character, name: event.target.value } })} /></label>
+                    <label>{t().migration.characterDescription}<textarea aria-label={t().migration.characterDescription} rows={4} value={draft.character.description} onChange={(event) => editDraft({ character: { ...draft.character, description: event.target.value } })} /></label>
+                    <ListField label={t().migration.personalityTraits} items={draft.character.personality_traits} onChange={(next) => editDraft({ character: { ...draft.character, personality_traits: next } })} />
+                    <ListField label={t().migration.speakingStyle} items={draft.character.speaking_style} onChange={(next) => editDraft({ character: { ...draft.character, speaking_style: next } })} />
                   </div>
 
                   <div className="editor-section">
-                    <h3>你的资料</h3>
-                    <label>希望使用的名字<input aria-label="希望使用的名字" value={draft.user_profile.preferred_name} onChange={(event) => editDraft({ user_profile: { ...draft.user_profile, preferred_name: event.target.value } })} /></label>
-                    <ListField label="用户事实" items={draft.user_profile.facts} onChange={(next) => editDraft({ user_profile: { ...draft.user_profile, facts: next } })} />
-                    <ListField label="用户偏好" items={draft.user_profile.preferences} onChange={(next) => editDraft({ user_profile: { ...draft.user_profile, preferences: next } })} />
-                    <ListField label="互动边界" items={draft.user_profile.boundaries} onChange={(next) => editDraft({ user_profile: { ...draft.user_profile, boundaries: next } })} />
+                    <h3>{t().migration.sectionYou}</h3>
+                    <label>{t().migration.preferredName}<input aria-label={t().migration.preferredName} value={draft.user_profile.preferred_name} onChange={(event) => editDraft({ user_profile: { ...draft.user_profile, preferred_name: event.target.value } })} /></label>
+                    <ListField label={t().migration.userFacts} items={draft.user_profile.facts} onChange={(next) => editDraft({ user_profile: { ...draft.user_profile, facts: next } })} />
+                    <ListField label={t().migration.userPreferences} items={draft.user_profile.preferences} onChange={(next) => editDraft({ user_profile: { ...draft.user_profile, preferences: next } })} />
+                    <ListField label={t().migration.boundaries} items={draft.user_profile.boundaries} onChange={(next) => editDraft({ user_profile: { ...draft.user_profile, boundaries: next } })} />
                   </div>
 
                   <div className="editor-section">
-                    <h3>关系</h3>
-                    <label>关系摘要<textarea aria-label="关系摘要" rows={4} value={draft.relationship.summary} onChange={(event) => editDraft({ relationship: { ...draft.relationship, summary: event.target.value } })} /></label>
-                    <label>当前关系阶段<input aria-label="当前关系阶段" value={draft.relationship.stage} onChange={(event) => editDraft({ relationship: { ...draft.relationship, stage: event.target.value } })} /></label>
-                    <ListField label="角色对你的稳定称呼" items={draft.relationship.user_addressing} onChange={(next) => editDraft({ relationship: { ...draft.relationship, user_addressing: next } })} />
-                    <ListField label="互动模式" items={draft.relationship.interaction_patterns} onChange={(next) => editDraft({ relationship: { ...draft.relationship, interaction_patterns: next } })} />
-                    <ListField label="未完成事项" items={draft.unfinished_threads} onChange={(next) => editDraft({ unfinished_threads: next })} />
+                    <h3>{t().migration.sectionRelationship}</h3>
+                    <label>{t().migration.relationshipSummary}<textarea aria-label={t().migration.relationshipSummary} rows={4} value={draft.relationship.summary} onChange={(event) => editDraft({ relationship: { ...draft.relationship, summary: event.target.value } })} /></label>
+                    <label>{t().migration.relationshipStage}<input aria-label={t().migration.relationshipStage} value={draft.relationship.stage} onChange={(event) => editDraft({ relationship: { ...draft.relationship, stage: event.target.value } })} /></label>
+                    <ListField label={t().migration.userAddressing} items={draft.relationship.user_addressing} onChange={(next) => editDraft({ relationship: { ...draft.relationship, user_addressing: next } })} />
+                    <ListField label={t().migration.interactionPatterns} items={draft.relationship.interaction_patterns} onChange={(next) => editDraft({ relationship: { ...draft.relationship, interaction_patterns: next } })} />
+                    <ListField label={t().migration.unfinishedThreads} items={draft.unfinished_threads} onChange={(next) => editDraft({ unfinished_threads: next })} />
                   </div>
 
                   <div className="editor-section">
-                    <h3>长期记忆（{selectedMemories.length}/{draft.memories.length}）</h3>
+                    <h3>{t().migration.memoriesHeading(selectedMemories.length, draft.memories.length)}</h3>
                     {draft.memories.map((memory) => (
                       <article key={memory.key} className={`migration-memory ${skipped[memory.key] ? 'is-skipped' : ''}`}>
                         <div className="memory-toolbar">
                           <label className="memory-toggle">
                             <input
                               type="checkbox"
-                              aria-label={`导入记忆 ${memory.key}`}
+                              aria-label={t().migration.importMemoryAria(memory.key)}
                               checked={!skipped[memory.key]}
                               onChange={(event) => setSkipped((current) => ({ ...current, [memory.key]: !event.target.checked }))}
                             />
-                            导入这条
+                            {t().migration.importThis}
                           </label>
                           <label className="memory-importance">
-                            重要度 {memory.importance}
+                            {t().migration.importance(memory.importance)}
                             <input
                               type="range"
-                              aria-label={`记忆 ${memory.key} 重要度`}
+                              aria-label={t().migration.importanceAria(memory.key)}
                               min={1}
                               max={10}
                               value={memory.importance}
                               onChange={(event) => editMemory(memory.key, { importance: Number(event.target.value) })}
                             />
                           </label>
-                          <button type="button" aria-label={`删除记忆 ${memory.key}`} onClick={() => removeMemory(memory.key)}>
+                          <button type="button" aria-label={t().migration.deleteMemoryAria(memory.key)} onClick={() => removeMemory(memory.key)}>
                             <Trash2 size={16} />
                           </button>
                         </div>
                         <textarea
-                          aria-label={`记忆 ${memory.key} 内容`}
+                          aria-label={t().migration.memoryContentAria(memory.key)}
                           rows={2}
                           value={memory.content}
                           onChange={(event) => editMemory(memory.key, { content: event.target.value })}
                         />
                         <small>
-                          {memory.approximate_time ?? '时间未知'}
+                          {memory.approximate_time ?? t().migration.timeUnknown}
                           {memory.tags.length > 0 && ` · ${memory.tags.join('、')}`}
-                          {memory.duplicate_of && ' · 与前面某条内容重复'}
+                          {memory.duplicate_of && t().migration.duplicateNote}
                         </small>
                       </article>
                     ))}
-                    {!draft.memories.length && <p className="muted">这份数据没有长期记忆。</p>}
+                    {!draft.memories.length && <p className="muted">{t().migration.noMemories}</p>}
                   </div>
 
                   {draft.uncertain_items.length > 0 && (
                     <div className="editor-section">
-                      <h3>不确定信息（{draft.uncertain_items.length}）</h3>
-                      <p className="muted">这些内容默认不会写入正式记忆。你可以在这里修改，或把它保留在迁移记录里以后再看。</p>
+                      <h3>{t().migration.uncertainHeading(draft.uncertain_items.length)}</h3>
+                      <p className="muted">{t().migration.uncertainLead}</p>
                       {draft.uncertain_items.map((item, index) => (
                         <article key={`uncertain-${index}`} className="migration-memory">
                           <textarea
-                            aria-label={`不确定信息 ${index + 1}`}
+                            aria-label={t().migration.uncertainAria(index + 1)}
                             rows={2}
                             value={item.content}
                             onChange={(event) => editDraft({
@@ -481,7 +482,7 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
                               ))
                             })}
                           />
-                          <small>{item.reason || '未说明原因'}</small>
+                          <small>{item.reason || t().migration.noReason}</small>
                           <button
                             type="button"
                             className="secondary-button"
@@ -502,7 +503,7 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
                               });
                             }}
                           >
-                            转为正式记忆
+                            {t().migration.promoteToMemory}
                           </button>
                         </article>
                       ))}
@@ -512,19 +513,19 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
                           checked={keepUncertain}
                           onChange={(event) => setKeepUncertain(event.target.checked)}
                         />
-                        保留在迁移记录中，供以后查看
+                        {t().migration.keepInRecord}
                       </label>
                     </div>
                   )}
 
                   <div className="migration-actions">
-                    <button className="secondary-button" onClick={() => setStep('input')}>返回修改 JSON</button>
+                    <button className="secondary-button" onClick={() => setStep('input')}>{t().migration.backToJson}</button>
                     <button
                       className="primary-button"
                       disabled={!draft.character.name.trim() || !draft.relationship.summary.trim()}
                       onClick={() => setStep('confirm')}
                     >
-                      下一步：确认导入
+                      {t().migration.nextConfirm}
                     </button>
                   </div>
                 </>
@@ -535,10 +536,10 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
           {step === 'confirm' && draft && (
             <>
               <div className="editor-section">
-                <h3>导入到</h3>
+                <h3>{t().migration.importTargetHeading}</h3>
                 <label className="memory-toggle">
                   <input type="radio" name="import-mode" checked={mode === 'CREATE'} onChange={() => setMode('CREATE')} />
-                  创建新角色「{draft.character.name}」
+                  {t().migration.createNamed(draft.character.name)}
                 </label>
                 <label className="memory-toggle">
                   <input
@@ -548,11 +549,11 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
                     disabled={!ownedCharacters.length}
                     onChange={() => setMode('EXISTING')}
                   />
-                  导入到我已有的角色
+                  {t().migration.importIntoExisting}
                 </label>
                 {mode === 'EXISTING' && (
                   <>
-                    <select aria-label="选择已有角色" value={targetId} onChange={(event) => setTargetId(event.target.value)}>
+                    <select aria-label={t().migration.chooseExistingAria} value={targetId} onChange={(event) => setTargetId(event.target.value)}>
                       {ownedCharacters.map((character) => (
                         <option key={character.character_id} value={character.character_id}>{character.name}</option>
                       ))}
@@ -563,32 +564,39 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
                         checked={updateExisting}
                         onChange={(event) => setUpdateExisting(event.target.checked)}
                       />
-                      同时用迁移资料覆盖该角色的名称、描述与性格
+                      {t().migration.overwriteExisting}
                     </label>
                   </>
                 )}
-                {!ownedCharacters.length && <p className="muted">你还没有自己创建的角色，只能创建新角色。</p>}
+                {!ownedCharacters.length && <p className="muted">{t().migration.noOwnedCharacters}</p>}
               </div>
 
               <ul className="migration-summary">
-                <li>将{mode === 'CREATE' ? '创建' : updateExisting ? '更新' : '沿用'} 1 个角色{targetName ? `：${targetName}` : ''}</li>
-                <li>将写入 {selectedMemories.length} 条长期记忆</li>
-                <li>将更新 1 份关系摘要</li>
-                <li>将保留 {keepUncertain ? draft.uncertain_items.length : 0} 条不确定信息</li>
-                <li>将创建 1 个新的 LiteTavern 会话</li>
+                <li>{t().migration.summaryCharacter(
+                  mode === 'CREATE'
+                    ? t().migration.willCreate
+                    : updateExisting
+                      ? t().migration.willUpdate
+                      : t().migration.willReuse,
+                  targetName ? `：${targetName}` : ''
+                )}</li>
+                <li>{t().migration.summaryMemories(selectedMemories.length)}</li>
+                <li>{t().migration.summaryRelationship}</li>
+                <li>{t().migration.summaryUncertain(keepUncertain ? draft.uncertain_items.length : 0)}</li>
+                <li>{t().migration.summaryConversation}</li>
               </ul>
               <p className="privacy-footnote">
-                旧平台的聊天记录不会被伪造成 LiteTavern 的历史消息，新会话只会有一条迁移说明。
+                {t().migration.noFakeHistory}
               </p>
               {error && <p className="inline-error">{error}</p>}
               <div className="migration-actions">
-                <button className="secondary-button" onClick={() => setStep('review')}>返回修改</button>
+                <button className="secondary-button" onClick={() => setStep('review')}>{t().migration.backToEdit}</button>
                 <button
                   className="primary-button"
                   disabled={busy || (mode === 'EXISTING' && !targetId)}
                   onClick={() => void commit()}
                 >
-                  {busy ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />} 确认导入
+                  {busy ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />} {t().migration.confirmImport}
                 </button>
               </div>
             </>

@@ -496,6 +496,126 @@ export const en: Dictionary = {
     linkEmpty: 'No worldbooks yet — create one under Settings → Worldbooks.'
   },
 
+  migration: {
+    dialogLabel: 'Migrate a relationship',
+    eyebrow: 'Character data',
+    title: 'Migrate a relationship',
+    severity: { FATAL: 'Error', WARNING: 'Warning', INFO: 'Note' },
+    copied: 'Copied',
+    perLine: (label: string) => `${label} (one per line)`,
+    steps: {
+      noAccountAccess:
+        'LiteTavern never signs into your account on another platform and never scrapes anything on your behalf.',
+      exportYourself: 'Export the chat history from the original platform yourself.',
+      usePrompt:
+        'Copy the migration prompt below and run it through whichever model you already use — ChatGPT, Claude, Gemini — to structure that history.',
+      structuredOnly:
+        'LiteTavern only accepts the structured JSON that comes out. The raw chat never has to be uploaded here.',
+      privacyRisk:
+        'The external model you use will see whatever chat content you paste into it. Judge that privacy trade-off yourself.'
+    },
+    copyPrompt: 'Copy the migration prompt',
+    enterImport: 'Continue to import',
+    noKeyNeeded:
+      'Migration needs no API key: LiteTavern never calls an external model here, and never picks up the bill for the structuring step.',
+    jsonOnly:
+      'Only .json is accepted. Upload the structured JSON a model produced, not the raw chat history.',
+    tooLarge: (sizeKb: number, limitKb: number) =>
+      `That file is ${sizeKb} KB, over the ${limitKb} KB limit.`,
+    validateFailed: 'Validation failed. Please try again.',
+    importFailed: 'Import failed. Please try again.',
+    chooseFileAria: 'Choose the migration JSON file',
+    choosePlaceholder: 'Choose the structured .json file',
+    fileHint: (limitKb: number) =>
+      `.json only, up to ${limitKb} KB — not the raw chat history`,
+    orPaste: 'Or paste the JSON',
+    pasteAria: 'Paste the migration JSON',
+    backToIntro: 'Back to instructions',
+    validate: 'Validate',
+    backToJson: 'Back to the JSON',
+    sectionCharacter: 'Character',
+    characterName: 'Name',
+    characterDescription: 'Description',
+    personalityTraits: 'Personality traits',
+    speakingStyle: 'Speaking style',
+    sectionYou: 'About you',
+    preferredName: 'What they should call you',
+    userFacts: 'Facts about you',
+    userPreferences: 'Your preferences',
+    boundaries: 'Boundaries',
+    sectionRelationship: 'Relationship',
+    relationshipSummary: 'Summary',
+    relationshipStage: 'Current stage',
+    userAddressing: 'How they address you',
+    interactionPatterns: 'Interaction patterns',
+    unfinishedThreads: 'Unfinished threads',
+    memoriesHeading: (selected: number, total: number) => `Long-term memories (${selected}/${total})`,
+    importMemoryAria: (key: string) => `Import memory ${key}`,
+    importThis: 'Import this',
+    importance: (value: number) => `Importance ${value}`,
+    importanceAria: (key: string) => `Importance of memory ${key}`,
+    deleteMemoryAria: (key: string) => `Delete memory ${key}`,
+    memoryContentAria: (key: string) => `Content of memory ${key}`,
+    timeUnknown: 'Time unknown',
+    duplicateNote: ' · duplicates an earlier entry',
+    noMemories: 'This file has no long-term memories.',
+    uncertainHeading: (count: number) => `Uncertain items (${count})`,
+    uncertainLead:
+      'These are not written to real memories by default. Edit them here, or keep them in the migration record to look at later.',
+    uncertainAria: (index: number) => `Uncertain item ${index}`,
+    noReason: 'No reason given',
+    promoteToMemory: 'Promote to a real memory',
+    keepInRecord: 'Keep in the migration record for later',
+    nextConfirm: 'Next: confirm the import',
+    importTargetHeading: 'Import into',
+    createNamed: (name: string) => `Create a new character “${name}”`,
+    importIntoExisting: 'One of my existing characters',
+    chooseExistingAria: 'Choose an existing character',
+    overwriteExisting: 'Also overwrite their name, description and personality with the migrated data',
+    noOwnedCharacters: 'You have no characters of your own yet, so a new one will be created.',
+    willCreate: 'Create',
+    willUpdate: 'Update',
+    willReuse: 'Reuse',
+    summaryCharacter: (verb: string, name: string) => `${verb} 1 character${name}`,
+    summaryMemories: (count: number) => `Write ${count} long-term ${count === 1 ? 'memory' : 'memories'}`,
+    summaryRelationship: 'Update 1 relationship summary',
+    summaryUncertain: (count: number) => `Keep ${count} uncertain ${count === 1 ? 'item' : 'items'}`,
+    summaryConversation: 'Create 1 new LiteTavern conversation',
+    noFakeHistory:
+      'The old platform\u2019s messages are never forged into LiteTavern history. The new conversation carries a single migration note.',
+    backToEdit: 'Back',
+    confirmImport: 'Import'
+  },
+
+  feedback: {
+    open: 'Feedback',
+    openAria: 'Send feedback',
+    eyebrow: 'Help us check the core experience',
+    title: 'Send feedback',
+    closeAria: 'Close feedback',
+    sent: 'Received — thank you.',
+    sentBody:
+      'Feedback carries the page, version and runtime environment. It never carries chat content or API keys.',
+    done: 'Done',
+    kind: 'Type',
+    kindUx: 'Something felt wrong',
+    kindIdea: 'Suggestion',
+    kindOther: 'Other',
+    body: 'What happened',
+    bodyPlaceholder: 'What happened, and what did you expect instead?',
+    contact: 'Contact',
+    contactPlaceholder: 'Email, or another way to reach you',
+    attachedNote:
+      'The current page, app version, browser/device, provider/model and any trace id are attached automatically.',
+    sending: 'Sending…',
+    send: 'Send feedback',
+    failed: 'Could not send the feedback. Please try again.'
+  },
+
+  admin: {
+    loading: 'Loading the admin console…'
+  },
+
   membership: {
     anonymousTrialActive: 'Using the trial allowance provided by LiteTavern Cloud',
     anonymousTrialSpent:

@@ -140,7 +140,7 @@ export function App() {
   if (publicRoute === 'about') return <AboutPage />;
   if (publicRoute === 'admin') {
     return (
-      <Suspense fallback={<main className="admin-loading">正在加载管理后台…</main>}>
+      <Suspense fallback={<main className="admin-loading">{translate().admin.loading}</main>}>
         <AdminApp />
       </Suspense>
     );
