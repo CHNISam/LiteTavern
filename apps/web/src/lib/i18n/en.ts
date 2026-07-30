@@ -67,6 +67,13 @@ export const en: Dictionary = {
     sendMessage: 'Send message',
     quickReplies: 'Suggested replies',
     thinkingOfReplies: 'Thinking of a few replies…',
+    cloudChecking: 'Checking LiteTavern Cloud…',
+    cloudUnavailable:
+      'LiteTavern Cloud is temporarily unavailable. Try again later, or connect your own model.',
+    cloudUnavailableStatus: 'LiteTavern Cloud unavailable',
+    cloudQuotaExhaustedStatus: 'LiteTavern Cloud · Allowance used up',
+    retryCloud: 'Retry',
+    connectOwnModelAction: 'Connect your own model',
     noModelAvailable:
       'No model available. Connect your own, or check your LiteTavern Cloud allowance.',
     connectOwnModel: 'Connect your own model',
@@ -248,6 +255,13 @@ export const en: Dictionary = {
     title: 'Choose who writes the replies',
     statusLabel: 'Model service status',
     cloudBlurb: 'The hosted model service run by LiteTavern',
+    checkingCloud: 'Checking LiteTavern Cloud…',
+    temporarilyUnavailable: 'Temporarily unavailable',
+    quotaExhaustedStatus: 'Allowance used up',
+    quotaAfterRecovery: (available: number) =>
+      `${available} remaining, available when service returns`,
+    retryCloud: 'Retry',
+    connectOwnModelAction: 'Connect your own model',
     inUse: 'In use',
     usingThis: 'Currently in use',
     useCloud: (name: string) => `Use ${name}`,

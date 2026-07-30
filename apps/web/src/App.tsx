@@ -37,6 +37,8 @@ import {
   quotaLabel,
   readCachedStatus,
   reportSyncCheckpoint,
+  resolveCloudModelServiceState,
+  type CloudModelServiceState,
   type CloudStatus
 } from './lib/cloud';
 import {
@@ -87,6 +89,25 @@ function analyticsErrorCode(code: string): string {
     return 'provider_unavailable';
   }
   return 'generation_failed';
+}
+
+function isCloudServiceFailure(code: string | undefined): boolean {
+  return [
+    'FREE_SERVICE_UNAVAILABLE',
+    'FREE_SERVICE_DISABLED',
+    'PROVIDER_UNAVAILABLE',
+    // Older Cloud deployments used this for missing platform configuration.
+    'CREDENTIAL_INVALID'
+  ].includes(code ?? '');
+}
+
+function isCloudQuotaFailure(code: string | undefined): boolean {
+  return [
+    'FREE_QUOTA_EXHAUSTED',
+    'CLOUD_QUOTA_EXHAUSTED',
+    'CLOUD_QUOTA_DAILY_LIMIT',
+    'CLOUD_BUDGET_EXHAUSTED'
+  ].includes(code ?? '');
 }
 
 function avatarUrl(character: Character) {
@@ -159,11 +180,11 @@ function ProductApp() {
   const [selectedConfigurationId, setSelectedConfigurationId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [, setErrorCode] = useState<string | null>(null);
-  const [freeQuotaRemaining, setFreeQuotaRemaining] = useState<number | null>(null);
-  const [freeQuotaEnabled, setFreeQuotaEnabled] = useState(true);
   const [account, setAccount] = useState<AnonymousIdentity | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [cloud, setCloud] = useState<CloudStatus | null>(() => readCachedStatus());
+  const [cloudChecking, setCloudChecking] = useState(true);
+  const [cloudRuntimeUnavailable, setCloudRuntimeUnavailable] = useState(false);
   const [cloudOffline, setCloudOffline] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [analyticsReady, setAnalyticsReady] = useState(false);
@@ -185,6 +206,7 @@ function ProductApp() {
   }
   const conversationIdRef = useRef<string | null>(null);
   const activeRef = useRef<Character | null>(null);
+  const usageModeRef = useRef<'PLATFORM' | 'BYOK'>(usageMode);
   const suggestAbortRef = useRef<AbortController | null>(null);
   // Identifies the conversation state the current suggestions were (or are being)
   // fetched for. Re-requesting the same key would buy an identical answer twice.
@@ -201,6 +223,14 @@ function ProductApp() {
 
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
   useEffect(() => { activeRef.current = active; }, [active]);
+  useEffect(() => { usageModeRef.current = usageMode; }, [usageMode]);
+
+  const cloudService = resolveCloudModelServiceState(cloud, {
+    checking: cloudChecking,
+    offline: cloudOffline,
+    runtimeUnavailable: cloudRuntimeUnavailable,
+    selected: usageMode === 'PLATFORM'
+  });
 
   useEffect(() => {
     const controller = new TurnPlaybackController({
@@ -229,8 +259,33 @@ function ProductApp() {
       },
       onError: (reason) => {
         setTyping(false);
-        const message = reason instanceof Error ? reason.message : translate().chat.sendFailed;
         const apiError = reason instanceof ApiError ? reason : null;
+        const platformRequest = usageModeRef.current === 'PLATFORM';
+        const serviceFailure =
+          platformRequest && isCloudServiceFailure(apiError?.code);
+        const quotaFailure =
+          platformRequest && isCloudQuotaFailure(apiError?.code);
+        if (serviceFailure) setCloudRuntimeUnavailable(true);
+        if (quotaFailure) {
+          setCloud((current) =>
+            current
+              ? {
+                  ...current,
+                  model_service: {
+                    available: false,
+                    reason_code: 'QUOTA_EXHAUSTED'
+                  }
+                }
+              : current
+          );
+        }
+        const message = serviceFailure
+          ? translate().chat.cloudUnavailable
+          : quotaFailure
+            ? translate().chat.quotaExhausted
+            : reason instanceof Error
+              ? reason.message
+              : translate().chat.sendFailed;
         setError(message);
         setErrorCode(apiError?.code ?? 'GENERATION_FAILED');
         analytics.blockingError(
@@ -364,13 +419,20 @@ function ProductApp() {
   }
 
   async function refreshCloudStatus() {
+    setCloudChecking(true);
     try {
       const result = await fetchCloudStatus();
       if (result.status) setCloud(result.status);
       setCloudOffline(result.offline);
+      if (!result.offline && result.status?.model_service?.available) {
+        setCloudRuntimeUnavailable(false);
+      }
       return result.status;
     } catch {
+      setCloudOffline(true);
       return null;
+    } finally {
+      setCloudChecking(false);
     }
   }
 
@@ -415,8 +477,6 @@ function ProductApp() {
     );
     if (identityResponse.user?.anonymous_id) {
       setAccount(identityResponse.user);
-      setFreeQuotaRemaining(identityResponse.user.free_quota_remaining);
-      setFreeQuotaEnabled(identityResponse.user.free_quota_enabled);
       await analytics.initialize({
         userId: identityResponse.user.user_id,
         anonymousId: identityResponse.user.anonymous_id,
@@ -448,6 +508,7 @@ function ProductApp() {
    */
   function bootstrapOffline() {
     const cached = cachedCharacters();
+    setCloudChecking(false);
     setCloudOffline(true);
     setCharacters(cached);
     if (cached[0]) openCharacterOffline(cached[0]);
@@ -467,8 +528,6 @@ function ProductApp() {
   // conversation the user is currently reading.
   async function onAuthenticated(user: AnonymousIdentity) {
     setAccount(user);
-    setFreeQuotaRemaining(user.free_quota_remaining);
-    setFreeQuotaEnabled(user.free_quota_enabled);
     setLoginOpen(false);
     await refreshCloudStatus();
     const response = await api<{ characters: Character[] }>('/v1/characters');
@@ -487,8 +546,6 @@ function ProductApp() {
     );
     if (identityResponse.user) {
       setAccount(identityResponse.user);
-      setFreeQuotaRemaining(identityResponse.user.free_quota_remaining);
-      setFreeQuotaEnabled(identityResponse.user.free_quota_enabled);
     }
     setActive(null);
     setConversationId(null);
@@ -615,25 +672,26 @@ function ProductApp() {
     // Ignore repeat sends only while awaiting the model; during playback a new send
     // is allowed and interrupts the remaining bubbles.
     if (controller.getState() === 'GENERATING') return;
-    // Blocked only when the server has told us there is nothing left to spend. The
-    // Cloud status is authoritative; the legacy counter is the fallback while the
-    // first status response is still in flight.
-    const platformExhausted = cloud
-      ? cloud.quota.source === 'NONE' || cloud.quota.available === 0
-      : freeQuotaRemaining === 0;
-    if (usageMode === 'PLATFORM' && (!freeQuotaEnabled || platformExhausted)) {
-      const code = freeQuotaEnabled
+    // Selection, allowance and live service readiness are separate facts. A cached
+    // selection never authorizes a send before the Cloud status check completes.
+    if (
+      usageMode === 'PLATFORM' &&
+      cloudService.availability !== 'available'
+    ) {
+      const exhausted = cloudService.availability === 'quota_exhausted';
+      const code = exhausted
         ? 'FREE_QUOTA_EXHAUSTED'
         : 'FREE_SERVICE_DISABLED';
       setErrorCode(code);
-      setError(
-        freeQuotaEnabled
-          ? t.chat.quotaExhausted
-          : t.chat.platformDisabled
-      );
+      setError(exhausted ? t.chat.quotaExhausted : t.chat.cloudUnavailable);
       analytics.blockingError(analyticsErrorCode(code), 'chat', {
-        errorStage: 'quota_check',
-        retryable: false,
+        errorStage:
+          cloudService.availability === 'checking'
+            ? 'service_check'
+            : exhausted
+              ? 'quota_check'
+              : 'service_availability',
+        retryable: !exhausted,
         ...(active ? { characterId: active.character_id } : {}),
         ...(conversationId ? { conversationId } : {})
       });
@@ -682,7 +740,30 @@ function ProductApp() {
       const plan = await generateTurn(targetConversationId, payload);
       turnIdRef.current = plan.turn_id;
       if (plan.free_quota_remaining !== undefined) {
-        setFreeQuotaRemaining(plan.free_quota_remaining);
+        const remaining = plan.free_quota_remaining;
+        setCloud((current) =>
+          current
+            ? {
+                ...current,
+                quota: {
+                  ...current.quota,
+                  available: remaining,
+                  remaining_ratio:
+                    current.quota.total > 0
+                      ? remaining / current.quota.total
+                      : 0
+                },
+                ...(remaining === 0
+                  ? {
+                      model_service: {
+                        available: false,
+                        reason_code: 'QUOTA_EXHAUSTED' as const
+                      }
+                    }
+                  : {})
+              }
+            : current
+        );
       }
       // The reply carries the post-deduction quota, so the badge stays honest
       // without an extra round trip.
@@ -820,8 +901,7 @@ function ProductApp() {
         ) : view === 'chat' ? (
           <ChatPage
             character={active} messages={messages} draft={draft} sending={sending} error={error}
-            freeQuotaRemaining={freeQuotaRemaining} freeQuotaEnabled={freeQuotaEnabled}
-            cloud={cloud}
+            cloud={cloud} cloudService={cloudService}
             usageMode={usageMode} configurations={configurations} selectedConfigurationId={selectedConfigurationId}
             suggestions={suggestions} suggesting={suggesting} typing={typing}
             onProfile={() => setView('profile')} onDraft={setDraft} onSend={send} onPick={(text) => void submit(text)}
@@ -835,6 +915,7 @@ function ProductApp() {
             onConfiguration={setSelectedConfigurationId}
             onProvider={() => openProviderSettings('byok')}
             onPlatformQuota={() => openProviderSettings('platform')}
+            onRetryCloud={() => void refreshCloudStatus()}
           />
         ) : view === 'profile' ? (
           <ProfilePage
@@ -875,11 +956,12 @@ function ProductApp() {
         open={providerOpen}
         onClose={() => setProviderOpen(false)}
         cloud={cloud}
+        cloudService={cloudService}
         offline={cloudOffline}
-        freeQuotaEnabled={freeQuotaEnabled}
         usageMode={usageMode}
         initialSection={providerInitialSection}
         onUsageMode={setUsageMode}
+        onRetryCloud={() => void refreshCloudStatus()}
         onConfigurationsChanged={(next) => {
           setConfigurations(next);
           if (!selectedConfigurationId && next[0]) setSelectedConfigurationId(next[0].model_configuration_id);
@@ -1153,30 +1235,35 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   );
 }
 
-function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaining, freeQuotaEnabled, cloud, usageMode, configurations, selectedConfigurationId, suggestions, suggesting, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider, onPlatformQuota }: {
+function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, usageMode, configurations, selectedConfigurationId, suggestions, suggesting, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
   character: Character; messages: Message[]; draft: string; sending: boolean; error: string | null;
-  freeQuotaRemaining: number | null; freeQuotaEnabled: boolean;
   cloud: CloudStatus | null;
+  cloudService: CloudModelServiceState;
   usageMode: 'PLATFORM' | 'BYOK'; configurations: ModelConfiguration[]; selectedConfigurationId: string;
   suggestions: string[]; suggesting: boolean; typing: boolean;
   onProfile: () => void; onDraft: (value: string) => void; onSend: (event: FormEvent) => void; onPick: (text: string) => void;
   onEditSubmit: (messageId: string, text: string) => void;
   onUsageMode: (mode: 'PLATFORM' | 'BYOK') => void; onConfiguration: (id: string) => void; onProvider: () => void;
   onPlatformQuota: () => void;
+  onRetryCloud: () => void;
 }) {
   const t = useT();
   const lastLine = [...messages].reverse().find((message) => message.role === 'ASSISTANT' && message.content_text.trim())?.content_text
     || character.first_message || character.profile_summary || t.chat.characterProfile;
 
-  // The server decides whether anything is left to spend; the legacy counter only
-  // covers the moment before the first Cloud status arrives.
-  const platformExhausted = cloud
-    ? cloud.quota.source === 'NONE' || cloud.quota.available === 0
-    : freeQuotaRemaining === 0;
-  const officialBlocked =
-    usageMode === 'PLATFORM' && (!freeQuotaEnabled || platformExhausted);
-  const noAvailableModel =
-    (!freeQuotaEnabled || platformExhausted) && configurations.length === 0;
+  const platformBlocked =
+    cloudService.selected && cloudService.availability !== 'available';
+  const platformLabel =
+    cloudService.availability === 'checking'
+      ? t.chat.cloudChecking
+      : cloudService.availability === 'unavailable'
+        ? t.chat.cloudUnavailableStatus
+        : cloudService.availability === 'quota_exhausted'
+          ? t.chat.cloudQuotaExhaustedStatus
+          : 'LiteTavern Cloud';
+  const serviceNoticeOwnsError =
+    platformBlocked &&
+    (error === t.chat.cloudUnavailable || error === t.chat.quotaExhausted);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1266,7 +1353,9 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
             </div>
           )}
           {!messages.length && !typing && <div className="chat-placeholder">{t.chat.firstConversation}</div>}
-          {error && <p className="inline-error"><CircleAlert size={17} />{error}</p>}
+          {error && !serviceNoticeOwnsError && (
+            <p className="inline-error"><CircleAlert size={17} />{error}</p>
+          )}
         </div>
         {!pinned && (
           <button className="scroll-bottom" aria-label={t.chat.scrollToBottom} onClick={() => scrollToBottom('smooth')}>
@@ -1275,16 +1364,29 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
         )}
       </div>
       <footer className="reply-area">
-        {noAvailableModel && (
+        {platformBlocked && (
           <div className="quota-notice" role="status">
             <span>
-              <CircleAlert size={16} />
-              {t.chat.noModelAvailable}
+              {cloudService.availability === 'checking'
+                ? <LoaderCircle className="spin" size={16} />
+                : <CircleAlert size={16} />}
+              {cloudService.availability === 'checking'
+                ? t.chat.cloudChecking
+                : cloudService.availability === 'quota_exhausted'
+                  ? t.chat.quotaExhausted
+                  : t.chat.cloudUnavailable}
             </span>
-            <div className="quota-notice-actions">
-              <button type="button" onClick={onProvider}>{t.chat.connectOwnModel}</button>
-              <button type="button" onClick={onPlatformQuota}>{t.chat.viewCloudQuota}</button>
-            </div>
+            {cloudService.availability !== 'checking' && (
+              <div className="quota-notice-actions">
+                {cloudService.availability === 'unavailable' && (
+                  <button type="button" onClick={onRetryCloud}>{t.chat.retryCloud}</button>
+                )}
+                <button type="button" onClick={onProvider}>{t.chat.connectOwnModelAction}</button>
+                {cloudService.availability === 'quota_exhausted' && (
+                  <button type="button" onClick={onPlatformQuota}>{t.chat.viewCloudQuota}</button>
+                )}
+              </div>
+            )}
           </div>
         )}
         {(suggestions.length > 0 || suggesting) && (
@@ -1302,11 +1404,20 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
           {/* A mode switch, not a meter — the remaining allowance lives in the
               status chip so the two never disagree. */}
           <button
-            className={usageMode === 'PLATFORM' ? 'active' : ''}
+            className={
+              cloudService.selected && cloudService.availability === 'available'
+                ? 'active'
+                : ''
+            }
             onClick={() => onUsageMode('PLATFORM')}
-            title={quotaLabel(cloud)}
+            disabled={cloudService.availability !== 'available'}
+            title={
+              cloudService.availability === 'available'
+                ? quotaLabel(cloud)
+                : platformLabel
+            }
           >
-            LiteTavern Cloud
+            {platformLabel}
           </button>
           <button className={usageMode === 'BYOK' ? 'active' : ''} onClick={() => configurations.length ? onUsageMode('BYOK') : onProvider()}>{t.chat.ownModel}</button>
           {usageMode === 'BYOK' && configurations.length > 0 && (
@@ -1322,7 +1433,7 @@ function ChatPage({ character, messages, draft, sending, error, freeQuotaRemaini
             onChange={(event) => onDraft(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}
           />
-          <button disabled={!draft.trim() || sending || officialBlocked} aria-label={t.chat.sendMessage}>{sending ? <LoaderCircle className="spin" size={20} /> : t.common.send}</button>
+          <button disabled={!draft.trim() || sending || platformBlocked} aria-label={t.chat.sendMessage}>{sending ? <LoaderCircle className="spin" size={20} /> : t.common.send}</button>
         </form>
       </footer>
     </section>

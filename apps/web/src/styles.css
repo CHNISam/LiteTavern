@@ -593,6 +593,7 @@ button { color: inherit; }
 }
 .model-bar button:hover { color: var(--ink-1); }
 .model-bar button.active { color: var(--gold-deep); background: rgba(198, 164, 92, 0.14); }
+.model-bar button:disabled { color: var(--ink-3); cursor: default; opacity: 0.72; }
 .model-bar select { max-width: 240px; margin-left: 4px; padding: 4px 8px; border: 1px solid var(--paper-line); border-radius: 8px; background: rgba(255, 255, 255, 0.5); color: var(--ink-2); font-size: 12px; }
 .quota-notice {
   display: flex;
@@ -1072,6 +1073,22 @@ button { color: inherit; }
   background: rgba(126, 188, 162, 0.16); color: #8fd0b0; font-size: 10px; font-weight: 620;
 }
 .service-unavailable { margin: 0; color: #949bab; font-size: 11.5px; line-height: 1.65; }
+.service-checking { display: flex; align-items: center; gap: 7px; }
+.service-status-label { color: #e2c78d; font-size: 12px; font-weight: 650; }
+.service-quota-paused {
+  margin: 0;
+  color: #c8ccd5;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.service-card-actions {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+}
+.model-service-overview .service-card-actions button { margin-top: 0; }
 
 .quota-readout { width: 100%; display: grid; gap: 10px; }
 .quota-figure { display: flex; align-items: baseline; gap: 7px; }

@@ -24,6 +24,14 @@ function cloudStatus({
     cloud: {
       stage: 'ALPHA',
       platform_models_available: platformAvailable,
+      model_service: {
+        available: platformAvailable && quotaAvailable > 0,
+        reason_code: !platformAvailable
+          ? 'SERVICE_UNAVAILABLE'
+          : quotaAvailable > 0
+            ? null
+            : 'QUOTA_EXHAUSTED'
+      },
       identity_type: registered ? 'EMAIL' : 'ANONYMOUS',
       registered,
       membership_status: registered ? 'REGISTERED_WAITLIST' : 'ANONYMOUS_TRIAL',
@@ -180,13 +188,13 @@ describe('home information architecture', () => {
   });
 
   it('shows one accurate chat prompt only when no model is available', async () => {
-    mockShell({ withCharacter: true, platformAvailable: false, quotaAvailable: 0 });
+    mockShell({ withCharacter: true, platformAvailable: true, quotaAvailable: 0 });
     render(<App />);
 
     const message =
-      '当前没有可用模型。请接入自己的模型，或查看 LiteTavern Cloud 的平台额度。';
+      'LiteTavern Cloud 的额度已用完。你可以接入自己的模型继续聊天。';
     expect(await screen.findAllByText(message)).toHaveLength(1);
-    expect(screen.getByRole('button', { name: '接入自己的模型' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '连接自己的模型' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '查看 LiteTavern Cloud 额度' })).toBeInTheDocument();
     expect(screen.queryByText('查看 LiteTavern Cloud')).not.toBeInTheDocument();
     expect(screen.queryByText('自愿支持 LiteTavern')).not.toBeInTheDocument();

@@ -47,6 +47,42 @@ function mockShell({
   vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
     const path = String(input);
     requested.push({ path, method: init?.method ?? 'GET' });
+    if (path === '/v1/cloud/status') {
+      return json({
+        cloud: {
+          stage: 'ALPHA',
+          platform_models_available: true,
+          model_service: { available: true, reason_code: null },
+          identity_type: 'ANONYMOUS',
+          registered: false,
+          membership_status: 'ANONYMOUS_TRIAL',
+          on_waitlist: false,
+          waitlist_joined_at: null,
+          alpha_active: false,
+          alpha_granted: false,
+          alpha_granted_at: null,
+          alpha_activated_at: null,
+          alpha_batch_id: null,
+          alpha_grant_source: null,
+          alpha_status_reason: null,
+          founding_supporter: false,
+          quota: {
+            source: 'TRIAL',
+            total: 30,
+            used: 0,
+            reserved: 0,
+            available: 30,
+            remaining_ratio: 1,
+            cycle_no: null,
+            cycle_starts_at: null,
+            cycle_ends_at: null
+          },
+          support: { enabled: false, url: '', headline: '', body: '' },
+          next_actions: ['START_CHATTING', 'REGISTER']
+        }
+      });
+    }
+    if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
     if (path === '/v1/identities/anonymous') {
       return json({
         user: {

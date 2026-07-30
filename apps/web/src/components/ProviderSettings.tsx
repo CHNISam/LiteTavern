@@ -1,7 +1,13 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Check, ChevronLeft, ExternalLink, KeyRound, LoaderCircle, Plus, Search, Trash2, X } from 'lucide-react';
 import { api, type ModelConfiguration, type Provider } from '../lib/api';
-import { cloudProviderName, describeQuota, type CloudStatus } from '../lib/cloud';
+import {
+  cloudProviderName,
+  describeQuota,
+  resolveCloudModelServiceState,
+  type CloudModelServiceState,
+  type CloudStatus
+} from '../lib/cloud';
 import { useLocale } from '../lib/i18n';
 import { credentialStore, type CredentialSummary } from '../lib/credential-store';
 import { createId } from '../lib/id';
@@ -11,12 +17,13 @@ interface ProviderSettingsProps {
   onClose: () => void;
   onConfigurationsChanged: (configurations: ModelConfiguration[]) => void;
   cloud?: CloudStatus | null;
-  freeQuotaEnabled?: boolean;
+  cloudService?: CloudModelServiceState;
   usageMode?: 'PLATFORM' | 'BYOK';
   initialSection?: 'overview' | 'platform' | 'byok';
   onUsageMode?: (mode: 'PLATFORM' | 'BYOK') => void;
   /** True when the shown Cloud status is the cached copy, not a live answer. */
   offline?: boolean;
+  onRetryCloud?: () => void;
 }
 
 function percent(ratio: number): number {
@@ -28,11 +35,12 @@ export function ProviderSettings({
   onClose,
   onConfigurationsChanged,
   cloud = null,
-  freeQuotaEnabled = true,
+  cloudService,
   usageMode = 'PLATFORM',
   initialSection = 'overview',
   onUsageMode,
-  offline = false
+  offline = false,
+  onRetryCloud
 }: ProviderSettingsProps) {
   const { locale, dictionary: t } = useLocale();
   const cloudName = cloudProviderName();
@@ -49,6 +57,7 @@ export function ProviderSettings({
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const providerSearchRef = useRef<HTMLInputElement>(null);
 
   async function refresh() {
     setLoading(true);
@@ -179,11 +188,20 @@ export function ProviderSettings({
   }
 
   const quotaDescription = describeQuota(cloud);
+  const resolvedCloudService =
+    cloudService ??
+    resolveCloudModelServiceState(cloud, {
+      offline,
+      selected: usageMode === 'PLATFORM'
+    });
   const platformUsable =
-    freeQuotaEnabled &&
-    cloud?.platform_models_available !== false &&
+    resolvedCloudService.availability === 'available' &&
     Boolean(quotaDescription) &&
     !quotaDescription!.exhausted;
+
+  function focusProviderCatalog() {
+    providerSearchRef.current?.focus();
+  }
 
   if (!open) return null;
   return (
@@ -230,14 +248,12 @@ export function ProviderSettings({
                   )}
                 </div>
 
-                {!platformUsable ? (
-                  <p className="service-unavailable">
-                    {quotaDescription?.exhausted
-                      ? t.models.poolExhausted(quotaDescription.poolName, quotaDescription.renewal)
-                      : t.models.platformUnavailable(cloudName)}{' '}
-                    {t.models.connectOwnInstead}
+                {resolvedCloudService.availability === 'checking' ? (
+                  <p className="service-unavailable service-checking" role="status">
+                    <LoaderCircle className="spin" size={15} />
+                    {t.models.checkingCloud}
                   </p>
-                ) : quotaDescription ? (
+                ) : platformUsable && quotaDescription ? (
                   <div className="quota-readout">
                     <div className="quota-figure">
                       <strong>{quotaDescription.available}</strong>
@@ -277,20 +293,71 @@ export function ProviderSettings({
                       </p>
                     )}
                   </div>
+                ) : resolvedCloudService.availability === 'quota_exhausted' ? (
+                  <>
+                    <strong className="service-status-label">
+                      {t.models.quotaExhaustedStatus}
+                    </strong>
+                    <p className="service-unavailable">
+                      {quotaDescription
+                        ? t.models.poolExhausted(
+                            quotaDescription.poolName,
+                            quotaDescription.renewal
+                          )
+                        : t.models.noQuotaOnAccount(cloudName)}
+                    </p>
+                    <div className="service-card-actions">
+                      <button type="button" onClick={focusProviderCatalog}>
+                        {t.models.connectOwnModelAction}
+                      </button>
+                    </div>
+                  </>
+                ) : resolvedCloudService.availability === 'unavailable' ? (
+                  <>
+                    <strong className="service-status-label">
+                      {t.models.temporarilyUnavailable}
+                    </strong>
+                    <p className="service-unavailable">
+                      {t.models.platformUnavailable(cloudName)}
+                    </p>
+                    {quotaDescription && (
+                      <>
+                        <p className="service-quota-paused">
+                          {t.models.quotaAfterRecovery(quotaDescription.available)}
+                        </p>
+                        {offline && (
+                          <p className="quota-stale" role="status">
+                            {t.models.quotaStale(cloudName)}
+                          </p>
+                        )}
+                      </>
+                    )}
+                    <div className="service-card-actions">
+                      <button type="button" onClick={onRetryCloud}>
+                        {t.models.retryCloud}
+                      </button>
+                      <button type="button" onClick={focusProviderCatalog}>
+                        {t.models.connectOwnModelAction}
+                      </button>
+                    </div>
+                  </>
                 ) : (
                   <p className="service-unavailable">
                     {t.models.noQuotaOnAccount(cloudName)}
                   </p>
                 )}
 
-                <button
-                  type="button"
-                  disabled={!platformUsable}
-                  aria-pressed={usageMode === 'PLATFORM'}
-                  onClick={() => onUsageMode?.('PLATFORM')}
-                >
-                  {usageMode === 'PLATFORM' ? t.models.usingThis : t.models.useCloud(cloudName)}
-                </button>
+                {platformUsable && (
+                  <button
+                    type="button"
+                    aria-pressed={usageMode === 'PLATFORM'}
+                    onClick={() => onUsageMode?.('PLATFORM')}
+                  >
+                    {usageMode === 'PLATFORM'
+                      ? t.models.usingThis
+                      : t.models.useCloud(cloudName)}
+                  </button>
+                )}
               </article>
 
               <article
@@ -362,6 +429,7 @@ export function ProviderSettings({
             <div className="provider-search">
               <Search size={15} />
               <input
+                ref={providerSearchRef}
                 type="search"
                 aria-label={t.models.searchLabel}
                 placeholder={t.models.searchPlaceholder}
