@@ -1,4 +1,5 @@
-import { ArrowLeft, Moon, Sparkles, Sun } from 'lucide-react';
+import { ArrowLeft, Languages, Moon, Sparkles, Sun } from 'lucide-react';
+import { LOCALES, LOCALE_NAMES, useLocale, type Locale } from '../lib/i18n';
 import type { PublicTheme } from '../lib/public-theme';
 import { siteHref } from '../public-routing';
 
@@ -31,12 +32,13 @@ interface PublicHeaderProps {
 }
 
 export function PublicHeader({ githubUrl, theme, onThemeChange }: PublicHeaderProps) {
+  const { locale, dictionary: t, setLocale } = useLocale();
   return (
     <header className="public-header">
       {/* One way back, on the left where a back control belongs. The brand and the
           "return to LiteTavern" link pointed at the same place, so they are one
           control instead of two — the second one sat in the top-right corner. */}
-      <a className="public-brand" href={siteHref('/')} aria-label="返回 LiteTavern">
+      <a className="public-brand" href={siteHref('/')} aria-label={t.publicChrome.backToApp}>
         <span className="public-brand-back"><ArrowLeft size={16} /></span>
         <Sparkles size={21} />
         <span>LiteTavern</span>
@@ -52,10 +54,26 @@ export function PublicHeader({ githubUrl, theme, onThemeChange }: PublicHeaderPr
           <GithubMark /> GitHub
         </a>
 
-        <div className="theme-switch" role="group" aria-label="页面外观">
+        {/* A visitor who cannot read the page needs this before anything else, so
+            it sits in the header rather than behind a settings panel. */}
+        <label className="locale-select">
+          <Languages size={15} />
+          <span className="visually-hidden">{t.language.ariaLabel}</span>
+          <select
+            aria-label={t.language.ariaLabel}
+            value={locale}
+            onChange={(event) => setLocale(event.target.value as Locale)}
+          >
+            {LOCALES.map((option) => (
+              <option key={option} value={option}>{LOCALE_NAMES[option]}</option>
+            ))}
+          </select>
+        </label>
+
+        <div className="theme-switch" role="group" aria-label={t.publicChrome.appearance}>
           <button
             type="button"
-            aria-label="浅色模式"
+            aria-label={t.publicChrome.lightMode}
             aria-pressed={theme === 'light'}
             onClick={() => onThemeChange('light')}
           >
@@ -63,7 +81,7 @@ export function PublicHeader({ githubUrl, theme, onThemeChange }: PublicHeaderPr
           </button>
           <button
             type="button"
-            aria-label="深色模式"
+            aria-label={t.publicChrome.darkMode}
             aria-pressed={theme === 'dark'}
             onClick={() => onThemeChange('dark')}
           >

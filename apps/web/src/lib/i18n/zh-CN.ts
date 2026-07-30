@@ -1,0 +1,501 @@
+/**
+ * The source-of-truth dictionary.
+ *
+ * `Dictionary` is derived from this object, so every other locale is checked
+ * against it at compile time: a missing or misspelled key fails the build rather
+ * than rendering a blank space at runtime. Parameterised copy is a function, so
+ * argument order and count are checked too, and no runtime template parser is
+ * needed.
+ */
+export const zhCN = {
+  common: {
+    close: '关闭',
+    cancel: '取消',
+    save: '保存',
+    saving: '保存中…',
+    send: '发送',
+    delete: '删除',
+    back: '返回',
+    confirm: '确认',
+    retry: '重新加载',
+    ok: '好的',
+    submitting: '提交中…',
+    optional: '可选'
+  },
+
+  language: {
+    label: '语言',
+    description: '界面语言与文案风格',
+    ariaLabel: '界面语言'
+  },
+
+  chrome: {
+    appName: '短信',
+    modelService: '模型服务',
+    settings: '设置',
+    signIn: '登录',
+    account: '账号',
+    manageAccount: '管理账号与同步',
+    syncWarning: '同步异常',
+    soundOn: '开启音效',
+    soundOff: '关闭音效',
+    memoriesTitle: (name: string) => `与${name}的记忆`
+  },
+
+  contacts: {
+    newCharacter: '新建角色',
+    emptyTitle: '还没有联系人',
+    emptyBody: '从下方新建角色；角色卡可从顶部设置导入',
+    waitingMessage: '等待新的消息',
+    emptyStateTitle: '等待第一条短信',
+    emptyStateBody: '从左侧“新建角色”开始；已有角色卡可在“设置 → 数据导入与迁移”中导入。'
+  },
+
+  chat: {
+    offlineBanner:
+      'LiteTavern Cloud 暂时不可用。本地角色、已缓存的对话和自带模型仍可使用；未同步的内容会在恢复后重试，数据没有丢失。',
+    openProfile: (name: string) => `打开${name}档案`,
+    placeholder: (name: string) => `给${name}发送短信…`,
+    firstConversation: '开始你们的第一段对话。',
+    scrollToBottom: '滚动到底部',
+    sendMessage: '发送消息',
+    quickReplies: '快捷回复',
+    thinkingOfReplies: '正在想几句回复…',
+    noModelAvailable: '当前没有可用模型。请接入自己的模型，或查看 LiteTavern Cloud 的平台额度。',
+    connectOwnModel: '接入自己的模型',
+    viewCloudQuota: '查看 LiteTavern Cloud 额度',
+    ownModel: '自己的模型',
+    characterProfile: '角色档案',
+    copy: '复制',
+    copied: '已复制',
+    copyMessage: '复制消息',
+    copiedMessage: '已复制',
+    editMessage: '编辑消息',
+    editMessageContent: '编辑消息内容',
+    sendFailed: '发送失败，请稍后重试。',
+    quotaExhausted: 'LiteTavern Cloud 的额度已用完。你可以接入自己的模型继续聊天。',
+    platformDisabled: 'LiteTavern Cloud 平台模型当前已关闭。你可以接入自己的模型继续聊天。',
+    byokMissingConfiguration: '请先添加一个用户自带模型。',
+    byokMissingKey: '当前浏览器中找不到该配置的 API Key，请重新绑定。'
+  },
+
+  profile: {
+    backToChat: '返回短信',
+    edit: '编辑',
+    moreActions: '更多操作',
+    updateFromCard: '用角色卡更新设定',
+    exportCard: '导出角色卡',
+    deleteCharacter: '删除角色',
+    noSummary: '角色卡暂未填写简介。',
+    noPersonality: '角色卡暂未填写性格描述。',
+    summary: '简介',
+    summaryPlaceholder: '外貌、身份、背景',
+    personality: '核心性格',
+    personalityHint: '用顿号分隔可显示为标签，例如：温柔、坚定、话少',
+    personalityPlaceholder: '温柔、坚定、话少',
+    editField: (label: string) => `编辑${label}`,
+    relationship: '你们的关系',
+    relationshipUpdated: '每次对话结束后自动更新。',
+    relationshipEmpty: (name: string) =>
+      `你和${name}聊过之后，这里会自动出现一段关系摘要，并随对话更新。`,
+    memories: '记忆',
+    memoriesHint: '对话中值得记住的片段',
+    memoriesCount: (count: number, name: string) => `${count} 条，会随对话一起提供给${name}`,
+    memoriesNone: '还没有记下任何片段',
+    deleteTitle: (name: string) => `删除「${name}」？`,
+    deleteBody: '删除后将无法在联系人中找到该角色，聊天记录也会一并移除，此操作无法撤销。',
+    deleting: '删除中…',
+    deleteFailed: '删除失败，请稍后重试。',
+    saveFailed: '保存失败，请稍后重试。'
+  },
+
+  memory: {
+    title: '记忆',
+    backToProfile: '返回资料',
+    purpose: (name: string) => `这些片段会随对话一起提供给${name}，删掉的不再参与。`,
+    loading: '正在读取记忆…',
+    emptyTitle: '还没有记下任何片段',
+    emptyBody: (name: string) =>
+      `你和${name}每聊完一轮，值得长期记住的信息会被自动挑出来放在这里，之后的对话就会带上它们。`,
+    goChat: '去聊聊',
+    addedByYou: '你添加的',
+    addedAutomatically: '自动记下的',
+    unconfirmed: '待确认',
+    deleteAria: (excerpt: string) => `删除记忆：${excerpt}`,
+    deleteTitle: '删除这条记忆？',
+    deleteBody: (name: string) => `删除后，${name}的后续对话不会再带上它。此操作无法撤销。`,
+    kinds: {
+      FACT: { label: '事实', blurb: '关于你的确定信息' },
+      PREFERENCE: { label: '偏好', blurb: '你喜欢或不喜欢的' },
+      EXPERIENCE: { label: '共同经历', blurb: '你们一起发生过的事' },
+      COMMITMENT: { label: '约定', blurb: '你们约好的事' },
+      CORRECTION: { label: '更正', blurb: '你纠正过的说法' },
+      OTHER: { label: '其他', blurb: '尚未归类的片段' }
+    }
+  },
+
+  editor: {
+    eyebrow: '角色设定',
+    createTitle: '创建角色',
+    editTitle: '编辑角色',
+    loading: '正在读取角色设定…',
+    name: '名称',
+    namePlaceholder: '角色叫什么',
+    sectionPerson: '人物',
+    sectionDialogue: '对话',
+    description: '角色描述',
+    descriptionPlaceholder: '外貌、身份、背景',
+    personality: '核心性格',
+    personalityNote: '显示在角色主页',
+    personalityPlaceholder: '用顿号分隔可显示为标签，例如：温柔、坚定、话少',
+    scenario: '场景',
+    scenarioPlaceholder: '你们相处的情境',
+    firstMessage: '开场白',
+    alternateGreetings: '备选开场白',
+    alternateGreetingsNote: '每行一条',
+    exampleMessages: '示例对话',
+    exampleMessagesPlaceholder: '示范说话方式与语气',
+    advanced: '高级设定',
+    systemPrompt: '系统提示',
+    postHistory: '后置提示',
+    tags: '标签',
+    tagsNote: '逗号分隔',
+    creator: '创作者',
+    characterVersion: '角色版本',
+    creatorNotes: '创作者说明',
+    saveCharacter: '保存角色',
+    nameRequired: '请填写角色名称。',
+    saveFailed: '角色保存失败。',
+    avatarUploadFailed: (reason: string) => `角色资料已保存，但头像上传失败：${reason}`,
+    avatarUploadRetry: '请重试。',
+    unappliedFields: (count: number) => `${count} 项内容已保留但未生效`,
+    compatibility: {
+      FORMAL: '正式支持',
+      COMPATIBLE: '兼容支持',
+      PRESERVED: '仅保留数据'
+    }
+  },
+
+  avatar: {
+    preview: '头像预览',
+    choose: '选择头像',
+    chooseShort: '选择图片',
+    replace: '替换',
+    remove: '删除头像',
+    zoom: '缩放',
+    dropHint: '支持拖入或粘贴图片，保存时裁剪为正方形。',
+    dragHint: '拖动画面调整位置。',
+    tooLarge: '图片不能超过 12 MB。',
+    wrongType: '请选择 JPEG、PNG 或 WebP 图片。',
+    processFailed: '头像处理失败。',
+    uploadFailed: '头像上传失败。',
+    deleteFailed: '头像删除失败。'
+  },
+
+  settings: {
+    title: '设置',
+    backToSettings: '返回设置',
+    sections: '设置项目',
+    dataTitle: '数据导入与迁移',
+    dataBody: '导入角色卡、迁移角色关系或导出云端数据',
+    dataLead: '在这里处理低频的数据操作；新建角色仍从联系人栏开始。',
+    aboutTitle: '关于 LiteTavern',
+    aboutBody: '版本、开源仓库，以及自愿支持入口',
+    importCard: '导入角色卡',
+    importCardBody: '从本地 JSON 或 PNG 创建角色',
+    migrate: '迁移角色关系',
+    migrateBody: '导入其他平台的关系、资料与记忆',
+    exportCloud: '导出云端数据',
+    exportCloudBody: '下载当前 Cloud 账号的数据副本',
+    appTagline: '一个让角色、对话与共同经历持续延续的开源 AI 客户端。',
+    version: (version: string) => `版本 ${version}`,
+    viewSource: '在 GitHub 上查看源码',
+    supportHeading: '支持 LiteTavern',
+    supportBody: '支持属于低频、自愿贡献，不影响正常使用、Cloud 注册、同步、套餐或 Alpha 资格。',
+    supportAction: '支持 LiteTavern'
+  },
+
+  models: {
+    eyebrow: '模型服务',
+    title: '选择由谁来生成回复',
+    statusLabel: '模型服务状态',
+    cloudBlurb: '由 LiteTavern 运营的托管模型服务',
+    inUse: '使用中',
+    usingThis: '正在使用此服务',
+    useCloud: (name: string) => `使用 ${name}`,
+    useOwnModel: '使用自己的模型',
+    ownModel: '自己的模型',
+    ownModelBlurb: '用你自己的 API Key，费用与额度由服务商结算',
+    ownModelEmpty: '还没有接入任何服务商。从下方选择一个开始，API Key 只保存在这台设备上。',
+    connectedCount: (count: number) => `${count} 个配置`,
+    connectedLabel: '已连接',
+    currentLabel: '当前',
+    keyLocation: 'Key 保存位置',
+    keyLocationValue: '仅当前浏览器',
+    quotaSource: '额度来源',
+    quotaUsed: '已用',
+    quotaRenewal: '恢复方式',
+    quotaRemaining: (total: number, unit: string) => `/ ${total} ${unit}剩余`,
+    quotaMeterLabel: (pool: string) => `${pool}剩余量`,
+    quotaStale: (name: string) => `${name} 暂时无法连接，以上是最后一次同步到的数据。`,
+    poolExhausted: (pool: string, renewal: string) => `${pool}已用完，${renewal}。`,
+    platformUnavailable: (name: string) => `${name} 平台模型当前不可用。`,
+    connectOwnInstead: '你可以在下方接入自己的模型继续聊天。',
+    noQuotaOnAccount: (name: string) => `这个账号还没有 ${name} 平台额度。`,
+    searchLabel: '搜索服务商',
+    searchPlaceholder: '搜索服务商或地址',
+    noMatch: (query: string) => `没有匹配「${query}」的服务商。`,
+    alreadyConnected: '已连接',
+    regions: {
+      CN: '国内服务商',
+      GLOBAL: '国际服务商',
+      LOCAL: '本地模型',
+      CUSTOM: '自定义厂商'
+    },
+    loadingProviders: '正在加载服务商…',
+    loadFailed: (reason: string) => `无法加载服务商：${reason}`,
+    loadFailedGeneric: '无法加载服务商，请稍后重试。',
+    keysUnaffected: 'API Key 不受影响，仍只保存在当前浏览器。',
+    emptyCatalogue: '服务商目录为空，请检查 LiteTavern Cloud 配置。',
+    backToProviders: '返回服务商',
+    configurationName: '配置名称',
+    baseUrl: 'Base URL',
+    modelId: '模型 ID',
+    modelIdPlaceholder: '从服务商模型页复制',
+    apiKey: 'API Key',
+    apiKeyPlaceholder: '仅保存在当前浏览器',
+    apiKeyOptional: '本地服务可留空',
+    privacyNote: '完整 Key 写入当前浏览器 IndexedDB；服务端仅在验证与生成时临时转发。',
+    providerDocs: '查看服务商文档',
+    validateAndSave: '验证并保存',
+    validating: '正在验证连接…',
+    validationFailed: '连接验证失败。',
+    connectFailed: '连接失败。',
+    connected: '连接成功，配置已保存到当前浏览器。',
+    replaceKey: '更换 Key',
+    replaceKeyPrompt: '输入新的 API Key（保存后仍只显示掩码）',
+    deleteConfiguration: '删除配置',
+    keyMissing: '本浏览器未找到 Key',
+    anyOpenAiCompatible: '任意 OpenAI-compatible 服务'
+  },
+
+  cloud: {
+    providerName: 'LiteTavern Cloud',
+    trialPool: '试用额度',
+    alphaPool: 'Alpha 每日额度',
+    replyUnit: '次回复',
+    alphaRenewal: '每天 08:00 恢复',
+    trialRenewal: '用完后不再恢复',
+    noQuota: (name: string) => `暂无 ${name} 额度`,
+    quotaLabel: (provider: string, pool: string, scope: string, available: number, total: number) =>
+      `${provider} ${pool}：${scope} ${available} / ${total} 次`,
+    scopeToday: '今日剩余',
+    scopeRemaining: '剩余',
+    unavailable: 'LiteTavern Cloud 暂不可用，请稍后重试。',
+    requestFailed: '请求失败，请稍后重试。',
+    streamUnsupported: '浏览器不支持流式响应。',
+    modelUnavailable: '模型服务暂时不可用。'
+  },
+
+  membership: {
+    anonymousTrialActive: '正在使用 LiteTavern Cloud 提供的试用额度',
+    anonymousTrialSpent:
+      'LiteTavern Cloud 试用额度已用完。注册后可加入 Alpha 候补名单，或切换到自己的模型服务继续聊天。',
+    waitlistSupporter:
+      '已加入 LiteTavern Cloud Alpha 候补名单。感谢你成为 LiteTavern 的早期支持者——你在候补排序中会被优先考虑，但支持本身不等于购买资格，我们也无法承诺确切的开放日期。',
+    waitlist:
+      '已加入 LiteTavern Cloud Alpha 候补名单。名额有限，我们会按候补顺序逐批开放，暂时无法承诺确切的开放日期。',
+    alphaGranted:
+      '你已获得 LiteTavern Cloud Alpha 资格，还没有开始使用。进入 Alpha 后即可使用平台额度和云服务。',
+    alphaActive: (available: number, total: number) =>
+      `今日平台回复：剩余 ${available} / ${total}。每天 08:00 恢复。`,
+    alphaPausedWithReason: (reason: string) =>
+      `LiteTavern Cloud Alpha 访问已暂停：${reason}。你可以切换到自己的模型服务继续聊天。`,
+    alphaPaused: 'LiteTavern Cloud Alpha 访问已暂停。你可以切换到自己的模型服务继续聊天。',
+    alphaEndedWithReason: (reason: string) =>
+      `本轮 LiteTavern Cloud Alpha 已结束：${reason}。你可以切换到自己的模型服务继续聊天。`,
+    alphaEnded: '本轮 LiteTavern Cloud Alpha 已结束。你可以切换到自己的模型服务继续聊天。',
+    disclaimer:
+      'LiteTavern Cloud Alpha 仍处于测试阶段。额度、模型和云服务规则可能根据实际成本、稳定性和测试结果进行调整。'
+  },
+
+  auth: {
+    eyebrow: 'LiteTavern Cloud 账号',
+    dialogLabel: '注册或登录 LiteTavern Cloud 账号',
+    signInOrUp: '注册或登录',
+    enterCode: '输入验证码',
+    lead:
+      '输入邮箱后，已有账号将直接登录；新邮箱验证后会创建云端账号并进入 LiteTavern Free，可同步角色、对话和记忆。Alpha 资格需要单独申请。',
+    email: '邮箱',
+    codeSentTo: (masked: string) => `验证码已发送至 ${masked}`,
+    codeLabel: '6 位验证码',
+    sendCode: '发送验证码',
+    verify: '验证 LiteTavern Cloud 账号',
+    changeEmail: '修改邮箱',
+    resendCode: '重新发送验证码',
+    resendIn: (seconds: number) => `${seconds} 秒后可重新发送`,
+    invalidEmail: '请输入有效的邮箱地址。',
+    rateLimited: '发送过于频繁，请稍后再试。',
+    codeInvalid: '验证码不正确，请重新输入。',
+    codeExpired: '验证码已过期，请重新获取。',
+    tooManyAttempts: '尝试次数过多，请重新获取验证码。',
+    mergeFailed: '同步账号时出错，请稍后再试。',
+    generic: '操作失败，请稍后重试。'
+  },
+
+  importer: {
+    eyebrow: '角色设置',
+    importTitle: '导入角色卡',
+    updateTitle: '更新角色卡',
+    chooseFile: '选择角色卡文件',
+    choosePlaceholder: '选择 JSON 或 PNG 角色卡',
+    formatSupport: '正式支持 Character Card V2 / V3，兼容 Tavern Card V1，最大 10 MB',
+    parsing: '正在安全解析…',
+    avatarPreview: '角色卡头像预览',
+    noSummary: '暂无简介',
+    notFilled: '未填写',
+    personality: '性格',
+    opening: '开场',
+    preserved: (fields: string) => `未生效但会保留：${fields}`,
+    confirmImport: '确认导入',
+    confirmUpdate: '确认更新',
+    safetyNote:
+      '角色卡按不可信文件处理：LiteTavern 不执行其中的脚本，也不会自动访问卡片内的远程地址。',
+    processFailed: '角色卡处理失败。',
+    parseFailed: '角色卡解析失败。',
+    importFailed: '角色卡导入失败。',
+    avatarUnreadable: '角色设定可以导入，但卡片头像无法读取，将使用默认占位头像。'
+  },
+
+  claim: {
+    open: '已经支持？认领 Founding Supporter 身份',
+    title: '认领 Founding Supporter 身份',
+    lead:
+      '支付本身不需要登录或留下任何信息。只有希望认领这份荣誉身份时， 才需要填写下面的内容，方便我们人工核对。',
+    nickname: '昵称',
+    contactType: '联系方式类型',
+    contact: '联系方式',
+    amount: '大致支持金额',
+    paidAt: '大致支付时间',
+    note: '留言（可选）',
+    submit: '提交认领申请',
+    submitted: '申请已提交，核验后将授予 Founding Supporter 身份',
+    submittedBody: '我们会人工核对支持记录，处理完成后通过你留下的联系方式告知结果。',
+    submitFailed: '提交失败，请稍后重试。',
+    contactTypes: { wechat: '微信', email: '邮箱', other: '其他' },
+    consent: '联系方式仅用于核验身份、致谢、内测邀请及重要项目通知，不用于无关营销。',
+    nicknameRequired: '请填写昵称。',
+    contactRequired: '请填写联系方式。',
+    amountRequired: '请填写大于 0 的支持金额。',
+    paidAtRequired: '请选择大致的支付时间。',
+    consentRequired: '请先勾选联系方式的使用说明。'
+  },
+
+  support: {
+    documentTitle: '支持 LiteTavern 持续开发',
+    eyebrow: 'VOLUNTARY SUPPORT',
+    heroTitle: '支持 LiteTavern 持续开发',
+    heroLead: 'LiteTavern 是一个开源、免费的 AI 客户端与 Web 工具。',
+    heroBody: '你的每一份支持，都会变成更稳定的服务、更快的更新，以及更多值得期待的可能性。',
+    usesTitle: '你的支持将用于',
+    uses: {
+      infraTitle: '服务器与基础设施',
+      infraBody: '让服务稳定在线，你随时打开都能用。',
+      modelTitle: '模型调用与体验优化',
+      modelBody: '更充足的模型额度，更少的等待与限制。',
+      domainTitle: '域名及必要服务',
+      domainBody: '域名、证书与 CDN，保证访问顺畅安全。',
+      devTitle: '持续开发与维护',
+      devBody: '新功能、问题修复与长期维护投入。'
+    },
+    methodsTitle: '支持方式',
+    cadenceOneOff: '单次',
+    cadenceMonthly: '按月',
+    thanksTitle: '我们怎么感谢你',
+    thanks: {
+      voiceTitle: '优先听见你的声音',
+      voiceBody: '支持者提出的问题与建议，我们会优先阅读并回复。',
+      rememberTitle: '记住每一份心意',
+      rememberBody: '愿意留名的支持者会出现在后续的致谢名单里，也可以选择匿名。'
+    },
+    notesTitle: '支持说明',
+    notes: {
+      voluntaryTitle: '完全自愿',
+      voluntaryBody: '支持与否完全由你决定，我们感谢每一份心意。',
+      noGateTitle: '不影响使用',
+      noGateBody: '不支持也可以完整使用开源部分的所有功能。',
+      projectTitle: '用于项目发展',
+      projectBody: '你的支持会用于项目的持续开发与维护。'
+    },
+    fineprint:
+      '一次性支持不等于购买 Pro 套餐，也不承诺投资、分红或任何收益。支持者身份与未来可能存在的套餐身份相互独立；Founding Supporter 等身份本次不会自动授予，后续将另行设计。',
+    suggestedAmount: '建议金额',
+    suggestedAmountLabel: '建议支持金额',
+    customAmount: '自定义支持金额',
+    customAmountPlaceholder: '其他',
+    wechat: {
+      title: '微信扫码',
+      openQr: '在新窗口打开微信二维码',
+      qrAlt: '微信收款二维码',
+      unavailable: '微信支持入口暂未开放',
+      unavailableBody: '配置完成后将在这里显示二维码。',
+      amountNote: '金额请在微信支付页中填写；本页不会记录金额。'
+    },
+    afdian: {
+      title: '爱发电',
+      body: '按月的支持让服务器与额度有稳定的预期，随时可以调整或取消。',
+      action: '通过爱发电持续支持',
+      unavailable: '爱发电支持入口暂未开放'
+    },
+    kofi: {
+      title: 'Ko-fi',
+      body: '按月或一次性都可以，随时可以调整或取消。',
+      action: '在 Ko-fi 上支持',
+      unavailable: 'Ko-fi 支持入口暂未开放'
+    },
+    sponsors: {
+      title: 'GitHub Sponsors',
+      body: '直接在项目所在的平台上赞助开发。',
+      action: '成为 GitHub Sponsor',
+      unavailable: 'GitHub Sponsors 入口暂未开放'
+    },
+    sources: {
+      bilibiliTitle: '在 B 站看到 LiteTavern？',
+      bilibiliBody: '你也可以直接在 B 站为创作者充电，这通常是最方便的支持方式。',
+      bilibiliButton: '前往 B 站支持',
+      douyinTitle: '在抖音看到 LiteTavern？',
+      douyinBody: '直播或内容平台内的礼物与支持通常更加方便。',
+      douyinButton: '前往抖音支持',
+      githubTitle: '感谢你关注 LiteTavern 的开源开发。',
+      githubBody: 'GitHub Sponsors 等开发者赞助入口将在后续根据实际需要增加。',
+      websiteTitle: '感谢你愿意了解 LiteTavern。',
+      websiteBody: '你可以选择最适合自己的方式；不支持也不会影响任何功能。'
+    }
+  },
+
+  about: {
+    documentTitle: '关于 LiteTavern',
+    eyebrow: 'ABOUT LITETAVERN',
+    title: '让角色带着共同经历继续生活',
+    lead:
+      'LiteTavern 是一个持续演化的 AI 角色世界。聊天只是入口，角色、玩家行为、世界历史与后续演出共同组成一段可以延续的关系。',
+    supportHeading: '支持 LiteTavern',
+    supportBody:
+      '开源部分可以免费使用。如果项目对你有帮助，可以自愿支持服务器、模型调用、域名及持续开发成本；不支持也不会影响正常使用。',
+    supportAction: '支持 LiteTavern'
+  },
+
+  publicChrome: {
+    backToApp: '返回 LiteTavern',
+    appearance: '页面外观',
+    lightMode: '浅色模式',
+    darkMode: '深色模式',
+    footerNote: 'LiteTavern 开源部分可免费使用',
+    footerNav: '页脚导航',
+    aboutLink: '关于 LiteTavern',
+    supportLink: '支持 LiteTavern'
+  }
+};
+// Deliberately not `as const`: literal types here would force every other
+// locale to repeat the Chinese strings verbatim instead of translating them.
+export type Dictionary = typeof zhCN;

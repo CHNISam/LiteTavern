@@ -2093,6 +2093,36 @@ button { color: inherit; }
 }
 .public-header-link:active { transform: scale(0.97); }
 
+/* A reader who cannot read the page needs this first, so it lives in the header. */
+.locale-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--pub-card-border);
+  border-radius: 11px;
+  background: var(--pub-soft-bg);
+  color: var(--pub-text-muted);
+  transition: border-color 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+.locale-select:focus-within {
+  border-color: var(--pub-accent-border-strong);
+  color: var(--pub-accent);
+}
+.locale-select select {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--pub-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .locale-select:hover { color: var(--pub-accent); border-color: var(--pub-accent-border); }
+}
+
 .theme-switch {
   display: inline-flex;
   align-items: center;

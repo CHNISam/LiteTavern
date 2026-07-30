@@ -7,7 +7,9 @@ const emptyConfig: SupportConfig = {
   wechatQrUrl: null,
   afdianUrl: null,
   bilibiliUrl: null,
-  douyinUrl: null
+  douyinUrl: null,
+  kofiUrl: null,
+  githubSponsorsUrl: null
 };
 
 function tracker(): SupportTracker {
