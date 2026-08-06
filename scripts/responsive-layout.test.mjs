@@ -85,3 +85,22 @@ test('the feedback launcher leaves the phone composer alone', () => {
   assert.ok(portrait > base, 'the portrait hide must come after the base rule');
   assert.ok(landscape > base, 'the landscape hide must come after the base rule');
 });
+
+test('phone modals go full screen after every panel declares its own size', () => {
+  // .login-panel, .app-settings-panel and .cloud-panel are declared far below the
+  // responsive section, so a full-screen override written up there loses on source
+  // order and silently does nothing. The override has to come after all of them.
+  const source = styles.replace(/\r\n/g, '\n');
+  const panels = ['.settings-panel', '.app-settings-panel', '.cloud-panel', '.login-panel'];
+  const last = Math.max(...panels.map((panel) => source.indexOf(`\n${panel} {`)));
+  assert.ok(last > -1, 'missing the modal panels');
+
+  const override = source.indexOf(
+    '@media (max-width: 900px) {\n  .settings-panel,\n  .app-settings-panel,\n  .cloud-panel,\n  .login-panel {'
+  );
+  assert.ok(override > last, 'the full-screen override must come after every panel rule');
+  assert.match(
+    source.slice(override, override + 400),
+    /height:\s*calc\(100dvh\s*-\s*var\(--safe-top\)\s*-\s*var\(--safe-bottom\)\)/
+  );
+});

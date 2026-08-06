@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   handleApiRequest,
   parseCharacterCard
@@ -475,4 +476,50 @@ test('relationship validation rejects non-JSON model commentary', async () => {
   assert.equal(body.valid, false);
   assert.equal(body.import_id, null);
   assert.ok(body.issues.some((issue) => issue.code === 'INVALID_JSON'));
+});
+
+/** Top-level field names of an exported interface in the client's cloud contract. */
+function contractFields(text, name) {
+  const source = text.replace(/\r\n/g, '\n');
+  const opens = source.indexOf(`export interface ${name} {`);
+  assert.ok(opens > -1, `missing the ${name} contract`);
+  const closes = source.indexOf('\n}', opens);
+  const body = source.slice(opens, closes);
+  return [...body.matchAll(/^ {2}(\w+)\??:/gm)].map((match) => match[1]);
+}
+
+test('the internal cloud status answers with every field the client contract declares', async () => {
+  const repository = new MemoryRepository();
+  const objects = new MemoryObjects();
+  const cookie = await identity(repository, objects);
+  const response = await handleApiRequest(
+    new Request('https://internal.example/v1/cloud/status', {
+      headers: { Cookie: cookie }
+    }),
+    { repository, objects }
+  );
+
+  assert.equal(response.status, 200);
+  const { cloud } = await response.json();
+
+  // The client reads a missing field as a broken service rather than as unknown:
+  // an absent model_service alone makes the whole environment report an outage.
+  const contract = await readFile(
+    new URL('../apps/web/src/lib/cloud.ts', import.meta.url),
+    'utf8'
+  );
+  for (const field of contractFields(contract, 'CloudStatus')) {
+    assert.ok(field in cloud, `/v1/cloud/status is missing "${field}"`);
+  }
+  for (const field of contractFields(contract, 'CloudQuota')) {
+    assert.ok(field in cloud.quota, `/v1/cloud/status quota is missing "${field}"`);
+  }
+
+  // The internal gate has no hosted model path, and it must say so honestly
+  // instead of leaving the client to infer an outage from silence.
+  assert.deepEqual(cloud.model_service, {
+    available: false,
+    reason_code: 'SERVICE_UNAVAILABLE'
+  });
+  assert.equal(cloud.platform_models_available, false);
 });

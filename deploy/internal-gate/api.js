@@ -283,27 +283,46 @@ function publicCardDetail(character) {
   };
 }
 
+/**
+ * The internal gate has no hosted model path, no membership program and no quota
+ * ledger — those live in LiteTavern Cloud. It still has to answer with the full
+ * `CloudStatus` shape the client declares in `apps/web/src/lib/cloud.ts`: a missing
+ * field is not read as "unknown" there, it is read as "the service is broken".
+ * Notably `model_service` used to be absent, which made the internal environment
+ * report a service outage instead of the honest "this build has no platform models".
+ */
 function cloudStatus() {
   return {
     cloud: {
       stage: 'ALPHA',
+      platform_models_available: false,
+      model_service: { available: false, reason_code: 'SERVICE_UNAVAILABLE' },
       identity_type: 'ANONYMOUS',
       registered: false,
-      platform_models_available: false,
-      free_quota_enabled: false,
-      free_quota_total: 0,
-      free_quota_remaining: 0,
-      free_quota_available: 0,
+      membership_status: 'ANONYMOUS_TRIAL',
+      on_waitlist: false,
+      waitlist_joined_at: null,
+      alpha_active: false,
+      alpha_granted: false,
+      alpha_granted_at: null,
+      alpha_activated_at: null,
+      alpha_batch_id: null,
+      alpha_grant_source: null,
+      alpha_status_reason: null,
+      founding_supporter: false,
       quota: {
         source: 'NONE',
         total: 0,
         used: 0,
+        reserved: 0,
         available: 0,
         remaining_ratio: 0,
+        cycle_no: null,
+        cycle_starts_at: null,
         cycle_ends_at: null
       },
-      next_actions: ['USE_BYOK'],
-      support: { enabled: false }
+      support: { enabled: false, url: '', headline: '', body: '' },
+      next_actions: ['USE_BYOK']
     }
   };
 }

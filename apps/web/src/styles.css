@@ -1409,19 +1409,11 @@ button { color: inherit; }
   .model-service-overview { grid-template-columns: 1fr; }
   .rail-actions { grid-template-columns: 1fr; }
       .creator-fields { grid-template-columns: 1fr; }
-  /* Full-screen panels stop at the safe area instead of running under the notch
-     and the home indicator. */
+  /* Panels stop at the safe area instead of running under the notch and the home
+     indicator. Their full-screen sizing lives next to the panel rules further
+     down — see the note there. */
   .modal-backdrop {
     padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
-  }
-  .settings-panel,
-  .app-settings-panel,
-  .cloud-panel,
-  .login-panel {
-    width: 100%;
-    height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
-    max-height: none;
-    border-radius: 0;
   }
 }
 
@@ -1949,6 +1941,22 @@ button { color: inherit; }
   box-shadow: 0 32px 100px rgba(0, 0, 0, 0.6);
   animation: panel-in 260ms var(--ease-out) both;
 }
+/* A modal that fills a phone screen edge to edge, minus the safe area. This lives
+   here rather than in the responsive section above because .login-panel,
+   .app-settings-panel and .cloud-panel are declared after it: at equal specificity
+   the later rule wins, so an earlier override never applied. */
+@media (max-width: 900px) {
+  .settings-panel,
+  .app-settings-panel,
+  .cloud-panel,
+  .login-panel {
+    width: 100%;
+    height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+    max-height: none;
+    border-radius: 0;
+  }
+}
+
 .cloud-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 22px 24px 6px; }
 .cloud-header h2 { margin: 5px 0 0; font-size: 20px; font-weight: 600; }
 .cloud-body { display: flex; flex-direction: column; gap: 15px; padding: 12px 24px 26px; overflow-y: auto; }
