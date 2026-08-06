@@ -56,6 +56,9 @@ export const en: Dictionary = {
   },
 
   chat: {
+    stop: 'Stop',
+    stopGeneration: 'Stop generation',
+    regenerate: 'Regenerate reply',
     offlineBanner:
       'LiteTavern Cloud is unreachable. Local characters, cached conversations and your own models keep working; anything unsynced will retry once it is back. Nothing has been lost.',
     avatarAlt: (name: string) => `${name}’s avatar`,
@@ -86,6 +89,9 @@ export const en: Dictionary = {
     copiedMessage: 'Copied',
     editMessage: 'Edit message',
     editMessageContent: 'Edit message text',
+    deleteMessage: 'Delete this message and later replies',
+    deleteMessageConfirm: 'Delete this message and every later reply in this conversation?',
+    deleteMessageFailed: 'Could not delete the message. Please try again.',
     sendFailed: 'Could not send. Please try again.',
     regexRemovedInput: 'Regex processing removed the whole input, so it was not sent.',
     regexInputTimeout:

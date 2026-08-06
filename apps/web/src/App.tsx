@@ -10,7 +10,7 @@ import {
 import {
   ArrowLeft, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy,
   Download, KeyRound, LoaderCircle, MessageCircle, MoreHorizontal, Pencil, Plus, Send,
-  Settings,
+  RotateCcw, Settings, Square,
   Trash2, Upload, UserRound, Volume2, VolumeX
 } from 'lucide-react';
 import { AccountSyncPanel } from './components/CloudPanel';
@@ -27,6 +27,7 @@ import { AboutPage } from './pages/AboutPage';
 import { SupportPage } from './pages/SupportPage';
 import {
   ApiError, api, deleteCharacter, fetchCharacterDetail, generateTurn, logout, saveTurnBubble,
+  streamGeneration,
   type AnonymousIdentity, type Character, type Message, type ModelConfiguration
 } from './lib/api';
 import { patchCharacterCard, type CharacterModel } from './lib/character-card';
@@ -68,6 +69,10 @@ import {
   downloadLocalCharacterExport
 } from './lib/local-card-assets';
 import { migrateLegacyCloudAssets } from './lib/legacy-lore-migration';
+import {
+  readModelPreference,
+  writeModelPreference
+} from './lib/model-preference';
 
 // 'settings' is gone: the character settings page repeated the profile and hid
 // the editor at the bottom of it. Editing lives on the profile now.
@@ -154,6 +159,7 @@ export function App() {
 }
 
 function ProductApp() {
+  const initialModelPreference = useRef(readModelPreference()).current;
   const t = useT();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [active, setActive] = useState<Character | null>(null);
@@ -181,8 +187,12 @@ function ProductApp() {
   const [migrationOpen, setMigrationOpen] = useState(false);
   const [migrationCharacterId, setMigrationCharacterId] = useState<string | undefined>();
   const [configurations, setConfigurations] = useState<ModelConfiguration[]>([]);
-  const [usageMode, setUsageMode] = useState<'PLATFORM' | 'BYOK'>('PLATFORM');
-  const [selectedConfigurationId, setSelectedConfigurationId] = useState('');
+  const [usageMode, setUsageMode] = useState<'PLATFORM' | 'BYOK'>(
+    initialModelPreference.usageMode
+  );
+  const [selectedConfigurationId, setSelectedConfigurationId] = useState(
+    initialModelPreference.configurationId
+  );
   const [error, setError] = useState<string | null>(null);
   const [, setErrorCode] = useState<string | null>(null);
   const [account, setAccount] = useState<AnonymousIdentity | null>(null);
@@ -218,10 +228,15 @@ function ProductApp() {
   // (or a tab-visibility change) can interrupt/pause the one in flight.
   const playbackRef = useRef<TurnPlaybackController | null>(null);
   const turnIdRef = useRef<string>('');
+  const generationAbortRef = useRef<AbortController | null>(null);
+  const streamingRef = useRef(false);
 
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { usageModeRef.current = usageMode; }, [usageMode]);
+  useEffect(() => {
+    writeModelPreference({ usageMode, configurationId: selectedConfigurationId });
+  }, [selectedConfigurationId, usageMode]);
 
   const cloudService = resolveCloudModelServiceState(cloud, {
     checking: cloudChecking,
@@ -229,6 +244,41 @@ function ProductApp() {
     runtimeUnavailable: cloudRuntimeUnavailable,
     selected: usageMode === 'PLATFORM'
   });
+
+  function reportGenerationFailure(reason: unknown) {
+    setTyping(false);
+    const apiError = reason instanceof ApiError ? reason : null;
+    const platformRequest = usageModeRef.current === 'PLATFORM';
+    const serviceFailure = platformRequest && isCloudServiceFailure(apiError?.code);
+    const quotaFailure = platformRequest && isCloudQuotaFailure(apiError?.code);
+    if (serviceFailure) setCloudRuntimeUnavailable(true);
+    if (quotaFailure) {
+      setCloud((current) => current ? {
+        ...current,
+        model_service: { available: false, reason_code: 'QUOTA_EXHAUSTED' }
+      } : current);
+    }
+    const message = serviceFailure
+      ? translate().chat.cloudUnavailable
+      : quotaFailure
+        ? translate().chat.quotaExhausted
+        : reason instanceof Error
+          ? reason.message
+          : translate().chat.sendFailed;
+    setError(message);
+    setErrorCode(apiError?.code ?? 'GENERATION_FAILED');
+    analytics.blockingError(
+      analyticsErrorCode(apiError?.code ?? 'GENERATION_FAILED'),
+      'chat',
+      {
+        errorStage: 'generation',
+        retryable: apiError?.retryable ?? false,
+        ...(apiError?.requestId ? { requestId: apiError.requestId } : {}),
+        ...(activeRef.current ? { characterId: activeRef.current.character_id } : {}),
+        ...(conversationIdRef.current ? { conversationId: conversationIdRef.current } : {})
+      }
+    );
+  }
 
   useEffect(() => {
     const controller = new TurnPlaybackController({
@@ -250,53 +300,7 @@ function ProductApp() {
       onTypingChange: setTyping,
       onStateChange: (state) => setSending(state === 'GENERATING'),
       onDone: () => {},
-      onError: (reason) => {
-        setTyping(false);
-        const apiError = reason instanceof ApiError ? reason : null;
-        const platformRequest = usageModeRef.current === 'PLATFORM';
-        const serviceFailure =
-          platformRequest && isCloudServiceFailure(apiError?.code);
-        const quotaFailure =
-          platformRequest && isCloudQuotaFailure(apiError?.code);
-        if (serviceFailure) setCloudRuntimeUnavailable(true);
-        if (quotaFailure) {
-          setCloud((current) =>
-            current
-              ? {
-                  ...current,
-                  model_service: {
-                    available: false,
-                    reason_code: 'QUOTA_EXHAUSTED'
-                  }
-                }
-              : current
-          );
-        }
-        const message = serviceFailure
-          ? translate().chat.cloudUnavailable
-          : quotaFailure
-            ? translate().chat.quotaExhausted
-            : reason instanceof Error
-              ? reason.message
-              : translate().chat.sendFailed;
-        setError(message);
-        setErrorCode(apiError?.code ?? 'GENERATION_FAILED');
-        analytics.blockingError(
-          analyticsErrorCode(apiError?.code ?? 'GENERATION_FAILED'),
-          'chat',
-          {
-            errorStage: 'generation',
-            retryable: apiError?.retryable ?? false,
-            ...(apiError?.requestId ? { requestId: apiError.requestId } : {}),
-            ...(activeRef.current
-              ? { characterId: activeRef.current.character_id }
-              : {}),
-            ...(conversationIdRef.current
-              ? { conversationId: conversationIdRef.current }
-              : {})
-          }
-        );
-      }
+      onError: reportGenerationFailure
     });
     playbackRef.current = controller;
     const onVisibility = () => {
@@ -316,9 +320,16 @@ function ProductApp() {
     trackSelection = false
   ) {
     // Abandon any in-flight turn so its bubbles never land in the new conversation.
+    generationAbortRef.current?.abort();
     playbackRef.current?.interrupt();
     const token = ++openTokenRef.current;
     setTyping(false);
+    // The contact header updates before the network round-trip. Clear every piece
+    // of conversation-scoped state at the same boundary so the new character can
+    // neither display nor accidentally submit into the previous conversation.
+    conversationIdRef.current = null;
+    setConversationId(null);
+    setMessages([]);
     setActive(character);
     setView(nextView);
     setError(null);
@@ -358,6 +369,7 @@ function ProductApp() {
    * the banner tells the user the state is stale, not lost.
    */
   function openCharacterOffline(character: Character) {
+    generationAbortRef.current?.abort();
     playbackRef.current?.interrupt();
     openTokenRef.current += 1;
     setTyping(false);
@@ -428,14 +440,16 @@ function ProductApp() {
     return response.messages.filter((message) => message.content_text.trim() !== '');
   }
 
-  async function refreshCharacters(openImported = false) {
+  async function refreshCharacters(openCharacterId?: string) {
     const response = await api<{ characters: Character[] }>('/v1/characters');
     setCharacters(response.characters);
-    if (openImported && response.characters[0]) {
+    if (openCharacterId) {
       // After an import or an edit, land back on the profile that was just
       // changed so the result is visible.
-      const next = response.characters.find((item) => item.character_id === active?.character_id) ?? response.characters[0];
-      await openCharacter(next, active ? 'profile' : 'chat');
+      const next = response.characters.find(
+        (item) => item.character_id === openCharacterId
+      );
+      if (next) await openCharacter(next, active ? 'profile' : 'chat');
     }
   }
 
@@ -487,8 +501,14 @@ function ProductApp() {
     setCharacters(characterResponse.characters);
     cacheCharacters(characterResponse.characters);
     setConfigurations(configurationResponse.configurations);
-    if (configurationResponse.configurations[0]) {
+    const selectedStillExists = configurationResponse.configurations.some(
+      (item) => item.model_configuration_id === initialModelPreference.configurationId
+    );
+    if (!selectedStillExists && configurationResponse.configurations[0]) {
       setSelectedConfigurationId(configurationResponse.configurations[0].model_configuration_id);
+    }
+    if (initialModelPreference.usageMode === 'BYOK' && !configurationResponse.configurations.length) {
+      setUsageMode('PLATFORM');
     }
     if (characterResponse.characters[0]) await openCharacter(characterResponse.characters[0]);
     void reportSyncCheckpoint({ status: 'SYNCED', clientRevision: Date.now() });
@@ -607,7 +627,7 @@ function ProductApp() {
     if (!requestedText || !conversationId || !active || !controller) return;
     // Ignore repeat sends only while awaiting the model; during playback a new send
     // is allowed and interrupts the remaining bubbles.
-    if (controller.getState() === 'GENERATING') return;
+    if (streamingRef.current || controller.getState() === 'GENERATING') return;
     // Selection, allowance and live service readiness are separate facts. A cached
     // selection never authorizes a send before the Cloud status check completes.
     if (
@@ -718,24 +738,139 @@ function ProductApp() {
         ...(conversationId ? { conversationId } : {})
       });
     }
+    let selector: Record<string, unknown>;
+    try {
+      selector = await resolveModelSelector();
+    } catch (reason) {
+      reportGenerationFailure(reason);
+      return;
+    }
     const userMessage: Message = { message_id: createId(), role: 'USER', content_text: text, status: 'COMPLETED' };
     setMessages((current) => {
       const index = editOfMessageId ? current.findIndex((message) => message.message_id === editOfMessageId) : -1;
       const kept = index >= 0 ? current.slice(0, index) : current;
       return [...kept, userMessage];
     });
+    const payload = {
+      ...selector,
+      input: { type: 'text', text },
+      ...localContext,
+      ...(editOfMessageId ? { edit_of_message_id: editOfMessageId } : {})
+    };
+
+    // Current deployments expose the real SSE route. Keep the legacy structured
+    // turn endpoint only as a compatibility fallback for an older Cloud that has no
+    // SSE route at all; once a stream starts, this request is never retried elsewhere.
+    const abortController = new AbortController();
+    const streamingMessageId = `stream-${turnRequestId}`;
+    let streamedText = '';
+    let streamStarted = false;
+    generationAbortRef.current = abortController;
+    streamingRef.current = true;
+    setSending(true);
+    setTyping(true);
+    try {
+      const result = await streamGeneration(targetConversationId, payload, {
+        signal: abortController.signal,
+        idempotencyKey: turnRequestId,
+        onDelta: (delta) => {
+          streamedText += delta;
+          setTyping(false);
+          setMessages((current) => {
+            const existing = current.findIndex(
+              (message) => message.message_id === streamingMessageId
+            );
+            const streamed: Message = {
+              message_id: streamingMessageId,
+              role: 'ASSISTANT',
+              content_text: streamedText,
+              status: 'STREAMING'
+            };
+            return existing < 0
+              ? [...current, streamed]
+              : current.map((message, index) =>
+                  index === existing ? streamed : message
+                );
+          });
+        }
+      });
+      streamStarted = true;
+      turnIdRef.current = result.generationRequestId ?? turnRequestId;
+      if (result.freeQuotaRemaining !== undefined) {
+        const remaining = result.freeQuotaRemaining;
+        setCloud((current) => current ? {
+          ...current,
+          quota: {
+            ...current.quota,
+            available: remaining,
+            remaining_ratio: current.quota.total > 0
+              ? remaining / current.quota.total
+              : 0
+          },
+          ...(remaining === 0 ? {
+            model_service: {
+              available: false,
+              reason_code: 'QUOTA_EXHAUSTED' as const
+            }
+          } : {})
+        } : current);
+      }
+      // Replace optimistic ids and the transient STREAMING row with the canonical
+      // persisted branch. If this read fails, keep the complete text visible and let
+      // the next open recover it from Cloud.
+      try {
+        const loaded = await fetchMessages(targetConversationId);
+        cacheMessages(targetConversationId, loaded);
+        if (conversationIdRef.current === targetConversationId) setMessages(loaded);
+      } catch {
+        setMessages((current) => current.map((message) =>
+          message.message_id === streamingMessageId
+            ? {
+                ...message,
+                message_id: result.messageId ?? streamingMessageId,
+                status: 'COMPLETED'
+              }
+            : message
+        ));
+      }
+      return;
+    } catch (reason) {
+      const aborted = reason instanceof DOMException && reason.name === 'AbortError';
+      if (aborted) {
+        setMessages((current) => current.filter(
+          (message) => message.message_id !== streamingMessageId
+        ));
+        void fetchMessages(targetConversationId).then((loaded) => {
+          cacheMessages(targetConversationId, loaded);
+          if (conversationIdRef.current === targetConversationId) setMessages(loaded);
+        }).catch(() => undefined);
+        return;
+      }
+      const apiError = reason instanceof ApiError ? reason : null;
+      const legacyEndpoint =
+        !streamedText && [404, 405, 501].includes(apiError?.status ?? 0);
+      if (!legacyEndpoint) {
+        reportGenerationFailure(reason);
+        setMessages((current) => current.filter(
+          (message) => message.message_id !== streamingMessageId
+        ));
+        return;
+      }
+    } finally {
+      if (generationAbortRef.current === abortController) {
+        generationAbortRef.current = null;
+      }
+      streamingRef.current = false;
+      setSending(false);
+      setTyping(false);
+    }
+
+    if (streamStarted) return;
 
     // startTurn bumps the controller's version, so an earlier turn's pending bubbles
     // are abandoned (already-shown ones stay). The model call happens inside generate,
     // letting the controller fold its latency into the first bubble's lead time.
     await controller.startTurn(async () => {
-      const selector = await resolveModelSelector();
-      const payload = {
-        ...selector,
-        input: { type: 'text', text },
-        ...localContext,
-        ...(editOfMessageId ? { edit_of_message_id: editOfMessageId } : {})
-      };
       const plan = await generateTurn(
         targetConversationId,
         payload,
@@ -826,6 +961,30 @@ function ProductApp() {
   function send(event: FormEvent) {
     event.preventDefault();
     void submit(draft);
+  }
+
+  function stopGeneration() {
+    generationAbortRef.current?.abort();
+    playbackRef.current?.interrupt();
+    setSending(false);
+    setTyping(false);
+  }
+
+  async function deleteUserMessage(messageId: string) {
+    const targetConversationId = conversationIdRef.current;
+    if (!targetConversationId || sending || !window.confirm(t.chat.deleteMessageConfirm)) return;
+    setError(null);
+    try {
+      await api(
+        `/v1/conversations/${targetConversationId}/messages/${messageId}`,
+        { method: 'DELETE' }
+      );
+      const loaded = await fetchMessages(targetConversationId);
+      cacheMessages(targetConversationId, loaded);
+      if (conversationIdRef.current === targetConversationId) setMessages(loaded);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t.chat.deleteMessageFailed);
+    }
   }
 
   function openProviderSettings(
@@ -949,10 +1108,24 @@ function ProductApp() {
               if (value.trim()) setSuggestions([]);
             }}
             onSend={send}
+            onStop={stopGeneration}
             onPick={(text) => {
               if (!draft.trim()) setDraft(text);
             }}
             onEditSubmit={(messageId, text) => void submit(text, messageId)}
+            onDeleteMessage={(messageId) => void deleteUserMessage(messageId)}
+            onRegenerate={(assistantMessageId) => {
+              const assistantIndex = messages.findIndex(
+                (message) => message.message_id === assistantMessageId
+              );
+              const previousUser = messages
+                .slice(0, assistantIndex)
+                .reverse()
+                .find((message) => message.role === 'USER');
+              if (previousUser) {
+                void submit(previousUser.content_text, previousUser.message_id);
+              }
+            }}
             onUsageMode={(mode) => {
               setUsageMode(mode);
               if (mode === 'BYOK') {
@@ -1021,13 +1194,13 @@ function ProductApp() {
           setImportOpen(false);
           setImportCharacterId(undefined);
         }}
-        onImported={() => refreshCharacters(true)}
+        onImported={refreshCharacters}
       />
       <CharacterEditor
         open={editorOpen}
         {...(editorCharacterId ? { characterId: editorCharacterId } : {})}
         onClose={() => setEditorOpen(false)}
-        onSaved={() => refreshCharacters(true)}
+        onSaved={refreshCharacters}
       />
       <RelationshipImport
         open={migrationOpen}
@@ -1218,7 +1391,15 @@ function autoGrow(element: HTMLTextAreaElement) {
 
 // Copy is always available; editing is held back while a reply streams so an edit
 // can never race the generation it would invalidate.
-function MessageActions({ text, editable = false, onEdit }: { text: string; editable?: boolean; onEdit?: () => void }) {
+function MessageActions({ text, editable = false, deletable = false, regeneratable = false, onEdit, onDelete, onRegenerate }: {
+  text: string;
+  editable?: boolean;
+  deletable?: boolean;
+  regeneratable?: boolean;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  onRegenerate?: () => void;
+}) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const revert = useRef<number>(0);
@@ -1239,6 +1420,16 @@ function MessageActions({ text, editable = false, onEdit }: { text: string; edit
       {editable && onEdit && (
         <button type="button" onClick={onEdit} title={t.chat.editMessage} aria-label={t.chat.editMessage}>
           <Pencil size={16} />
+        </button>
+      )}
+      {deletable && onDelete && (
+        <button type="button" onClick={onDelete} title={t.chat.deleteMessage} aria-label={t.chat.deleteMessage}>
+          <Trash2 size={16} />
+        </button>
+      )}
+      {regeneratable && onRegenerate && (
+        <button type="button" onClick={onRegenerate} title={t.chat.regenerate} aria-label={t.chat.regenerate}>
+          <RotateCcw size={16} />
         </button>
       )}
     </div>
@@ -1282,14 +1473,16 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   );
 }
 
-function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, usageMode, configurations, selectedConfigurationId, suggestions, typing, onProfile, onDraft, onSend, onPick, onEditSubmit, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
+function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, usageMode, configurations, selectedConfigurationId, suggestions, typing, onProfile, onDraft, onSend, onStop, onPick, onEditSubmit, onDeleteMessage, onRegenerate, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
   character: Character; messages: Message[]; draft: string; sending: boolean; error: string | null;
   cloud: CloudStatus | null;
   cloudService: CloudModelServiceState;
   usageMode: 'PLATFORM' | 'BYOK'; configurations: ModelConfiguration[]; selectedConfigurationId: string;
   suggestions: string[]; typing: boolean;
-  onProfile: () => void; onDraft: (value: string) => void; onSend: (event: FormEvent) => void; onPick: (text: string) => void;
+  onProfile: () => void; onDraft: (value: string) => void; onSend: (event: FormEvent) => void; onStop: () => void; onPick: (text: string) => void;
   onEditSubmit: (messageId: string, text: string) => void;
+  onDeleteMessage: (messageId: string) => void;
+  onRegenerate: (messageId: string) => void;
   onUsageMode: (mode: 'PLATFORM' | 'BYOK') => void; onConfiguration: (id: string) => void; onProvider: () => void;
   onPlatformQuota: () => void;
   onRetryCloud: () => void;
@@ -1382,7 +1575,11 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
                       <MessageActions
                         text={message.content_text}
                         editable={message.role === 'USER' && !sending}
+                        deletable={message.role === 'USER' && !sending}
+                        regeneratable={message.role === 'ASSISTANT' && !sending}
                         {...(message.role === 'USER' ? { onEdit: () => setEditingId(message.message_id) } : {})}
+                        {...(message.role === 'USER' ? { onDelete: () => onDeleteMessage(message.message_id) } : {})}
+                        {...(message.role === 'ASSISTANT' ? { onRegenerate: () => onRegenerate(message.message_id) } : {})}
                       />
                     )}
                   </>
@@ -1489,7 +1686,15 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
             onChange={(event) => onDraft(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }}
           />
-          <button disabled={!draft.trim() || sending || platformBlocked} aria-label={t.chat.sendMessage}>{sending ? <LoaderCircle className="spin" size={20} /> : t.common.send}</button>
+          <button
+            type={sending ? 'button' : 'submit'}
+            disabled={!sending && (!draft.trim() || platformBlocked)}
+            aria-label={sending ? t.chat.stopGeneration : t.chat.sendMessage}
+            className={sending ? 'stop-generation' : undefined}
+            onClick={sending ? onStop : undefined}
+          >
+            {sending ? <><Square size={16} /> {t.chat.stop}</> : t.common.send}
+          </button>
         </form>
       </footer>
     </section>

@@ -72,7 +72,7 @@ describe('CharacterEditor', () => {
     fireEvent.click(save);
     fireEvent.click(save);
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith('card-1'));
     const update = requests.find((request) => request.init?.method === 'PUT');
     expect(JSON.parse(String(update?.init?.body))).toMatchObject({ name: '新名字' });
     expect(requests.filter((request) => request.init?.method === 'PUT')).toHaveLength(1);
@@ -96,7 +96,7 @@ describe('CharacterEditor', () => {
       target: { value: '无头像也能创建' }
     });
     fireEvent.click(screen.getByRole('button', { name: '保存角色' }));
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith('new-card'));
   });
 
   it('reports avatar upload failure after preserving the edited character fields', async () => {

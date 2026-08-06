@@ -52,6 +52,9 @@ export const zhCN = {
   },
 
   chat: {
+    stop: '\u505c\u6b62',
+    stopGeneration: '\u505c\u6b62\u751f\u6210',
+    regenerate: '\u91cd\u65b0\u751f\u6210',
     offlineBanner:
       'LiteTavern Cloud 暂时不可用。本地角色、已缓存的对话和自带模型仍可使用；未同步的内容会在恢复后重试，数据没有丢失。',
     avatarAlt: (name: string) => `${name}头像`,
@@ -80,6 +83,9 @@ export const zhCN = {
     copiedMessage: '已复制',
     editMessage: '编辑消息',
     editMessageContent: '编辑消息内容',
+    deleteMessage: '删除此消息及后续回复',
+    deleteMessageConfirm: '删除这条消息以及本会话中它之后的全部回复？',
+    deleteMessageFailed: '消息删除失败，请重试。',
     sendFailed: '发送失败，请稍后重试。',
     regexRemovedInput: '输入经 Regex 处理后为空，未发送。',
     regexInputTimeout: '一个 Regex 脚本执行超时，已使用原始输入。',

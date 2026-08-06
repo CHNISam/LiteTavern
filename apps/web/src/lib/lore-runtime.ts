@@ -53,6 +53,30 @@ export interface ClientContextResult {
   warnings: Array<'REGEX_TIMEOUT' | 'WORLDBOOK_TIMEOUT'>;
 }
 
+export const WORLDBOOK_DIAGNOSTIC_EVENT = 'litetavern:worldbook-activation';
+
+function publishWorldbookDiagnostics(result: ClientContextResult): void {
+  if (!import.meta.env.DEV || typeof globalThis.dispatchEvent !== 'function') return;
+  const detail = {
+    activation_seed: result.payload.activation_seed,
+    entry_ids: result.activated.map(({ entry }) => entry.entry_id),
+    worldbook_ids: [...new Set(
+      result.activated.map(({ entry }) => entry.worldbook_id)
+    )],
+    dropped_for_budget: result.droppedForBudget,
+    warnings: result.warnings
+  };
+  (globalThis as typeof globalThis & {
+    __LITETAVERN_DEBUG__?: { lastWorldbookActivation: typeof detail };
+  }).__LITETAVERN_DEBUG__ = { lastWorldbookActivation: detail };
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.litetavernWorldbookEntries = JSON.stringify(
+      detail.entry_ids
+    );
+  }
+  globalThis.dispatchEvent(new CustomEvent(WORLDBOOK_DIAGNOSTIC_EVENT, { detail }));
+}
+
 function macroMessages(messages: readonly ScanMessage[]) {
   return messages.flatMap((message) => {
     const role = message.role?.toLowerCase();
@@ -152,7 +176,7 @@ export async function resolveClientContext(
       };
     })
   };
-  return {
+  const result: ClientContextResult = {
     payload,
     persona,
     activated: activation.activated,
@@ -162,6 +186,8 @@ export async function resolveClientContext(
       ...(activation.timedOut ? (['WORLDBOOK_TIMEOUT'] as const) : [])
     ]
   };
+  publishWorldbookDiagnostics(result);
+  return result;
 }
 
 export async function clientContextField(

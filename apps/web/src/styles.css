@@ -690,6 +690,14 @@ button { color: inherit; }
 .reply-composer > button:hover:not(:disabled) { filter: brightness(1.05); }
 .reply-composer > button:active:not(:disabled) { transform: scale(0.96); }
 .reply-composer > button:disabled { opacity: 0.4; cursor: default; filter: grayscale(0.3); }
+.reply-composer > button.stop-generation {
+  display: flex;
+  gap: 7px;
+  padding-inline: 14px;
+  border-color: rgba(92, 76, 48, 0.55);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink-1);
+}
 
 /* ============================================================================
    Profile page

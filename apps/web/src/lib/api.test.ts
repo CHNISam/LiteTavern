@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError, readApiJson } from './api';
+import { api, ApiError, readApiJson, streamGeneration } from './api';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -31,5 +31,60 @@ describe('API response handling', () => {
         message: 'LiteTavern Cloud 暂不可用，请稍后重试。'
       })
     );
+  });
+
+  it('parses split CRLF and multiline SSE frames without dropping or duplicating text', async () => {
+    const encoder = new TextEncoder();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (const chunk of [
+              'event: start\r\ndata: {"generation_request_id":"generation-1"}\r\n\r\n',
+              'event: delta\r\ndata: {"text":"你',
+              '好"}\r\n\r\nevent: delta\r\ndata: {"text":"，世界"}\r\n\r\n',
+              'event: done\r\ndata: {"message_id":"message-1",\r\n',
+              'data: "free_quota_remaining":9}\r\n\r\n'
+            ]) controller.enqueue(encoder.encode(chunk));
+            controller.close();
+          }
+        }),
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+      )
+    );
+    const deltas: string[] = [];
+
+    await expect(
+      streamGeneration('conversation-1', { input: { type: 'text', text: '你好' } }, {
+        idempotencyKey: 'turn-1',
+        onDelta: (text) => deltas.push(text)
+      })
+    ).resolves.toEqual({
+      generationRequestId: 'generation-1',
+      messageId: 'message-1',
+      freeQuotaRemaining: 9
+    });
+    expect(deltas).toEqual(['你好', '，世界']);
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/v1/conversations/conversation-1/generations',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'Idempotency-Key': 'turn-1' })
+      })
+    );
+  });
+
+  it('forwards AbortSignal so Stop generation cancels the active request', async () => {
+    const controller = new AbortController();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      expect(init?.signal).toBe(controller.signal);
+      throw new DOMException('Aborted', 'AbortError');
+    });
+
+    const pending = streamGeneration('conversation-1', {}, {
+      signal: controller.signal,
+      onDelta: () => undefined
+    });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
 });

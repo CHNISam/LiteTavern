@@ -221,14 +221,23 @@ export async function deleteCharacter(characterId: string): Promise<void> {
 export async function streamGeneration(
   conversationId: string,
   payload: unknown,
-  onDelta: (text: string) => void
-): Promise<{ freeQuotaRemaining?: number }> {
+  options: {
+    onDelta: (text: string) => void;
+    signal?: AbortSignal;
+    idempotencyKey?: string;
+  }
+): Promise<{
+  generationRequestId?: string;
+  messageId?: string;
+  freeQuotaRemaining?: number;
+}> {
   const response = await fetch(cloudUrl(`/v1/conversations/${conversationId}/generations`), {
     method: 'POST',
     credentials: 'include',
+    ...(options.signal ? { signal: options.signal } : {}),
     headers: {
       'Content-Type': 'application/json',
-      'Idempotency-Key': createId(),
+      'Idempotency-Key': options.idempotencyKey ?? createId(),
       ...analytics.getSessionHeaders()
     },
     body: JSON.stringify(payload)
@@ -239,45 +248,66 @@ export async function streamGeneration(
       body.error?.message ?? t().chat.sendFailed,
       body.error?.code,
       body.error?.retryable,
-      body.error?.request_id
+      body.error?.request_id,
+      response.status
     );
   }
   if (!response.body) throw new Error(t().cloud.streamUnsupported);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let generationRequestId: string | undefined;
+  let messageId: string | undefined;
   let freeQuotaRemaining: number | undefined;
+  const consumeFrame = (frame: string) => {
+    const lines = frame.split(/\r?\n/);
+    const event = lines.find((line) => line.startsWith('event:'))
+      ?.slice('event:'.length).trim();
+    const data = lines
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice('data:'.length).trimStart())
+      .join('');
+    if (!data) return;
+    const parsed = JSON.parse(data) as {
+      text?: string;
+      message?: string;
+      message_id?: string;
+      generation_request_id?: string;
+      code?: string;
+      retryable?: boolean;
+      request_id?: string;
+      free_quota_remaining?: number;
+    };
+    if (event === 'start') generationRequestId = parsed.generation_request_id;
+    if (event === 'delta' && parsed.text) options.onDelta(parsed.text);
+    if (event === 'done') {
+      generationRequestId = parsed.generation_request_id ?? generationRequestId;
+      messageId = parsed.message_id;
+      if (parsed.free_quota_remaining !== undefined) {
+        freeQuotaRemaining = parsed.free_quota_remaining;
+      }
+    }
+    if (event === 'error') {
+      throw new ApiError(
+        parsed.message ?? t().cloud.modelUnavailable,
+        parsed.code,
+        parsed.retryable,
+        parsed.request_id
+      );
+    }
+  };
   while (true) {
     const { value, done } = await reader.read();
     buffer += decoder.decode(value, { stream: !done });
-    const frames = buffer.split('\n\n');
+    const frames = buffer.split(/\r?\n\r?\n/);
     buffer = frames.pop() ?? '';
-    for (const frame of frames) {
-      const event = frame.match(/^event: (.+)$/m)?.[1];
-      const data = frame.match(/^data: (.+)$/m)?.[1];
-      if (!data) continue;
-      const parsed = JSON.parse(data) as {
-        text?: string;
-        message?: string;
-        code?: string;
-        retryable?: boolean;
-        request_id?: string;
-        free_quota_remaining?: number;
-      };
-      if (event === 'delta' && parsed.text) onDelta(parsed.text);
-      if (event === 'done' && parsed.free_quota_remaining !== undefined) {
-        freeQuotaRemaining = parsed.free_quota_remaining;
-      }
-      if (event === 'error') {
-        throw new ApiError(
-          parsed.message ?? t().cloud.modelUnavailable,
-          parsed.code,
-          parsed.retryable,
-          parsed.request_id
-        );
-      }
-    }
+    for (const frame of frames) consumeFrame(frame);
     if (done) break;
   }
-  return freeQuotaRemaining === undefined ? {} : { freeQuotaRemaining };
+  if (buffer.trim()) consumeFrame(buffer);
+  return {
+    ...(generationRequestId ? { generationRequestId } : {}),
+    ...(messageId ? { messageId } : {}),
+    ...(freeQuotaRemaining === undefined ? {} : { freeQuotaRemaining })
+  };
 }

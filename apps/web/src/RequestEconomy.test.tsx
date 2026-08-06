@@ -40,13 +40,17 @@ interface ShellOptions {
   turnSuggestions?: string[];
   turnMessages?: string[];
   messages?: Record<string, unknown>[];
+  messagesByConversation?: Record<string, Record<string, unknown>[]>;
+  messageDelayMs?: Record<string, number>;
 }
 
 function mockShell({
   characters = [character('firefly-card', '流萤')],
   turnSuggestions,
   turnMessages = ['收到。'],
-  messages = []
+  messages = [],
+  messagesByConversation,
+  messageDelayMs
 }: ShellOptions = {}) {
   const requested: {
     path: string;
@@ -124,7 +128,19 @@ function mockShell({
       const body = JSON.parse(String(init?.body)) as { character_id: string };
       return json({ conversation_id: `conversation-${body.character_id}` }, 201);
     }
-    if (path.endsWith('/messages')) return json({ messages });
+    if (path.endsWith('/messages')) {
+      const selected = messagesByConversation?.[path] ?? messages;
+      const delay = messageDelayMs?.[path] ?? 0;
+      return delay > 0
+        ? new Promise((resolve) => setTimeout(
+            () => resolve(new Response(JSON.stringify({ messages: selected }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            })),
+            delay
+          ))
+        : json({ messages: selected });
+    }
     if (path.endsWith('/reply-suggestions')) return json({ suggestions: ['稍后再说'] });
     if (path.endsWith('/turns')) {
       return json(
@@ -295,6 +311,31 @@ describe('request economy', () => {
 
     const spent = suggestionCalls(requested).slice(before);
     expect(spent).toHaveLength(0);
+  });
+
+  it('clears the previous character messages while the next conversation loads', async () => {
+    mockShell({
+      characters: [character('alpha-card', 'Alpha'), character('beta-card', 'Beta')],
+      messagesByConversation: {
+        '/v1/conversations/conversation-alpha-card/messages': [
+          { message_id: 'alpha-1', role: 'ASSISTANT', content_text: 'alpha-private', status: 'COMPLETED' }
+        ],
+        '/v1/conversations/conversation-beta-card/messages': [
+          { message_id: 'beta-1', role: 'ASSISTANT', content_text: 'beta-private', status: 'COMPLETED' }
+        ]
+      },
+      messageDelayMs: {
+        '/v1/conversations/conversation-beta-card/messages': 250
+      }
+    });
+    render(<App />);
+
+    expect(await screen.findByText('alpha-private', { selector: '.message-bubble' })).toBeInTheDocument();
+    const rail = await screen.findByRole('complementary');
+    fireEvent.click(within(rail).getByRole('button', { name: /Beta/ }));
+    expect(screen.getByPlaceholderText(/Beta/)).toBeInTheDocument();
+    expect(screen.queryByText('alpha-private', { selector: '.message-bubble' })).not.toBeInTheDocument();
+    expect(await screen.findByText('beta-private', { selector: '.message-bubble' })).toBeInTheDocument();
   });
 
   it('keeps the settled conversation even when an earlier open resolves last', async () => {

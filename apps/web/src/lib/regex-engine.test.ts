@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   RegexPlacement,
   applyRegexScripts,
+  applyRegexScriptsBounded,
   normalizeRegexScript,
   type RegexScript
 } from './regex-engine';
+
+afterEach(() => vi.unstubAllGlobals());
 
 const script = (overrides: Partial<RegexScript> = {}): RegexScript => ({
   id: 'script-1',
@@ -24,6 +27,19 @@ const script = (overrides: Partial<RegexScript> = {}): RegexScript => ({
 });
 
 describe('SillyTavern-compatible regex pipeline', () => {
+  it('does not start a Worker or report a timeout when no script can run', async () => {
+    const WorkerStub = vi.fn(() => {
+      throw new Error('Worker must not start without a runnable script');
+    });
+    vi.stubGlobal('Worker', WorkerStub);
+
+    await expect(applyRegexScriptsBounded('hello', [], {
+      placement: RegexPlacement.USER_INPUT,
+      macros: { user: 'User', char: 'Character' }
+    })).resolves.toEqual({ text: 'hello', timedOut: false });
+    expect(WorkerStub).not.toHaveBeenCalled();
+  });
+
   it('runs only scripts assigned to the current placement', () => {
     expect(
       applyRegexScripts('hello <think>secret</think> world', [script()], {

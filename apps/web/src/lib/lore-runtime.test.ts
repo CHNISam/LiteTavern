@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { resetLoreDatabaseForTests } from './lore-store';
-import { resolveClientContext } from './lore-runtime';
+import {
+  resolveClientContext,
+  WORLDBOOK_DIAGNOSTIC_EVENT
+} from './lore-runtime';
 import { createPersona } from './persona';
 import {
   RegexPlacement,
@@ -18,6 +21,10 @@ afterEach(async () => {
 
 describe('local turn context', () => {
   it('activates local lore, runs authorized WORLD_INFO Regex, and expands macros deterministically', async () => {
+    let diagnostic: unknown;
+    globalThis.addEventListener(WORLDBOOK_DIAGNOSTIC_EVENT, (event) => {
+      diagnostic = (event as CustomEvent).detail;
+    }, { once: true });
     await createPersona({
       name: '旅人',
       description: '观察者',
@@ -80,6 +87,15 @@ describe('local turn context', () => {
       ]
     });
     expect(context.warnings).toEqual([]);
+    expect(diagnostic).toMatchObject({
+      activation_seed: 'same-turn',
+      worldbook_ids: [bookId],
+      dropped_for_budget: 0,
+      warnings: []
+    });
+    expect(document.documentElement.dataset.litetavernWorldbookEntries).toBe(
+      JSON.stringify(context.activated.map(({ entry }) => entry.entry_id))
+    );
   });
 
   it('inherits book scan depth and uses the most generous active book budget', async () => {

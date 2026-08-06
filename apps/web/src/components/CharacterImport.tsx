@@ -18,7 +18,7 @@ import { cloudUrl } from '../lib/runtime-config';
 
 type Preview = LocalCardPreview;
 
-export function CharacterImport({ open, replaceCharacterId, onClose, onImported }: { open: boolean; replaceCharacterId?: string; onClose: () => void; onImported: () => Promise<void> }) {
+export function CharacterImport({ open, replaceCharacterId, onClose, onImported }: { open: boolean; replaceCharacterId?: string; onClose: () => void; onImported: (characterId: string) => Promise<void> }) {
   const t = useT();
   const [file, setFile] = useState<File | null>(null);
   const [cardData, setCardData] = useState<Record<string, unknown> | null>(null);
@@ -108,7 +108,7 @@ export function CharacterImport({ open, replaceCharacterId, onClose, onImported 
           body
         }).catch(() => undefined);
       }
-      await onImported();
+      await onImported(imported.character_id);
       onClose();
       setFile(null);
       setCardData(null);

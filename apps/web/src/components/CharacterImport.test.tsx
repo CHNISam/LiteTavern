@@ -69,7 +69,7 @@ describe('CharacterImport local extension flow', () => {
     await screen.findByText('卡片角色');
     expect(requests).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: '确认导入' }));
-    await waitFor(() => expect(onImported).toHaveBeenCalled());
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith('card-1'));
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe(
       'https://api-internal.example/v1/characters/import'

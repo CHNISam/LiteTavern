@@ -206,6 +206,15 @@ export async function applyRegexScriptsBounded(
   options: RegexExecutionOptions,
   timeoutMs = 75
 ): Promise<RegexExecutionResult> {
+  const depth = options.depth ?? 0;
+  const hasRunnableScript = scripts.some((script) =>
+    !script.disabled &&
+    script.placement.includes(options.placement) &&
+    (!options.editing || script.runOnEdit) &&
+    (script.minDepth === null || depth >= script.minDepth) &&
+    (script.maxDepth === null || depth <= script.maxDepth)
+  );
+  if (!hasRunnableScript) return { text: input, timedOut: false };
   if (typeof Worker === 'undefined') {
     return { text: applyRegexScripts(input, scripts, options), timedOut: false };
   }

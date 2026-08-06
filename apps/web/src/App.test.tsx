@@ -865,6 +865,51 @@ describe('HSR message shell', () => {
     expect(await screen.findByRole('button', { name: '新建角色' })).toBeInTheDocument();
   });
 
+  it('confirms and deletes a user message together with its later active branch', async () => {
+    let messages = [
+      { message_id: 'm-1', role: 'ASSISTANT', content_text: '开场白', status: 'COMPLETED' },
+      { message_id: 'm-2', role: 'USER', content_text: '需要删除的问题', status: 'COMPLETED' },
+      { message_id: 'm-3', role: 'ASSISTANT', content_text: '需要一并删除的回答', status: 'COMPLETED' }
+    ];
+    const requests: Array<{ path: string; method: string }> = [];
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const path = String(input);
+      requests.push({ path, method: init?.method ?? 'GET' });
+      if (path === '/v1/cloud/status') return json(cloudStatus());
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/identities/anonymous') return json({ user_id: 'user-1' });
+      if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
+      if (path === '/v1/characters') return json({ characters: [{
+        character_id: 'firefly-card', name: '流萤', profile_summary: '星核猎手成员',
+        personality_summary: '温柔而坚定', first_message: '开场白', avatar_seed: '流萤',
+        is_owned: true, last_message: null
+      }] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
+      if (path === '/v1/conversations/conversation-1/messages/m-2' && init?.method === 'DELETE') {
+        messages = messages.slice(0, 1);
+        return json({ deleted: true });
+      }
+      if (path === '/v1/conversations/conversation-1/messages') return json({ messages });
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+
+    const userMessage = (await screen.findByText('需要删除的问题')).closest('.hsr-message') as HTMLElement;
+    fireEvent.click(within(userMessage).getByRole('button', { name: '删除此消息及后续回复' }));
+
+    await waitFor(() => expect(requests).toContainEqual({
+      path: '/v1/conversations/conversation-1/messages/m-2',
+      method: 'DELETE'
+    }));
+    expect(window.confirm).toHaveBeenCalledWith('删除这条消息以及本会话中它之后的全部回复？');
+    await waitFor(() => expect(screen.queryByText('需要删除的问题')).not.toBeInTheDocument());
+    expect(screen.queryByText('需要一并删除的回答')).not.toBeInTheDocument();
+    expect(screen.getByText('开场白', { selector: '.message-bubble' })).toBeInTheDocument();
+  });
+
   it('copies a sent message and edits it into a new multi-bubble turn', async () => {
     const turns: Array<Record<string, unknown>> = [];
     const writeText = vi.fn().mockResolvedValue(undefined);

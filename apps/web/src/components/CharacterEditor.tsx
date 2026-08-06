@@ -15,7 +15,7 @@ export function CharacterEditor({ open, characterId, onClose, onSaved }: {
   open: boolean;
   characterId?: string;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (characterId: string) => Promise<void>;
 }) {
   const t = useT();
   const [model, setModel] = useState<CharacterModel>(EMPTY_CHARACTER);
@@ -109,7 +109,7 @@ export function CharacterEditor({ open, characterId, onClose, onSaved }: {
         );
         return;
       }
-      await onSaved();
+      await onSaved(targetId);
       onClose();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t.editor.saveFailed);
