@@ -229,6 +229,8 @@ export const zhCN = {
     personasBody: '管理你在故事中的 Persona，与账号资料无关',
     worldbooksTitle: '世界书',
     worldbooksBody: '管理世界设定条目，命中时才进入对话',
+    feedbackTitle: '意见反馈',
+    feedbackBody: '报告问题或提出建议，会附带页面与运行环境',
     aboutTitle: '关于 LiteTavern',
     aboutBody: '版本、开源仓库，以及自愿支持入口',
     importCard: '导入角色卡',

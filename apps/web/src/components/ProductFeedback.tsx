@@ -1,25 +1,41 @@
 import { MessageSquarePlus, X } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 
 export function ProductFeedback({
   provider,
   model,
-  traceId
+  traceId,
+  open: controlledOpen,
+  onOpenChange
 }: {
   provider?: string | undefined;
   model?: string | undefined;
   traceId?: string | undefined;
+  /* Optional control, so entries other than the floating launcher — Settings on
+     phones, where the launcher would cover the composer — can open the form. */
+  open?: boolean | undefined;
+  onOpenChange?: ((open: boolean) => void) | undefined;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [selfOpen, setSelfOpen] = useState(false);
+  const open = controlledOpen ?? selfOpen;
+  const setOpen = (next: boolean) => {
+    setSelfOpen(next);
+    onOpenChange?.(next);
+  };
   const [type, setType] = useState<'BUG' | 'UX' | 'IDEA' | 'OTHER'>('BUG');
   const [content, setContent] = useState('');
   const [contact, setContact] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
+
+  // Every way in starts on a blank form, not on the previous "thanks" screen.
+  useEffect(() => {
+    if (open) setSent(false);
+  }, [open]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -60,10 +76,7 @@ export function ProductFeedback({
       <button
         className="feedback-launcher"
         aria-label={t.feedback.openAria}
-        onClick={() => {
-          setSent(false);
-          setOpen(true);
-        }}
+        onClick={() => setOpen(true)}
       >
         <MessageSquarePlus size={18} />
         {t.feedback.open}

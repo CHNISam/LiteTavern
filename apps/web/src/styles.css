@@ -51,6 +51,13 @@
   --shadow-card: 0 6px 18px rgba(0, 0, 0, 0.12);
   --shadow-float: 0 10px 30px rgba(0, 0, 0, 0.18);
 
+  /* Safe areas — iOS home-screen apps run edge to edge (notch, rounded corners,
+     home indicator). Everything that touches a viewport edge pays these back. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
   /* Motion — strong custom curves (built-in easings feel weak) */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
@@ -72,7 +79,7 @@
 /* ---- reset ---- */
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; min-width: 320px; min-height: 100%; margin: 0; }
-body { min-height: 100vh; overflow: hidden; }
+body { min-height: 100dvh; overflow: hidden; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { color: inherit; }
 ::selection { background: rgba(198, 164, 92, 0.32); }
@@ -82,7 +89,10 @@ button { color: inherit; }
    ========================================================================== */
 .hsr-app {
   position: relative;
-  min-height: 100vh;
+  min-height: 100dvh;
+  /* The stage keeps clear of the notch and the rounded corners; the background
+     gradients still paint edge to edge because they fill the padding box. */
+  padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
   overflow: hidden;
   isolation: isolate;
   background:
@@ -169,7 +179,7 @@ button { color: inherit; }
    ========================================================================== */
 .hsr-stage {
   width: min(1560px, calc(100% - 76px));
-  height: calc(100vh - 150px);
+  height: calc(100dvh - 150px - var(--safe-top));
   min-height: 560px;
   margin: 0 auto 40px;
   display: grid;
@@ -578,7 +588,9 @@ button { color: inherit; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Composer */
-.reply-area { flex: 0 0 auto; padding: 10px 40px 24px; border-top: 1px solid var(--paper-line); }
+/* The composer is the last thing above the iOS home indicator — pay the bottom
+   inset back here so the send button stays fully tappable. */
+.reply-area { flex: 0 0 auto; padding: 10px 40px calc(24px + var(--safe-bottom)); border-top: 1px solid var(--paper-line); }
 /* A quiet model indicator, not a loud control — tucked to the right above the composer */
 .model-bar { min-height: 26px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-bottom: 8px; }
 .model-bar button {
@@ -1365,7 +1377,7 @@ button { color: inherit; }
   body { overflow: auto; }
   .top-chrome { height: 72px; padding: 18px 16px 0; }
   .close-game { display: none; }
-  .hsr-stage { width: 100%; height: calc(100dvh - 72px); min-height: 0; margin: 0; grid-template-columns: 1fr; gap: 0; border-radius: 0; }
+  .hsr-stage { width: 100%; height: calc(100dvh - 72px - var(--safe-top)); min-height: 0; margin: 0; grid-template-columns: 1fr; gap: 0; border-radius: 0; }
   .view-profile .hsr-stage, .view-settings .hsr-stage, .view-memories .hsr-stage { border-radius: 0; }
   .contact-rail { border-radius: 0; }
   .contact-rail:has(.contact-item.selected) { display: none; }
@@ -1378,7 +1390,12 @@ button { color: inherit; }
   .hsr-message { max-width: 92%; }
   .hsr-message .hsr-avatar, .user-avatar { width: 46px; height: 46px; }
   .message-bubble { font-size: 15px; }
-  .reply-area { padding: 8px 12px 12px; }
+  .reply-area { padding: 8px 12px calc(12px + var(--safe-bottom)); }
+  /* The floating launcher landed on the composer's send button once the chat
+     filled the viewport. On phones the entry lives in Settings instead. */
+  .feedback-launcher { display: none; }
+  /* Without a character selected the rail runs to the bottom of the screen. */
+  .contact-rail { padding-bottom: var(--safe-bottom); }
   .profile-paper, .settings-paper { padding: 18px; }
   .profile-hero { flex-direction: column; align-items: flex-start; gap: 16px; }
   .profile-avatar { width: 108px; height: 108px; }
@@ -1395,11 +1412,20 @@ button { color: inherit; }
   .model-service-overview { grid-template-columns: 1fr; }
   .rail-actions { grid-template-columns: 1fr; }
       .creator-fields { grid-template-columns: 1fr; }
-  .modal-backdrop { padding: 0; }
+  /* Full-screen panels stop at the safe area instead of running under the notch
+     and the home indicator. */
+  .modal-backdrop {
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  }
   .settings-panel,
   .app-settings-panel,
   .cloud-panel,
-  .login-panel { width: 100%; height: 100dvh; max-height: none; border-radius: 0; }
+  .login-panel {
+    width: 100%;
+    height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+    max-height: none;
+    border-radius: 0;
+  }
 }
 
 /* Phone landscape follows the in-game message screen: a compact contact rail
@@ -1427,10 +1453,11 @@ button { color: inherit; }
     position: relative;
     box-sizing: border-box;
     width: 100%;
-    height: calc(100dvh - 56px);
+    height: calc(100dvh - 56px - var(--safe-top));
     min-height: 0;
     margin: 0;
-    padding: 0 8px 8px;
+    /* Landscape is where the home indicator sits under the panels. */
+    padding: 0 8px calc(8px + var(--safe-bottom));
     grid-template-columns: minmax(210px, 30vw) minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
     column-gap: 8px;
@@ -1454,6 +1481,8 @@ button { color: inherit; }
     grid-column: 1;
     grid-row: 2;
     min-height: 0;
+    /* The stage already pays the bottom inset in this orientation. */
+    padding-bottom: 0;
     border-radius: 12px;
   }
   .main-paper {
@@ -1526,6 +1555,7 @@ button { color: inherit; }
   .model-bar button { padding: 2px 7px; font-size: 9px; }
   .reply-composer { min-height: 40px; }
   .reply-composer textarea { max-height: 58px; font-size: 12px; }
+  .feedback-launcher { display: none; }
 
   .detail-topbar { min-height: 46px; padding: 5px 10px; }
   .detail-back { padding: 6px 10px 6px 7px; font-size: 11px; }
@@ -1573,10 +1603,12 @@ button { color: inherit; }
   .setting-row small { font-size: 9px; }
   .setting-row em { font-size: 10px; }
 
-  .modal-backdrop { padding: 0; }
+  .modal-backdrop {
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  }
   .settings-panel {
     width: 100%;
-    height: 100dvh;
+    height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
     border-radius: 0;
   }
   .settings-header { padding: 8px 14px; }
@@ -2034,6 +2066,9 @@ button { color: inherit; }
   position: relative;
   width: 100%;
   height: 100dvh;
+  /* Home-screen and notched viewports: keep the header, footer and side gutters
+     off the unsafe edges without cropping the painted background. */
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
   overflow-x: hidden;
   overflow-y: auto;
   isolation: isolate;
@@ -2555,7 +2590,11 @@ button { color: inherit; }
   z-index: 40;
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding:
+    calc(20px + var(--safe-top))
+    calc(20px + var(--safe-right))
+    calc(20px + var(--safe-bottom))
+    calc(20px + var(--safe-left));
   overflow-y: auto;
   background: rgba(8, 10, 14, 0.62);
   backdrop-filter: blur(3px);
@@ -2563,7 +2602,7 @@ button { color: inherit; }
 }
 .claim-dialog {
   width: min(520px, 100%);
-  max-height: calc(100dvh - 40px);
+  max-height: calc(100dvh - 40px - var(--safe-top) - var(--safe-bottom));
   overflow-y: auto;
   padding: 24px;
   border: 1px solid var(--pub-card-border);
@@ -2852,8 +2891,8 @@ button { color: inherit; }
 /* ---- lightweight in-product feedback ---- */
 .feedback-launcher {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
+  right: calc(18px + var(--safe-right));
+  bottom: calc(18px + var(--safe-bottom));
   z-index: 130;
   min-height: 38px;
   display: flex;
@@ -2874,12 +2913,16 @@ button { color: inherit; }
   z-index: 300;
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding:
+    calc(20px + var(--safe-top))
+    calc(20px + var(--safe-right))
+    calc(20px + var(--safe-bottom))
+    calc(20px + var(--safe-left));
   background: rgba(6, 8, 12, .66);
 }
 .feedback-dialog {
   width: min(520px, 100%);
-  max-height: min(720px, calc(100vh - 40px));
+  max-height: min(720px, calc(100dvh - 40px - var(--safe-top) - var(--safe-bottom)));
   overflow: auto;
   border: 1px solid var(--paper-line);
   border-radius: 18px;

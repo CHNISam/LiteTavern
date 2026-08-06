@@ -9,6 +9,7 @@ import {
   HeartHandshake,
   Info,
   MessageCircle,
+  MessageSquarePlus,
   Upload,
   UserRound,
   X
@@ -26,6 +27,7 @@ interface AppSettingsPanelProps {
   onMigrate: () => void;
   onPersonas: () => void;
   onWorldbooks: () => void;
+  onFeedback: () => void;
 }
 
 type SettingsView = 'root' | 'data' | 'about';
@@ -36,7 +38,8 @@ export function AppSettingsPanel({
   onImport,
   onMigrate,
   onPersonas,
-  onWorldbooks
+  onWorldbooks,
+  onFeedback
 }: AppSettingsPanelProps) {
   const { locale, dictionary: t, setLocale } = useLocale();
   const [view, setView] = useState<SettingsView>('root');
@@ -129,6 +132,16 @@ export function AppSettingsPanel({
                 <span>
                   <strong>{t.settings.dataTitle}</strong>
                   <small>{t.settings.dataBody}</small>
+                </span>
+                <ChevronRight size={18} />
+              </button>
+              {/* On phones the floating launcher is hidden — it covered the
+                  composer — so this is the way in to feedback there. */}
+              <button type="button" onClick={onFeedback}>
+                <span className="app-settings-icon"><MessageSquarePlus size={19} /></span>
+                <span>
+                  <strong>{t.settings.feedbackTitle}</strong>
+                  <small>{t.settings.feedbackBody}</small>
                 </span>
                 <ChevronRight size={18} />
               </button>

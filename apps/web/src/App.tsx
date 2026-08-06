@@ -172,6 +172,7 @@ function ProductApp() {
   const [providerInitialSection, setProviderInitialSection] =
     useState<'overview' | 'platform' | 'byok'>('overview');
   const [appSettingsOpen, setAppSettingsOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [personaPanelOpen, setPersonaPanelOpen] = useState(false);
   const [worldbookPanelOpen, setWorldbookPanelOpen] = useState(false);
   const [conversationPersonaOpen, setConversationPersonaOpen] = useState(false);
@@ -1227,6 +1228,10 @@ function ProductApp() {
           setAppSettingsOpen(false);
           setWorldbookPanelOpen(true);
         }}
+        onFeedback={() => {
+          setAppSettingsOpen(false);
+          setFeedbackOpen(true);
+        }}
       />
       <PersonaPanel open={personaPanelOpen} onClose={() => setPersonaPanelOpen(false)} />
       <WorldbookPanel open={worldbookPanelOpen} onClose={() => setWorldbookPanelOpen(false)} />
@@ -1281,6 +1286,8 @@ function ProductApp() {
             : undefined
         }
         traceId={turnIdRef.current || undefined}
+        open={feedbackOpen}
+        onOpenChange={setFeedbackOpen}
       />
     </main>
   );

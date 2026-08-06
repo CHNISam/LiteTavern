@@ -30,7 +30,51 @@ test('phone landscape uses the full short viewport without desktop minimum heigh
   )?.[1];
 
   assert.ok(landscape);
-  assert.match(landscape, /\.hsr-stage\s*\{[^}]*height:\s*calc\(100dvh\s*-\s*56px\)/);
+  // The stage owns the short viewport minus the chrome; on notched iOS home-screen
+  // launches it also gives back the top safe-area inset the app shell padded in.
+  assert.match(
+    landscape,
+    /\.hsr-stage\s*\{[^}]*height:\s*calc\(100dvh\s*-\s*56px(\s*-\s*var\(--safe-top\))?\)/
+  );
   assert.match(landscape, /\.hsr-stage\s*\{[^}]*min-height:\s*0/);
   assert.match(landscape, /\.top-chrome\s*\{[^}]*height:\s*56px/);
+});
+
+test('the document opts into the full iOS viewport so safe-area insets are real', async () => {
+  const html = await readFile(
+    new URL('../apps/web/index.html', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(html, /name="viewport"[^>]*viewport-fit=cover/);
+  assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/);
+});
+
+test('every viewport edge pays back the iOS safe-area insets', () => {
+  assert.match(styles, /--safe-top:\s*env\(safe-area-inset-top, 0px\)/);
+  assert.match(styles, /--safe-bottom:\s*env\(safe-area-inset-bottom, 0px\)/);
+
+  // The shell keeps the stage out of the notch and the rounded corners.
+  assert.match(
+    styles,
+    /\.hsr-app\s*\{[^}]*padding:\s*var\(--safe-top\)\s+var\(--safe-right\)\s+0\s+var\(--safe-left\)/
+  );
+  // The composer is the last row above the home indicator.
+  assert.match(
+    styles,
+    /\.reply-area\s*\{[^}]*padding:[^;]*var\(--safe-bottom\)/
+  );
+});
+
+test('the feedback launcher leaves the phone composer alone', () => {
+  const portrait = styles.match(/@media \(max-width: 900px\) \{([\s\S]*?)\n\}/)?.[1];
+  const landscape = styles.match(
+    /@media \(max-width: 960px\) and \(orientation: landscape\) \{([\s\S]*?)\n\}/
+  )?.[1];
+
+  assert.ok(portrait);
+  assert.ok(landscape);
+  // It used to sit on top of the send button; phones reach it through Settings.
+  assert.match(portrait, /\.feedback-launcher\s*\{[^}]*display:\s*none/);
+  assert.match(landscape, /\.feedback-launcher\s*\{[^}]*display:\s*none/);
 });

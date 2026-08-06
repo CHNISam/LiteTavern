@@ -245,6 +245,8 @@ export const en: Dictionary = {
     personasBody: 'Manage who you play in a story — unrelated to your account details',
     worldbooksTitle: 'Worldbooks',
     worldbooksBody: 'Manage lore entries; they enter the conversation only when matched',
+    feedbackTitle: 'Send feedback',
+    feedbackBody: 'Report a problem or suggest a change; page and environment are attached',
     aboutTitle: 'About LiteTavern',
     aboutBody: 'Version, source code, and how to support the project',
     importCard: 'Import a character card',
