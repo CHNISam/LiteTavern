@@ -180,14 +180,26 @@ function activationReason(
 
 function byBudgetPriority(
   left: WorldbookEntryAsset,
-  right: WorldbookEntryAsset
+  right: WorldbookEntryAsset,
+  leftMatchesLatest: boolean,
+  rightMatchesLatest: boolean
 ): number {
   const leftPriority = left.priority ?? left.insertion_order;
   const rightPriority = right.priority ?? right.insertion_order;
   return (
     rightPriority - leftPriority ||
     left.insertion_order - right.insertion_order ||
+    Number(rightMatchesLatest) - Number(leftMatchesLatest) ||
     left.entry_id.localeCompare(right.entry_id)
+  );
+}
+
+function directlyMatchesLatest(entry: WorldbookEntryAsset, text: string): boolean {
+  return (
+    !entry.constant &&
+    entry.keys.some((key) => key.trim()) &&
+    matchesAny(text, entry.keys, entry) &&
+    secondaryPasses(entry, text)
   );
 }
 
@@ -239,6 +251,8 @@ export function activateWorldbookEntries(
   let stoppedBy: WorldbookActivation['stoppedBy'] = 'NONE';
   let recursionStep = 0;
   let recursiveText = typeof input === 'string' ? input : scanText(input, 20);
+  const latestText =
+    typeof input === 'string' ? input : (input.at(-1)?.content_text ?? '');
 
   while (true) {
     const candidates = entries.flatMap((entry) => {
@@ -265,7 +279,14 @@ export function activateWorldbookEntries(
       ];
     });
     if (!candidates.length) break;
-    candidates.sort((left, right) => byBudgetPriority(left.entry, right.entry));
+    candidates.sort((left, right) =>
+      byBudgetPriority(
+        left.entry,
+        right.entry,
+        directlyMatchesLatest(left.entry, latestText),
+        directlyMatchesLatest(right.entry, latestText)
+      )
+    );
     const newlySelected: ActivatedWorldbookEntry[] = [];
     for (const candidate of candidates) {
       const content = candidate.entry.content.trim();
@@ -273,6 +294,11 @@ export function activateWorldbookEntries(
       // A rejected candidate cannot become cheaper in a later recursion step, so mark
       // it evaluated now instead of counting the same drop repeatedly.
       seenIds.add(candidate.entry.entry_id);
+      // Candidates are collected as one batch. Two different entries with identical
+      // content can therefore both pass the earlier check before either is selected.
+      // Re-check here so duplicate lore never consumes prompt budget or gets injected
+      // twice in the same activation step.
+      if (seenContent.has(content)) continue;
       if (selected.length >= maxEntries) {
         droppedForBudget += 1;
         stoppedBy = 'ENTRY_LIMIT';

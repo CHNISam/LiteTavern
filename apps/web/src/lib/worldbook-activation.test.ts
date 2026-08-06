@@ -138,6 +138,24 @@ describe('activateWorldbookEntries', () => {
     expect(result.activated.map((item) => item.entry.entry_id)).toEqual(['high']);
     expect(result.droppedForBudget).toBe(1);
   });
+
+  it('prefers a direct current-message match when equal-priority history matches compete for budget', () => {
+    const result = activateWorldbookEntries(
+      [
+        entry('a-old', { keys: ['old-key'], content: 'x'.repeat(100) }),
+        entry('z-current', { keys: ['current-key'], content: 'y'.repeat(100) })
+      ],
+      [
+        { content_text: 'old-key was discussed earlier' },
+        { content_text: 'current-key is what I am asking about now' }
+      ],
+      { maxEntries: 10, tokenBudget: 50, recursive: false }
+    );
+    expect(result.activated.map((item) => item.entry.entry_id)).toEqual([
+      'z-current'
+    ]);
+    expect(result.droppedForBudget).toBe(1);
+  });
 });
 
 describe('buildWorldbookScanText', () => {
