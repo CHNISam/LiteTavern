@@ -311,3 +311,23 @@ export async function streamGeneration(
     ...(freeQuotaRemaining === undefined ? {} : { freeQuotaRemaining })
   };
 }
+
+/**
+ * Return USER-perspective candidates without writing a chat message. The Cloud
+ * reuses candidates from the latest platform turn; BYOK may make a dedicated call.
+ */
+export async function fetchReplySuggestions(
+  conversationId: string,
+  modelSelector: Record<string, unknown>
+): Promise<string[]> {
+  const result = await api<{ suggestions?: unknown }>(
+    `/v1/conversations/${conversationId}/reply-suggestions`,
+    { method: 'POST', body: JSON.stringify(modelSelector) }
+  );
+  if (!Array.isArray(result.suggestions)) return [];
+  return result.suggestions
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}

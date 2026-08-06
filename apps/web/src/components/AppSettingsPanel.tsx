@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
+  ArrowDown,
+  ArrowUp,
   BookOpen,
   Languages,
   ChevronRight,
@@ -10,8 +12,11 @@ import {
   Info,
   MessageCircle,
   MessageSquarePlus,
+  Plus,
+  Trash2,
   Upload,
   UserRound,
+  Zap,
   X
 } from 'lucide-react';
 import { EXPORT_PATH } from '../lib/cloud';
@@ -19,6 +24,12 @@ import { APP_VERSION, githubUrl } from '../lib/project-links';
 import { cloudUrl } from '../lib/runtime-config';
 import { siteHref } from '../public-routing';
 import { LOCALES, LOCALE_NAMES, useLocale, type Locale } from '../lib/i18n';
+import { createId } from '../lib/id';
+import {
+  MAX_QUICK_REPLIES,
+  moveQuickReply,
+  type QuickReplySettings
+} from '../lib/quick-replies';
 
 interface AppSettingsPanelProps {
   open: boolean;
@@ -28,9 +39,11 @@ interface AppSettingsPanelProps {
   onPersonas: () => void;
   onWorldbooks: () => void;
   onFeedback: () => void;
+  quickReplies: QuickReplySettings;
+  onQuickRepliesChange: (settings: QuickReplySettings) => void;
 }
 
-type SettingsView = 'root' | 'data' | 'about';
+type SettingsView = 'root' | 'data' | 'quickReplies' | 'about';
 
 export function AppSettingsPanel({
   open,
@@ -39,7 +52,9 @@ export function AppSettingsPanel({
   onMigrate,
   onPersonas,
   onWorldbooks,
-  onFeedback
+  onFeedback,
+  quickReplies,
+  onQuickRepliesChange
 }: AppSettingsPanelProps) {
   const { locale, dictionary: t, setLocale } = useLocale();
   const [view, setView] = useState<SettingsView>('root');
@@ -53,6 +68,8 @@ export function AppSettingsPanel({
   const title =
     view === 'data'
       ? t.settings.dataTitle
+      : view === 'quickReplies'
+        ? t.settings.quickRepliesTitle
       : view === 'about'
         ? t.settings.aboutTitle
         : t.settings.title;
@@ -135,6 +152,14 @@ export function AppSettingsPanel({
                 </span>
                 <ChevronRight size={18} />
               </button>
+              <button type="button" onClick={() => setView('quickReplies')}>
+                <span className="app-settings-icon"><Zap size={19} /></span>
+                <span>
+                  <strong>{t.settings.quickRepliesTitle}</strong>
+                  <small>{t.settings.quickRepliesBody}</small>
+                </span>
+                <ChevronRight size={18} />
+              </button>
               {/* On phones the floating launcher is hidden — it covered the
                   composer — so this is the way in to feedback there. */}
               <button type="button" onClick={onFeedback}>
@@ -200,6 +225,131 @@ export function AppSettingsPanel({
                 </a>
               </div>
             </>
+          )}
+
+          {view === 'quickReplies' && (
+            <div className="quick-reply-settings">
+              <p className="app-settings-lead">{t.settings.quickRepliesLead}</p>
+              <div className="quick-reply-preferences">
+                <label>
+                  <span>
+                    <strong>{t.settings.quickRepliesEnabled}</strong>
+                    <small>{t.settings.quickRepliesEnabledBody}</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={quickReplies.enabled}
+                    onChange={(event) => onQuickRepliesChange({
+                      ...quickReplies,
+                      enabled: event.target.checked
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>
+                    <strong>{t.settings.quickRepliesBehavior}</strong>
+                    <small>{t.settings.quickRepliesBehaviorBody}</small>
+                  </span>
+                  <select
+                    value={quickReplies.behavior}
+                    onChange={(event) => onQuickRepliesChange({
+                      ...quickReplies,
+                      behavior: event.target.value === 'SEND' ? 'SEND' : 'FILL'
+                    })}
+                  >
+                    <option value="FILL">{t.settings.quickRepliesFill}</option>
+                    <option value="SEND">{t.settings.quickRepliesSend}</option>
+                  </select>
+                </label>
+              </div>
+              <div className="quick-reply-editor-list">
+                {quickReplies.replies.map((reply, index) => (
+                  <article className="quick-reply-editor" key={reply.id}>
+                    <label className="quick-reply-enabled">
+                      <input
+                        type="checkbox"
+                        checked={reply.enabled}
+                        aria-label={t.settings.quickReplyEnabled(reply.label || String(index + 1))}
+                        onChange={(event) => onQuickRepliesChange({
+                          ...quickReplies,
+                          replies: quickReplies.replies.map((item) => item.id === reply.id
+                            ? { ...item, enabled: event.target.checked }
+                            : item)
+                        })}
+                      />
+                    </label>
+                    <div className="quick-reply-fields">
+                      <input
+                        value={reply.label}
+                        maxLength={80}
+                        aria-label={t.settings.quickReplyLabel(index + 1)}
+                        placeholder={t.settings.quickReplyLabelPlaceholder}
+                        onChange={(event) => onQuickRepliesChange({
+                          ...quickReplies,
+                          replies: quickReplies.replies.map((item) => item.id === reply.id
+                            ? { ...item, label: event.target.value }
+                            : item)
+                        })}
+                      />
+                      <textarea
+                        value={reply.message}
+                        maxLength={2000}
+                        rows={2}
+                        aria-label={t.settings.quickReplyMessage(index + 1)}
+                        placeholder={t.settings.quickReplyMessagePlaceholder}
+                        onChange={(event) => onQuickRepliesChange({
+                          ...quickReplies,
+                          replies: quickReplies.replies.map((item) => item.id === reply.id
+                            ? { ...item, message: event.target.value }
+                            : item)
+                        })}
+                      />
+                    </div>
+                    <div className="quick-reply-order">
+                      <button
+                        type="button"
+                        disabled={index === 0}
+                        aria-label={t.settings.moveQuickReplyUp}
+                        onClick={() => onQuickRepliesChange({
+                          ...quickReplies,
+                          replies: moveQuickReply(quickReplies.replies, reply.id, -1)
+                        })}
+                      ><ArrowUp size={15} /></button>
+                      <button
+                        type="button"
+                        disabled={index === quickReplies.replies.length - 1}
+                        aria-label={t.settings.moveQuickReplyDown}
+                        onClick={() => onQuickRepliesChange({
+                          ...quickReplies,
+                          replies: moveQuickReply(quickReplies.replies, reply.id, 1)
+                        })}
+                      ><ArrowDown size={15} /></button>
+                      <button
+                        type="button"
+                        aria-label={t.settings.deleteQuickReply}
+                        onClick={() => onQuickRepliesChange({
+                          ...quickReplies,
+                          replies: quickReplies.replies.filter((item) => item.id !== reply.id)
+                        })}
+                      ><Trash2 size={15} /></button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="quick-reply-add"
+                disabled={quickReplies.replies.length >= MAX_QUICK_REPLIES}
+                onClick={() => onQuickRepliesChange({
+                  ...quickReplies,
+                  replies: [...quickReplies.replies, {
+                    id: createId(), label: '', message: '', enabled: true
+                  }]
+                })}
+              >
+                <Plus size={16} /> {t.settings.addQuickReply}
+              </button>
+            </div>
           )}
 
           {view === 'about' && (

@@ -606,6 +606,14 @@ button { color: inherit; }
 .model-bar button:hover { color: var(--ink-1); }
 .model-bar button.active { color: var(--gold-deep); background: rgba(198, 164, 92, 0.14); }
 .model-bar button:disabled { color: var(--ink-3); cursor: default; opacity: 0.72; }
+.model-bar .impersonate-button {
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+}
+.model-bar .impersonate-button:active:not(:disabled) { transform: scale(0.97); }
 .model-bar select { max-width: 240px; margin-left: 4px; padding: 4px 8px; border: 1px solid var(--paper-line); border-radius: 8px; background: rgba(255, 255, 255, 0.5); color: var(--ink-2); font-size: 12px; }
 .quota-notice {
   display: flex;
@@ -666,6 +674,37 @@ button { color: inherit; }
 .suggestion-chip:disabled { opacity: 0.5; cursor: default; }
 .suggestion-hint { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 10px 2px; color: var(--ink-3); font-size: 13px; }
 @keyframes chip-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* User-authored quick replies are compact utilities, visually distinct from the
+   full-width AI candidates inherited from the chat prototype. */
+.quick-reply-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.quick-reply-tray button {
+  max-width: min(240px, 100%);
+  padding: 6px 11px;
+  overflow: hidden;
+  border: 1px solid rgba(140, 112, 48, 0.28);
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.48);
+  color: var(--ink-2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 140ms var(--ease-out), background 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+.quick-reply-tray button:active:not(:disabled) { transform: scale(0.97); }
+.quick-reply-tray button:disabled { opacity: 0.48; cursor: default; }
+@media (hover: hover) and (pointer: fine) {
+  .quick-reply-tray button:hover:not(:disabled) {
+    border-color: rgba(198, 164, 92, 0.58);
+    background: rgba(255, 255, 255, 0.72);
+  }
+}
 
 .reply-composer {
   min-height: 56px;
@@ -1848,6 +1887,72 @@ button { color: inherit; }
   outline: 0;
   border-color: rgba(198, 164, 92, 0.6);
   box-shadow: 0 0 0 3px rgba(198, 164, 92, 0.14);
+}
+
+.quick-reply-settings { padding: 2px 5px 5px; }
+.quick-reply-preferences { display: grid; gap: 8px; margin-bottom: 12px; }
+.quick-reply-preferences > label {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.quick-reply-preferences strong,
+.quick-reply-preferences small { display: block; }
+.quick-reply-preferences strong { margin-bottom: 3px; font-size: 12.5px; }
+.quick-reply-preferences small { color: #858d9b; font-size: 10.5px; line-height: 1.4; }
+.quick-reply-preferences select,
+.quick-reply-fields input,
+.quick-reply-fields textarea {
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 8px;
+  color: #eceef3;
+  background: #252a36;
+  font: inherit;
+}
+.quick-reply-preferences select { padding: 7px 9px; font-size: 11px; }
+.quick-reply-editor-list { display: grid; gap: 8px; }
+.quick-reply-editor {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.quick-reply-enabled { padding-top: 9px; }
+.quick-reply-fields { display: grid; gap: 6px; }
+.quick-reply-fields input,
+.quick-reply-fields textarea { width: 100%; padding: 7px 9px; font-size: 11.5px; resize: vertical; }
+.quick-reply-order { display: flex; gap: 3px; }
+.quick-reply-order button,
+.quick-reply-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #c9ced8;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: transform 140ms var(--ease-out), background 160ms var(--ease-out);
+}
+.quick-reply-order button { width: 28px; height: 30px; }
+.quick-reply-order button:active:not(:disabled),
+.quick-reply-add:active:not(:disabled) { transform: scale(0.97); }
+.quick-reply-order button:disabled,
+.quick-reply-add:disabled { opacity: 0.35; cursor: default; }
+.quick-reply-add { gap: 7px; margin-top: 10px; padding: 8px 11px; font-size: 11.5px; }
+@media (hover: hover) and (pointer: fine) {
+  .quick-reply-order button:hover:not(:disabled),
+  .quick-reply-add:hover:not(:disabled) { background: rgba(255, 255, 255, 0.09); }
 }
 
 .app-about { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 8px 5px; }

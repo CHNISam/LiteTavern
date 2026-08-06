@@ -10,7 +10,7 @@ import {
 import {
   ArrowLeft, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy,
   Download, KeyRound, LoaderCircle, MessageCircle, MoreHorizontal, Pencil, Plus, Send,
-  RotateCcw, Settings, Square,
+  RotateCcw, Settings, Sparkles, Square,
   Trash2, Upload, UserRound, Volume2, VolumeX
 } from 'lucide-react';
 import { AccountSyncPanel } from './components/CloudPanel';
@@ -26,7 +26,7 @@ import { LoginSync } from './components/LoginSync';
 import { AboutPage } from './pages/AboutPage';
 import { SupportPage } from './pages/SupportPage';
 import {
-  ApiError, api, deleteCharacter, fetchCharacterDetail, generateTurn, logout, saveTurnBubble,
+  ApiError, api, deleteCharacter, fetchCharacterDetail, fetchReplySuggestions, generateTurn, logout, saveTurnBubble,
   streamGeneration,
   type AnonymousIdentity, type Character, type Message, type ModelConfiguration
 } from './lib/api';
@@ -73,6 +73,11 @@ import {
   readModelPreference,
   writeModelPreference
 } from './lib/model-preference';
+import {
+  readQuickReplySettings,
+  writeQuickReplySettings,
+  type QuickReplySettings
+} from './lib/quick-replies';
 
 // 'settings' is gone: the character settings page repeated the profile and hid
 // the editor at the bottom of it. Editing lives on the profile now.
@@ -160,6 +165,7 @@ export function App() {
 
 function ProductApp() {
   const initialModelPreference = useRef(readModelPreference()).current;
+  const initialQuickReplies = useRef(readQuickReplySettings()).current;
   const t = useT();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [active, setActive] = useState<Character | null>(null);
@@ -205,6 +211,8 @@ function ProductApp() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [analyticsReady, setAnalyticsReady] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [quickReplies, setQuickReplies] = useState<QuickReplySettings>(initialQuickReplies);
+  const [impersonating, setImpersonating] = useState(false);
   const [typing, setTyping] = useState(false);
   const [muted, setMutedState] = useState(isMuted());
   // Relationship summary and memory count belong to the character, not the
@@ -616,6 +624,39 @@ function ProductApp() {
       model_configuration_id: configuration.model_configuration_id,
       credential: { credential_id: configuration.credential_id, api_key: key }
     };
+  }
+
+  function updateQuickReplies(next: QuickReplySettings) {
+    setQuickReplies(next);
+    writeQuickReplySettings(next);
+  }
+
+  async function impersonate() {
+    if (!conversationId || !active || draft.trim() || sending || impersonating) return;
+    if (usageMode === 'PLATFORM' && cloudService.availability !== 'available') {
+      setError(
+        cloudService.availability === 'quota_exhausted'
+          ? t.chat.quotaExhausted
+          : t.chat.cloudUnavailable
+      );
+      return;
+    }
+    setImpersonating(true);
+    setError(null);
+    try {
+      const selector = await resolveModelSelector();
+      const candidates = suggestions.length
+        ? suggestions
+        : await fetchReplySuggestions(conversationId, selector);
+      const candidate = candidates.find((text) => text.trim())?.trim();
+      if (!candidate) throw new Error(t.chat.impersonateEmpty);
+      setDraft(candidate);
+      setSuggestions([]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t.chat.impersonateFailed);
+    } finally {
+      setImpersonating(false);
+    }
   }
 
   // `editOfMessageId` re-sends an earlier user message: that message and everything
@@ -1102,7 +1143,8 @@ function ProductApp() {
             character={active} messages={messages} draft={draft} sending={sending} error={error}
             cloud={cloud} cloudService={cloudService}
             usageMode={usageMode} configurations={configurations} selectedConfigurationId={selectedConfigurationId}
-            suggestions={suggestions} typing={typing}
+            suggestions={suggestions} quickReplies={quickReplies}
+            typing={typing} impersonating={impersonating}
             onProfile={() => setView('profile')}
             onDraft={(value) => {
               setDraft(value);
@@ -1113,6 +1155,12 @@ function ProductApp() {
             onPick={(text) => {
               if (!draft.trim()) setDraft(text);
             }}
+            onQuickReply={(text) => {
+              if (draft.trim()) return;
+              if (quickReplies.behavior === 'SEND') void submit(text);
+              else setDraft(text);
+            }}
+            onImpersonate={() => void impersonate()}
             onEditSubmit={(messageId, text) => void submit(text, messageId)}
             onDeleteMessage={(messageId) => void deleteUserMessage(messageId)}
             onRegenerate={(assistantMessageId) => {
@@ -1232,6 +1280,8 @@ function ProductApp() {
           setAppSettingsOpen(false);
           setFeedbackOpen(true);
         }}
+        quickReplies={quickReplies}
+        onQuickRepliesChange={updateQuickReplies}
       />
       <PersonaPanel open={personaPanelOpen} onClose={() => setPersonaPanelOpen(false)} />
       <WorldbookPanel open={worldbookPanelOpen} onClose={() => setWorldbookPanelOpen(false)} />
@@ -1480,13 +1530,14 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   );
 }
 
-function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, usageMode, configurations, selectedConfigurationId, suggestions, typing, onProfile, onDraft, onSend, onStop, onPick, onEditSubmit, onDeleteMessage, onRegenerate, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
+function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, usageMode, configurations, selectedConfigurationId, suggestions, quickReplies, typing, impersonating, onProfile, onDraft, onSend, onStop, onPick, onQuickReply, onImpersonate, onEditSubmit, onDeleteMessage, onRegenerate, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
   character: Character; messages: Message[]; draft: string; sending: boolean; error: string | null;
   cloud: CloudStatus | null;
   cloudService: CloudModelServiceState;
   usageMode: 'PLATFORM' | 'BYOK'; configurations: ModelConfiguration[]; selectedConfigurationId: string;
-  suggestions: string[]; typing: boolean;
+  suggestions: string[]; quickReplies: QuickReplySettings; typing: boolean; impersonating: boolean;
   onProfile: () => void; onDraft: (value: string) => void; onSend: (event: FormEvent) => void; onStop: () => void; onPick: (text: string) => void;
+  onQuickReply: (text: string) => void; onImpersonate: () => void;
   onEditSubmit: (messageId: string, text: string) => void;
   onDeleteMessage: (messageId: string) => void;
   onRegenerate: (messageId: string) => void;
@@ -1659,7 +1710,46 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
             ))}
           </div>
         )}
+        {quickReplies.enabled && quickReplies.replies.some((reply) => reply.enabled && reply.message.trim()) && (
+          <div className="quick-reply-tray" role="group" aria-label={t.chat.configuredQuickReplies}>
+            {quickReplies.replies
+              .filter((reply) => reply.enabled && reply.message.trim())
+              .map((reply) => (
+                <button
+                  type="button"
+                  key={reply.id}
+                  disabled={
+                    sending || Boolean(draft.trim()) ||
+                    (quickReplies.behavior === 'SEND' && platformBlocked)
+                  }
+                  title={reply.message}
+                  onClick={() => {
+                    onQuickReply(reply.message);
+                    if (quickReplies.behavior === 'FILL') composerRef.current?.focus();
+                  }}
+                >
+                  {reply.label || reply.message}
+                </button>
+              ))}
+          </div>
+        )}
         <div className="model-bar">
+          <button
+            type="button"
+            className="impersonate-button"
+            aria-label={t.chat.impersonate}
+            title={t.chat.impersonateHint}
+            disabled={
+              sending || impersonating || Boolean(draft.trim()) ||
+              messages.length === 0 || platformBlocked
+            }
+            onClick={onImpersonate}
+          >
+            {impersonating
+              ? <LoaderCircle className="spin" size={14} />
+              : <Sparkles size={14} />}
+            {impersonating ? t.chat.impersonating : t.chat.impersonate}
+          </button>
           {/* A mode switch, not a meter — the remaining allowance lives in the
               status chip so the two never disagree. */}
           <button

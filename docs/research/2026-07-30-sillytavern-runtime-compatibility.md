@@ -48,6 +48,10 @@ Persona、Worldbook、宏和 Regex 是独立资产；每轮生成只把已解析
    最终权限边界、长度校验、宏解析和 prompt 排序；持久化 manifest 只记录 ID，
    不记录 Persona、Worldbook 或 Regex 文本。
 8. 快捷回复的生成契约、解析、UI 文案和点击发送均明确为 USER 第一人称发言。
+9. SillyTavern 风格的写作工具按可观察行为独立实现：
+   - `Impersonate` 复用 USER 第一人称候选契约，只填入输入框，不自动发送或落库；
+   - 用户配置的 `Quick Replies` 保存在浏览器本地，与 AI 动态生成的“建议回复”分开；
+   - Quick Replies 支持启停、排序、填入输入框，并允许用户显式改为点击后直接发送。
 
 ### 暂不执行但必须保留
 
@@ -105,7 +109,9 @@ Persona，`{{char}}` 始终指当前 AI 角色；快捷回复不会交换这两�
    组装，manifest 不包含内容文本。
 5. UI 快捷回复显示为“你可以这样说”，点击后落库为 USER 消息；服务端生成提示
    明确禁止输出 AI 角色台词作为 suggestion。
-6. 两个仓库分别通过新增/相关测试、typecheck、lint 和 build；全量测试未运行时
+6. `Impersonate` 生成后只更新输入框；用户未确认发送前不新增 USER 消息，也不触发角色生成。
+   本地 Quick Replies 可配置、启停和排序，默认点击只填入输入框，且不会覆盖已有草稿。
+7. 两个仓库分别通过新增/相关测试、typecheck、lint 和 build；全量测试未运行时
    必须说明原因。
 
 ## Open Questions
