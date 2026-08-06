@@ -1391,9 +1391,6 @@ button { color: inherit; }
   .hsr-message .hsr-avatar, .user-avatar { width: 46px; height: 46px; }
   .message-bubble { font-size: 15px; }
   .reply-area { padding: 8px 12px calc(12px + var(--safe-bottom)); }
-  /* The floating launcher landed on the composer's send button once the chat
-     filled the viewport. On phones the entry lives in Settings instead. */
-  .feedback-launcher { display: none; }
   /* Without a character selected the rail runs to the bottom of the screen. */
   .contact-rail { padding-bottom: var(--safe-bottom); }
   .profile-paper, .settings-paper { padding: 18px; }
@@ -1555,7 +1552,6 @@ button { color: inherit; }
   .model-bar button { padding: 2px 7px; font-size: 9px; }
   .reply-composer { min-height: 40px; }
   .reply-composer textarea { max-height: 58px; font-size: 12px; }
-  .feedback-launcher { display: none; }
 
   .detail-topbar { min-height: 46px; padding: 5px 10px; }
   .detail-back { padding: 6px 10px 6px 7px; font-size: 11px; }
@@ -2906,6 +2902,15 @@ button { color: inherit; }
   box-shadow: var(--shadow-float);
   cursor: pointer;
   backdrop-filter: blur(12px);
+}
+/* On phones this sat exactly on the composer's send button. The entry moves into
+   Settings there. These live next to the base rule on purpose: the responsive
+   sections above this point lose to it on source order at equal specificity. */
+@media (max-width: 900px) {
+  .feedback-launcher { display: none; }
+}
+@media (max-width: 960px) and (orientation: landscape) {
+  .feedback-launcher { display: none; }
 }
 .feedback-backdrop {
   position: fixed;

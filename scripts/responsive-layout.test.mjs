@@ -67,14 +67,21 @@ test('every viewport edge pays back the iOS safe-area insets', () => {
 });
 
 test('the feedback launcher leaves the phone composer alone', () => {
-  const portrait = styles.match(/@media \(max-width: 900px\) \{([\s\S]*?)\n\}/)?.[1];
-  const landscape = styles.match(
-    /@media \(max-width: 960px\) and \(orientation: landscape\) \{([\s\S]*?)\n\}/
-  )?.[1];
-
-  assert.ok(portrait);
-  assert.ok(landscape);
   // It used to sit on top of the send button; phones reach it through Settings.
-  assert.match(portrait, /\.feedback-launcher\s*\{[^}]*display:\s*none/);
-  assert.match(landscape, /\.feedback-launcher\s*\{[^}]*display:\s*none/);
+  // Both hides must come after the base rule, which declares display: flex at the
+  // same specificity — declaring them earlier in the file loses on source order
+  // and leaves the button on screen, which is exactly how this shipped broken.
+  const source = styles.replace(/\r\n/g, '\n');
+  const base = source.indexOf('.feedback-launcher {');
+  assert.ok(base > -1, 'missing the feedback launcher');
+
+  const portrait = source.indexOf(
+    '@media (max-width: 900px) {\n  .feedback-launcher { display: none; }'
+  );
+  const landscape = source.indexOf(
+    '@media (max-width: 960px) and (orientation: landscape) {\n  .feedback-launcher { display: none; }'
+  );
+
+  assert.ok(portrait > base, 'the portrait hide must come after the base rule');
+  assert.ok(landscape > base, 'the landscape hide must come after the base rule');
 });
