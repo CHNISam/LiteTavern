@@ -57,10 +57,18 @@ async function serveAssets(request, env) {
  * first-party and survives iOS Safari's tracking prevention. A redirect or a
  * cross-origin fetch to a workers.dev hostname would not.
  */
-function isCloudPath(pathname) {
+export function isCloudPath(pathname) {
   return (
     pathname.startsWith('/v1/auth/') ||
     pathname === '/v1/cloud/status' ||
+    // The BYOK provider catalogue decides which endpoint a provider id may
+    // reach, and the connection check calls that endpoint with the reader's
+    // key. Both are model-gateway concerns, so both belong to Cloud — this
+    // deployment once answered the catalogue itself with an empty list, which
+    // rendered as "provider catalogue is empty, check LiteTavern Cloud", a
+    // message blaming Cloud for a stub in this file.
+    pathname === '/v1/providers' ||
+    pathname === '/v1/provider-connections/validate' ||
     /^\/v1\/conversations\/[^/]+\/generations$/.test(pathname)
   );
 }

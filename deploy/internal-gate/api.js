@@ -314,9 +314,8 @@ export async function handleApiRequest(request, { repository, objects }) {
     if (request.method === 'GET' && path === '/v1/model-configurations') {
       return json({ configurations: [] });
     }
-    if (request.method === 'GET' && path === '/v1/providers') {
-      return json({ providers: [] });
-    }
+    // `/v1/providers` is not handled here: it is forwarded to Cloud by
+    // `_worker.js`. Answering it locally is what produced an empty catalogue.
 
     if (request.method === 'POST' && path === '/v1/relationship-imports/validate') {
       const body = await request.json().catch(() => ({}));
