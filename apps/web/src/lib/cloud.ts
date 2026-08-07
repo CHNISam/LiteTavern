@@ -60,6 +60,12 @@ export interface CloudStatus {
     daily_limit: number;
   };
   waitlist: { on_waitlist: boolean; joined_at: string | null };
+  /**
+   * The Turnstile widget to render before requesting a sign-in code. Null when
+   * the deployment configured none, which the sign-in dialog reports rather than
+   * quietly skipping the challenge.
+   */
+  turnstile_site_key: string | null;
   /** Null until Alpha is activated: there is no allowance to describe yet. */
   quota: CloudQuotaSnapshot | null;
   support: { enabled: boolean; url: string; headline: string; body: string };

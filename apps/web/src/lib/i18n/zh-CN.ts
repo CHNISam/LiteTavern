@@ -708,6 +708,9 @@ export const zhCN = {
   },
 
   auth: {
+    challengeRequired: '请先完成人机校验。',
+    challengeFailed: '人机校验未通过，请重试。',
+    challengeUnavailable: '当前环境未配置人机校验，暂时无法登录。',
     eyebrow: 'LiteTavern Cloud 账号',
     dialogLabel: '注册或登录 LiteTavern Cloud 账号',
     signInOrUp: '注册或登录',

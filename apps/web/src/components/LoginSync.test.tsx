@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoginSync } from './LoginSync';
 
 function json(body: unknown, status = 200) {
@@ -19,8 +19,30 @@ const registeredUser = {
   registered: true
 };
 
+/**
+ * The real widget loads a script from Cloudflare and renders an iframe, neither
+ * of which exists in jsdom. This stands in for it and solves immediately, so
+ * these tests stay about the sign-in flow. That the form refuses to submit
+ * without a token is asserted separately, by not installing this.
+ */
+function installSolvedTurnstile() {
+  window.turnstile = {
+    render: (_element, options) => {
+      options.callback('test-turnstile-token');
+      return 'widget-1';
+    },
+    remove: () => {},
+    reset: () => {}
+  };
+}
+
+beforeEach(() => {
+  installSolvedTurnstile();
+});
+
 afterEach(() => {
   cleanup();
+  delete window.turnstile;
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -29,6 +51,11 @@ async function goToCodeStep() {
   fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
     target: { value: 'user@example.com' }
   });
+  // The widget solves in a microtask after mount, and the submit button stays
+  // disabled until it does — waiting for that is the point, not a workaround.
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: '发送验证码' })).toBeEnabled()
+  );
   fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
   await screen.findByText('验证码已发送至 u***@example.com');
 }
@@ -42,7 +69,7 @@ describe('LoginSync', () => {
       return json({ error: { message: 'unexpected' } }, 404);
     });
 
-    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} />);
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} turnstileSiteKey="test-site-key" />);
     await goToCodeStep();
 
     expect(screen.getByPlaceholderText('______')).toBeInTheDocument();
@@ -61,7 +88,7 @@ describe('LoginSync', () => {
       return json({ error: { message: 'unexpected' } }, 404);
     });
 
-    render(<LoginSync open onClose={() => {}} onAuthenticated={onAuthenticated} />);
+    render(<LoginSync open onClose={() => {}} onAuthenticated={onAuthenticated} turnstileSiteKey="test-site-key" />);
     await goToCodeStep();
 
     fireEvent.change(screen.getByPlaceholderText('______'), { target: { value: '123456' } });
@@ -83,7 +110,7 @@ describe('LoginSync', () => {
       return json({ error: { message: 'unexpected' } }, 404);
     });
 
-    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} />);
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} turnstileSiteKey="test-site-key" />);
     await goToCodeStep();
     fireEvent.change(screen.getByPlaceholderText('______'), { target: { value: '000000' } });
     fireEvent.click(screen.getByRole('button', { name: '验证 LiteTavern Cloud 账号' }));
@@ -104,10 +131,13 @@ describe('LoginSync', () => {
       )
     );
 
-    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} />);
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} turnstileSiteKey="test-site-key" />);
     fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
       target: { value: 'user@example.com' }
     });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '发送验证码' })).toBeEnabled()
+    );
     fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
 
     expect(
@@ -135,16 +165,21 @@ describe('LoginSync', () => {
       );
     });
 
-    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} />);
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} turnstileSiteKey="test-site-key" />);
     fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
       target: { value: 'user@example.com' }
     });
+    // Let the widget solve before submitting; the button is disabled until it has.
+    await act(async () => {});
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
     });
     expect(screen.getByText('验证码已发送至 u***@example.com')).toBeInTheDocument();
 
+    // Cooldown over: a fresh widget mounts for the resend and must solve too,
+    // because the first token was consumed by the first send.
     act(() => vi.advanceTimersByTime(60_000));
+    await act(async () => {});
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '重新发送验证码' }));
     });
@@ -155,12 +190,43 @@ describe('LoginSync', () => {
     expect(screen.queryByPlaceholderText('______')).not.toBeInTheDocument();
   });
 
+  it('will not request a code until the challenge is solved', async () => {
+    // No stub installed: the widget never solves, which is what a bot sees.
+    delete window.turnstile;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      json({ success: true, message: 'ok' })
+    );
+
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} turnstileSiteKey="test-site-key" />);
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
+      target: { value: 'user@example.com' }
+    });
+
+    expect(screen.getByRole('button', { name: '发送验证码' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('says sign-in is unavailable when the deployment configured no widget', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      json({ success: true, message: 'ok' })
+    );
+
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} turnstileSiteKey={null} />);
+
+    // The absence of a challenge is reported, never silently skipped.
+    expect(
+      screen.getByText('当前环境未配置人机校验，暂时无法登录。')
+    ).toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('lets the user go back and change the email', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
       json({ success: true, message: 'ok' })
     );
 
-    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} />);
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} turnstileSiteKey="test-site-key" />);
     await goToCodeStep();
     fireEvent.click(screen.getByRole('button', { name: '修改邮箱' }));
 

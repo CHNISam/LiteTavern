@@ -34,6 +34,7 @@ function status(overrides: Partial<CloudStatus> = {}): CloudStatus {
       daily_limit: 200
     },
     waitlist: { on_waitlist: false, joined_at: null },
+    turnstile_site_key: 'test-site-key',
     quota: null,
     support: { enabled: false, url: '', headline: '', body: '' },
     ...overrides

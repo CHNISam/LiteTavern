@@ -95,11 +95,14 @@ export interface CloudQuotaSnapshot {
 export type AuthOutcome = 'REGISTERED' | 'LOGGED_IN' | 'MERGED';
 
 export async function sendEmailCode(
-  email: string
+  email: string,
+  turnstileToken: string
 ): Promise<{ success: boolean; message: string }> {
   return api('/v1/auth/email-code/send', {
     method: 'POST',
-    body: JSON.stringify({ email })
+    // The challenge is verified server-side before a code is ever sent, so an
+    // absent or stale token costs the mail provider nothing.
+    body: JSON.stringify({ email, turnstile_token: turnstileToken })
   });
 }
 

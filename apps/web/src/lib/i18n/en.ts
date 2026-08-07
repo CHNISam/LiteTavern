@@ -759,6 +759,9 @@ export const en: Dictionary = {
   },
 
   auth: {
+    challengeRequired: 'Complete the verification check first.',
+    challengeFailed: 'Verification failed. Please try again.',
+    challengeUnavailable: 'This deployment has no verification widget configured, so sign-in is unavailable.',
     eyebrow: 'LiteTavern Cloud account',
     dialogLabel: 'Sign in or create a LiteTavern Cloud account',
     signInOrUp: 'Sign in or sign up',

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { LoaderCircle, Mail, ShieldCheck, X } from 'lucide-react';
 import { t, useT } from '../lib/i18n';
+import { Turnstile } from './Turnstile';
 import {
   ApiError,
   sendEmailCode,
@@ -13,6 +14,8 @@ interface LoginSyncProps {
   open: boolean;
   onClose: () => void;
   onAuthenticated: (user: AnonymousIdentity, outcome: AuthOutcome) => void;
+  /** From `/v1/cloud/status`. Null means this deployment configured no widget. */
+  turnstileSiteKey: string | null;
 }
 
 const RESEND_SECONDS = 60;
@@ -35,6 +38,10 @@ function friendlyError(reason: unknown): string {
       return t().auth.tooManyAttempts;
     case 'AUTH_MERGE_FAILED':
       return t().auth.mergeFailed;
+    case 'TURNSTILE_FAILED':
+      return t().auth.challengeFailed;
+    case 'RATE_LIMITED':
+      return t().auth.rateLimited;
     default:
       return reason instanceof Error ? reason.message : t().auth.generic;
   }
@@ -47,7 +54,12 @@ function maskEmail(email: string): string {
   return `${head}${'*'.repeat(Math.max(local.length - 1, 1))}@${domain}`;
 }
 
-export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
+export function LoginSync({
+  open,
+  onClose,
+  onAuthenticated,
+  turnstileSiteKey
+}: LoginSyncProps) {
   const t = useT();
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
@@ -55,6 +67,7 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
   const timerRef = useRef<number>(0);
 
   useEffect(() => {
@@ -66,6 +79,7 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
       setError(null);
       setBusy(false);
       setCooldown(0);
+      setChallengeToken(null);
       window.clearInterval(timerRef.current);
     }
   }, [open]);
@@ -89,10 +103,17 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
   async function requestCode(event?: FormEvent) {
     event?.preventDefault();
     if (busy || cooldown > 0) return;
+    if (!challengeToken) {
+      setError(t.auth.challengeRequired);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await sendEmailCode(email.trim());
+      await sendEmailCode(email.trim(), challengeToken);
+      // A Turnstile token is single-use: keeping it would make the resend button
+      // fail with a confusing "challenge failed" instead of re-challenging.
+      setChallengeToken(null);
       setStep('code');
       setCode('');
       startCooldown();
@@ -165,11 +186,16 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
                 />
               </div>
             </label>
+            {turnstileSiteKey ? (
+              <Turnstile siteKey={turnstileSiteKey} onToken={setChallengeToken} />
+            ) : (
+              <p className="login-error" role="alert">{t.auth.challengeUnavailable}</p>
+            )}
             {error && <p className="login-error" role="alert">{error}</p>}
             <button
               className="gold-button login-submit"
               type="submit"
-              disabled={busy || email.trim().length < 3}
+              disabled={busy || email.trim().length < 3 || !challengeToken}
             >
               {busy ? <LoaderCircle className="spin" size={18} /> : t.auth.sendCode}
             </button>
@@ -205,6 +231,10 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
             >
               {busy ? <LoaderCircle className="spin" size={18} /> : t.auth.verify}
             </button>
+            {/* Resending needs its own challenge: the first token was consumed. */}
+            {turnstileSiteKey && cooldown === 0 && (
+              <Turnstile siteKey={turnstileSiteKey} onToken={setChallengeToken} />
+            )}
             <div className="login-secondary">
               <button
                 type="button"
@@ -221,7 +251,7 @@ export function LoginSync({ open, onClose, onAuthenticated }: LoginSyncProps) {
                 type="button"
                 className="login-link"
                 onClick={() => void requestCode()}
-                disabled={busy || cooldown > 0}
+                disabled={busy || cooldown > 0 || !challengeToken}
               >
                 {cooldown > 0 ? t.auth.resendIn(cooldown) : t.auth.resendCode}
               </button>

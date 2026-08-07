@@ -12,7 +12,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="LiteTavern" />
     <meta name="description" content="LiteTavern — 与有记忆的角色持续对话" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
+    <!--
+      challenges.cloudflare.com is the Turnstile widget, and the only third-party
+      origin the app talks to. It is allowed in exactly the three directives the
+      challenge needs — script, frame and connect — and nowhere else: not img-src,
+      not style-src, and never as a wildcard.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./litetavern.svg" />
     <title>LiteTavern</title>

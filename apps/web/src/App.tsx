@@ -1227,6 +1227,7 @@ function ProductApp() {
         open={loginOpen}
         onClose={() => setLoginOpen(false)}
         onAuthenticated={(user) => void onAuthenticated(user)}
+        turnstileSiteKey={cloud?.turnstile_site_key ?? null}
       />
       <AppSettingsPanel
         open={appSettingsOpen}

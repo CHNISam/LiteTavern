@@ -1,0 +1,10 @@
+# 仓库页顶部 "Sponsor" 按钮的来源。
+#
+# github: 这一行要等 GitHub Sponsors 账号真正启用之后再放开。
+# 未启用时 https://github.com/sponsors/CHNISam 会 302 回个人主页，
+# 按钮看着能点、点了什么也赞助不了，比没有按钮更糟。
+# github: [CHNISam]
+
+custom:
+  - https://afdian.com/a/litetavern
+  - https://litetavern.pages.dev/support?source=github
