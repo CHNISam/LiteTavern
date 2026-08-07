@@ -1,84 +1,81 @@
-import { ApiError, api } from './api';
+import { ApiError, api, type CloudQuotaSnapshot } from './api';
 import { t } from './i18n';
 
 /**
  * LiteTavern Cloud client state.
  *
- * The client renders whatever the server says and nothing more: quota sizes, stage
- * names and the support link all arrive from `/v1/cloud/status`. Nothing about
- * entitlements is decided here.
+ * The client renders whatever the server says and nothing more: capacity, quota
+ * sizes, the reason a request is blocked and the support link all arrive from
+ * `/v1/cloud/status`. Nothing about entitlements is decided here — in particular
+ * the client never infers "you may generate" from a quota number, it only reads
+ * `platform_models_available` and `block_reason`.
  *
- * The last successful status is cached so that, when LiteTavern Cloud is unreachable,
- * the UI can say "cloud unavailable, showing the last known state" instead of either
- * lying about the service or claiming the user's data is gone.
+ * The last successful status is cached so that, when LiteTavern Cloud is
+ * unreachable, the UI can say "cloud unavailable, showing the last known state"
+ * instead of either lying about the service or claiming the user's data is gone.
  */
 
-export type CloudStage = 'ALPHA' | 'BETA';
+export type AccountState =
+  | 'GUEST'
+  | 'UNVERIFIED'
+  | 'REGISTERED'
+  | 'ALPHA'
+  | 'WAITLIST'
+  | 'SUSPENDED';
 
-export type MembershipStatus =
-  | 'ANONYMOUS_TRIAL'
-  | 'REGISTERED_WAITLIST'
-  // Holds a seat but has not entered yet. Kept distinct from ALPHA_ACTIVE so the
-  // panel can offer "enter Alpha" instead of pretending the user is already in.
-  | 'ALPHA_GRANTED'
-  | 'ALPHA_ACTIVE'
-  | 'ALPHA_PAUSED'
-  | 'ALPHA_ENDED';
-
-export type QuotaSource = 'TRIAL' | 'ALPHA' | 'BYOK' | 'NONE';
-
-export type CloudNextAction =
-  | 'START_CHATTING'
-  | 'REGISTER'
-  | 'JOIN_WAITLIST'
-  | 'WAIT_FOR_ALPHA'
-  | 'ENTER_ALPHA'
-  | 'USE_BYOK'
-  | 'SUPPORT_LITETAVERN';
-
-export interface CloudQuota {
-  source: QuotaSource;
-  total: number;
-  used: number;
-  reserved: number;
-  available: number;
-  remaining_ratio: number;
-  cycle_no: number | null;
-  cycle_starts_at: string | null;
-  cycle_ends_at: string | null;
-}
+export type CloudBlockReason =
+  | 'GUEST'
+  | 'EMAIL_UNVERIFIED'
+  | 'ALPHA_CAPACITY_FULL'
+  | 'WAITLISTED'
+  | 'ACCOUNT_SUSPENDED'
+  | 'DAILY_QUOTA_EXHAUSTED'
+  | 'PERIOD_QUOTA_EXHAUSTED'
+  | 'CONCURRENT_GENERATION'
+  | 'PROVIDER_UNAVAILABLE';
 
 export interface CloudStatus {
-  stage: CloudStage;
+  stage: 'ALPHA';
+  account_state: AccountState;
+  email_verified: boolean;
   platform_models_available: boolean;
-  model_service?: {
-    available: boolean;
-    reason_code: 'SERVICE_UNAVAILABLE' | 'QUOTA_EXHAUSTED' | null;
+  /** Null if and only if `platform_models_available` is true. */
+  block_reason: CloudBlockReason | null;
+  byok_available: boolean;
+  alpha: {
+    active_batch: number;
+    cumulative_capacity: number;
+    remaining_capacity: number;
+    batch_no: number | null;
+    activated_at: string | null;
+    promotion_expires_at: string | null;
+    /**
+     * How large an Alpha allowance is, as program configuration. `quota` is null
+     * until a seat is actually activated, so this is the only honest source for
+     * "每个周期提供 N 次云端回复额度" on the not-yet-activated panel — and the
+     * client is not allowed to hardcode the numbers to fill that gap.
+     */
+    period_quota: number;
+    period_days: number;
+    daily_limit: number;
   };
-  identity_type: 'ANONYMOUS' | 'EMAIL';
-  registered: boolean;
-  membership_status: MembershipStatus;
-  on_waitlist: boolean;
-  waitlist_joined_at: string | null;
-  alpha_active: boolean;
-  alpha_granted: boolean;
-  alpha_granted_at: string | null;
-  alpha_activated_at: string | null;
-  alpha_batch_id: string | null;
-  alpha_grant_source: string | null;
-  alpha_status_reason: string | null;
-  founding_supporter: boolean;
-  quota: CloudQuota;
+  waitlist: { on_waitlist: boolean; joined_at: string | null };
+  /** Null until Alpha is activated: there is no allowance to describe yet. */
+  quota: CloudQuotaSnapshot | null;
   support: { enabled: boolean; url: string; headline: string; body: string };
-  next_actions: CloudNextAction[];
 }
 
+/**
+ * How the platform model service looks to this client right now.
+ *
+ * `blocked` always carries the server's reason, so no two blocked states can
+ * collapse into one another. `offline` is the one state the client owns: it
+ * means the client could not reach LiteTavern Cloud at all, which is not a
+ * decision the server made about this account.
+ */
 export interface CloudModelServiceState {
-  availability:
-    | 'checking'
-    | 'available'
-    | 'unavailable'
-    | 'quota_exhausted';
+  availability: 'checking' | 'available' | 'blocked' | 'offline';
+  blockReason: CloudBlockReason | null;
   selected: boolean;
 }
 
@@ -87,20 +84,31 @@ export function resolveCloudModelServiceState(
   options: {
     checking?: boolean;
     offline?: boolean;
+    /** A generation just failed because the upstream provider was down. */
     runtimeUnavailable?: boolean;
     selected?: boolean;
   } = {}
 ): CloudModelServiceState {
   const selected = options.selected ?? false;
-  if (options.checking) return { availability: 'checking', selected };
-  if (options.offline || options.runtimeUnavailable || !status?.model_service) {
-    return { availability: 'unavailable', selected };
+  if (options.checking) {
+    return { availability: 'checking', blockReason: null, selected };
   }
-  if (status.model_service.reason_code === 'QUOTA_EXHAUSTED') {
-    return { availability: 'quota_exhausted', selected };
+  if (options.offline || !status) {
+    return { availability: 'offline', blockReason: null, selected };
+  }
+  if (options.runtimeUnavailable) {
+    return {
+      availability: 'blocked',
+      blockReason: 'PROVIDER_UNAVAILABLE',
+      selected
+    };
+  }
+  if (status.platform_models_available) {
+    return { availability: 'available', blockReason: null, selected };
   }
   return {
-    availability: status.model_service.available ? 'available' : 'unavailable',
+    availability: 'blocked',
+    blockReason: status.block_reason,
     selected
   };
 }
@@ -154,6 +162,11 @@ export function deviceKey(): string {
   return generated;
 }
 
+/** True when this browser has a LiteTavern Cloud identity beyond a guest. */
+export function isSignedIn(status: CloudStatus | null): boolean {
+  return status ? status.account_state !== 'GUEST' : false;
+}
+
 export interface CloudStatusResult {
   status: CloudStatus | null;
   /** True when the request failed and `status` (if any) is the cached copy. */
@@ -175,36 +188,6 @@ export async function fetchCloudStatus(): Promise<CloudStatusResult> {
     if (reason instanceof ApiError && reason.code === 'UNAUTHORIZED') throw reason;
     return { status: readCachedStatus(), offline: true };
   }
-}
-
-export async function joinAlphaWaitlist(
-  channel = 'app'
-): Promise<{ joined: boolean; cloud: CloudStatus }> {
-  const response = await api<{ joined: boolean; cloud: CloudStatus }>(
-    '/v1/cloud/waitlist',
-    { method: 'POST', body: JSON.stringify({ channel }) }
-  );
-  cacheStatus(response.cloud);
-  return response;
-}
-
-/**
- * Enters Alpha. The server decides whether the caller is allowed to — this only
- * reports the result, and a client that has been suspended gets a plain error back
- * rather than a usable session.
- */
-export async function activateAlpha(): Promise<{
-  activated: boolean;
-  already_active: boolean;
-  cloud: CloudStatus;
-}> {
-  const response = await api<{
-    activated: boolean;
-    already_active: boolean;
-    cloud: CloudStatus;
-  }>('/v1/cloud/alpha/activate', { method: 'POST' });
-  cacheStatus(response.cloud);
-  return response;
 }
 
 export async function submitAlphaFeedback(input: {
@@ -274,100 +257,212 @@ export const EXPORT_PATH = '/v1/cloud/export';
 // ===== User-facing copy =====
 // Kept in one place so the product never overstates what the user actually has.
 
-/**
- * The platform pool, described rather than reduced to a bare number.
- *
- * A lone "剩余 30 次" tells the reader nothing about who is paying, out of how
- * much, or whether it comes back — which is exactly why it read as invented.
- * Every field here comes from `/v1/cloud/status`; nothing is estimated.
- */
-export interface QuotaDescription {
-  /** The service providing the allowance, named. It is not "官方" — it is a product. */
-  provider: string;
-  /** Which pool of that service is paying. */
-  poolName: string;
-  used: number;
-  total: number;
-  available: number;
-  /** 0–1, for a meter. */
-  ratio: number;
-  /** How the pool comes back, stated even when the answer is "it does not". */
-  renewal: string;
-  exhausted: boolean;
-  /** What one unit buys, in the user's terms. */
-  unitName: string;
-}
-
-/** The service name is a proper noun, so it comes from the dictionary but never
- *  actually differs — the point is that the copy around it does. */
+/** The service name is a proper noun, but the copy around it is translated. */
 export function cloudProviderName(): string {
   return t().cloud.providerName;
 }
 
-export function describeQuota(status: CloudStatus | null): QuotaDescription | null {
-  if (!status || status.quota.source === 'NONE') return null;
-  const { quota } = status;
-  const alpha = quota.source === 'ALPHA';
+/**
+ * The two allowance windows, described rather than reduced to a bare number.
+ *
+ * Every field comes from `/v1/cloud/status`; nothing is estimated, and there is
+ * no fallback total to divide by when the server has not sent one.
+ */
+export interface QuotaDescription {
+  /** The service providing the allowance, named. */
+  provider: string;
+  dailyLimit: number;
+  dailyUsed: number;
+  dailyRemaining: number;
+  /** 0–1, for a meter. */
+  dailyRatio: number;
+  dayUtc: string;
+  periodLimit: number;
+  periodUsed: number;
+  periodRemaining: number;
+  periodRatio: number;
+  periodEndsAt: string;
+  /** What one unit buys, in the user's terms. */
+  unitName: string;
+}
+
+export function describeQuotaWindows(
+  status: CloudStatus | null
+): QuotaDescription | null {
+  const quota = status?.quota;
+  if (!quota) return null;
   return {
     provider: cloudProviderName(),
-    poolName: alpha ? t().cloud.alphaPool : t().cloud.trialPool,
-    // `used` is authoritative; deriving it from total - available would hide
+    dailyLimit: quota.daily_limit,
+    // `used` is authoritative; deriving it from limit - remaining would hide
     // anything the server has reserved but not yet spent.
-    used: quota.used,
-    total: quota.total,
-    available: quota.available,
-    ratio: quota.total > 0 ? quota.available / quota.total : 0,
-    renewal: alpha ? t().cloud.alphaRenewal : t().cloud.trialRenewal,
-    exhausted: quota.available === 0,
+    dailyUsed: quota.daily_used,
+    dailyRemaining: quota.daily_remaining,
+    dailyRatio: quota.daily_limit > 0 ? quota.daily_remaining / quota.daily_limit : 0,
+    dayUtc: quota.day_utc,
+    periodLimit: quota.period_limit,
+    periodUsed: quota.period_used,
+    periodRemaining: quota.period_remaining,
+    periodRatio:
+      quota.period_limit > 0 ? quota.period_remaining / quota.period_limit : 0,
+    periodEndsAt: quota.period_ends_at,
     unitName: t().cloud.replyUnit
   };
 }
 
 /** One-line form for compact surfaces such as the composer's mode switch. */
 export function quotaLabel(status: CloudStatus | null): string {
-  const described = describeQuota(status);
+  const described = describeQuotaWindows(status);
   if (!described) return t().cloud.noQuota(cloudProviderName());
-  const daily = status?.quota.source === 'ALPHA';
   return t().cloud.quotaLabel(
     described.provider,
-    described.poolName,
-    daily ? t().cloud.scopeToday : t().cloud.scopeRemaining,
-    described.available,
-    described.total
+    described.dailyRemaining,
+    described.dailyLimit,
+    described.periodRemaining,
+    described.periodLimit
   );
 }
 
-export function membershipNotice(status: CloudStatus | null): string | null {
+export type CloudNoticeTone = 'info' | 'warning' | 'error';
+
+export interface CloudNotice {
+  tone: CloudNoticeTone;
+  title: string;
+  body: string;
+  /** Present only when the server says the user's own API key is usable. */
+  byokHint: string | null;
+}
+
+/** A UTC calendar day, rendered in the reader's locale. */
+/**
+ * `day_utc` is already a UTC calendar day, not an instant. Running it through a
+ * local-time Date would show the previous day to anyone west of UTC — telling
+ * them their allowance resets a day earlier than it does.
+ */
+function formatDay(value: string): string {
+  return value;
+}
+
+function formatMoment(value: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
+/**
+ * The single explanation of what LiteTavern Cloud is currently doing for this
+ * account, keyed off the server's `block_reason`.
+ *
+ * Every reason has its own copy: none of them may fall through to a generic
+ * "platform models unavailable", because each one asks the reader to do
+ * something different (verify an email, wait for a batch, wait for a reset,
+ * retry, or contact support).
+ */
+export function resolveCloudNotice(status: CloudStatus | null): CloudNotice | null {
   if (!status) return null;
-  switch (status.membership_status) {
-    case 'ANONYMOUS_TRIAL':
-      return status.quota.available > 0
-        ? t().membership.anonymousTrialActive
-        : t().membership.anonymousTrialSpent;
-    case 'REGISTERED_WAITLIST':
-      // No queue position is shown: it moves as people join, leave and are released,
-      // so a number here would be a promise the program cannot keep.
-      return status.founding_supporter
-        ? t().membership.waitlistSupporter
-        : t().membership.waitlist;
-    case 'ALPHA_GRANTED':
-      return t().membership.alphaGranted;
-    case 'ALPHA_ACTIVE':
-      return t().membership.alphaActive(status.quota.available, status.quota.total);
-    case 'ALPHA_PAUSED':
-      return status.alpha_status_reason
-        ? t().membership.alphaPausedWithReason(status.alpha_status_reason)
-        : t().membership.alphaPaused;
-    case 'ALPHA_ENDED':
-      return status.alpha_status_reason
-        ? t().membership.alphaEndedWithReason(status.alpha_status_reason)
-        : t().membership.alphaEnded;
-    default:
-      return null;
+  const copy = t().cloudNotice;
+  const byok = status.byok_available;
+  const stillWorks = byok ? copy.byokStillWorks : null;
+  const whileWaiting = byok ? copy.byokWhileWaiting : null;
+
+  switch (status.block_reason) {
+    case 'GUEST':
+      return {
+        tone: 'info',
+        title: copy.guest.title,
+        body: copy.guest.body,
+        byokHint: stillWorks
+      };
+    case 'EMAIL_UNVERIFIED':
+      return {
+        tone: 'warning',
+        title: copy.emailUnverified.title,
+        body: copy.emailUnverified.body,
+        byokHint: stillWorks
+      };
+    case 'ALPHA_CAPACITY_FULL':
+      return {
+        tone: 'info',
+        title: copy.capacityFull.title,
+        body: copy.capacityFull.body,
+        byokHint: whileWaiting
+      };
+    case 'WAITLISTED':
+      return {
+        tone: 'info',
+        title: copy.waitlisted.title,
+        body: copy.waitlisted.body,
+        byokHint: whileWaiting
+      };
+    case 'ACCOUNT_SUSPENDED':
+      return {
+        tone: 'error',
+        title: copy.suspended.title,
+        body: copy.suspended.body,
+        byokHint: stillWorks
+      };
+    case 'DAILY_QUOTA_EXHAUSTED':
+      return {
+        tone: 'warning',
+        title: copy.dailyExhausted.title,
+        body: status.quota
+          ? copy.dailyExhausted.resetsAt(formatDay(status.quota.day_utc))
+          : copy.dailyExhausted.body,
+        byokHint: stillWorks
+      };
+    case 'PERIOD_QUOTA_EXHAUSTED':
+      return {
+        tone: 'warning',
+        title: copy.periodExhausted.title,
+        body: status.quota
+          ? copy.periodExhausted.resetsAt(formatMoment(status.quota.period_ends_at))
+          : copy.periodExhausted.body,
+        byokHint: stillWorks
+      };
+    case 'CONCURRENT_GENERATION':
+      return {
+        tone: 'info',
+        title: copy.concurrent.title,
+        body: copy.concurrent.body,
+        byokHint: stillWorks
+      };
+    case 'PROVIDER_UNAVAILABLE':
+      return {
+        tone: 'warning',
+        title: copy.providerUnavailable.title,
+        body: copy.providerUnavailable.body,
+        byokHint: stillWorks
+      };
+    case null:
+      break;
   }
+
+  // Nothing is blocked. A registered account that has not taken a seat yet is
+  // told the batch is open and how large the allowance is — with the figures the
+  // server sent, and only the ones it sent.
+  if (status.account_state === 'REGISTERED' && status.alpha.remaining_capacity > 0) {
+    const seats = copy.seatsAvailable;
+    const lines = [
+      seats.remaining(
+        status.alpha.remaining_capacity,
+        status.alpha.cumulative_capacity
+      ),
+      '',
+      seats.howToJoin,
+      // The allowance size is program configuration, not this account's balance:
+      // `quota` is still null here because no seat has been activated yet.
+      seats.periodLimit(status.alpha.period_quota)
+    ];
+    return {
+      tone: 'info',
+      title: seats.title,
+      body: lines.join('\n'),
+      byokHint: null
+    };
+  }
+  return null;
 }
 
 /** The stage disclaimer. Alpha rules may change; granted cycles are not wiped. */
 export function alphaDisclaimer(): string {
-  return t().membership.disclaimer;
+  return t().cloudNotice.disclaimer;
 }

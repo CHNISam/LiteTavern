@@ -43,20 +43,26 @@ function mockShell(handler: (path: string, init?: RequestInit) => Promise<Respon
       return json({
         cloud: {
           stage: 'ALPHA',
+          account_state: 'ALPHA',
+          email_verified: true,
           platform_models_available: true,
-          identity_type: 'ANONYMOUS',
-          registered: false,
-          quota: {
-            source: 'TRIAL',
-            total: 30,
-            used: 0,
-            reserved: 0,
-            available: 30,
-            remaining_ratio: 1,
-            cycle_ends_at: null
+          block_reason: null,
+          byok_available: true,
+          alpha: {
+            active_batch: 1, cumulative_capacity: 10, remaining_capacity: 3,
+            batch_no: 1, activated_at: '2026-08-01T00:00:00.000Z',
+            promotion_expires_at: null
           },
-          support: { enabled: false },
-          next_actions: ['START_CHATTING']
+          waitlist: { on_waitlist: false, joined_at: null },
+          quota: {
+            period_limit: 1500, period_used: 41, period_reserved: 0,
+            period_remaining: 1459,
+            period_started_at: '2026-08-01T00:00:00.000Z',
+            period_ends_at: '2026-08-31T00:00:00.000Z',
+            daily_limit: 200, daily_used: 9, daily_reserved: 0,
+            daily_remaining: 191, day_utc: '2026-08-06'
+          },
+          support: { enabled: false, url: '', headline: '', body: '' }
         }
       });
     }
@@ -67,9 +73,9 @@ function mockShell(handler: (path: string, init?: RequestInit) => Promise<Respon
         user: {
           user_id: 'user-1',
           anonymous_id: 'anonymous-1',
-          identity_type: 'ANONYMOUS',
-          free_quota_remaining: 30,
-          free_quota_enabled: true
+          identity_type: 'EMAIL',
+          email: 'a@example.com',
+          registered: true
         }
       });
     }

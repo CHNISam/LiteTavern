@@ -11,72 +11,77 @@ function json(body: unknown, status = 200) {
   );
 }
 
+/**
+ * The server decides everything here. The fixture therefore mirrors the wire
+ * contract exactly — an account state and a block reason — instead of a quota
+ * number the client would have to interpret.
+ */
 function cloudStatus({
-  registered = false,
-  platformAvailable = true,
-  quotaAvailable = 30
+  accountState = 'ALPHA',
+  blockReason = null,
+  dailyRemaining = 191
 }: {
-  registered?: boolean;
-  platformAvailable?: boolean;
-  quotaAvailable?: number;
+  accountState?: string;
+  blockReason?: string | null;
+  dailyRemaining?: number;
 } = {}) {
   return {
     cloud: {
       stage: 'ALPHA',
-      platform_models_available: platformAvailable,
-      model_service: {
-        available: platformAvailable && quotaAvailable > 0,
-        reason_code: !platformAvailable
-          ? 'SERVICE_UNAVAILABLE'
-          : quotaAvailable > 0
-            ? null
-            : 'QUOTA_EXHAUSTED'
+      account_state: accountState,
+      email_verified: accountState !== 'GUEST' && accountState !== 'UNVERIFIED',
+      platform_models_available: blockReason === null,
+      block_reason: blockReason,
+      byok_available: accountState !== 'GUEST' && accountState !== 'SUSPENDED',
+      alpha: {
+        active_batch: 1,
+        cumulative_capacity: 10,
+        remaining_capacity: 3,
+        batch_no: accountState === 'ALPHA' ? 1 : null,
+        activated_at: accountState === 'ALPHA' ? '2026-08-01T00:00:00.000Z' : null,
+        promotion_expires_at: null
       },
-      identity_type: registered ? 'EMAIL' : 'ANONYMOUS',
-      registered,
-      membership_status: registered ? 'REGISTERED_WAITLIST' : 'ANONYMOUS_TRIAL',
-      on_waitlist: false,
-      waitlist_joined_at: null,
-      alpha_active: false,
-      alpha_granted: false,
-      alpha_granted_at: null,
-      alpha_activated_at: null,
-      alpha_batch_id: null,
-      alpha_grant_source: null,
-      alpha_status_reason: null,
-      founding_supporter: false,
-      quota: {
-        source: quotaAvailable > 0 ? 'TRIAL' : 'NONE',
-        total: quotaAvailable > 0 ? 30 : 0,
-        used: 30 - quotaAvailable,
-        reserved: 0,
-        available: quotaAvailable,
-        remaining_ratio: quotaAvailable / 30,
-        cycle_no: null,
-        cycle_starts_at: null,
-        cycle_ends_at: null
+      waitlist: {
+        on_waitlist: accountState === 'WAITLIST',
+        joined_at: accountState === 'WAITLIST' ? '2026-08-02T00:00:00.000Z' : null
       },
-      support: { enabled: false, url: '', headline: '', body: '' },
-      next_actions: registered ? ['JOIN_WAITLIST', 'USE_BYOK'] : ['REGISTER', 'USE_BYOK']
+      quota:
+        accountState === 'ALPHA'
+          ? {
+              period_limit: 1500,
+              period_used: 41,
+              period_reserved: 0,
+              period_remaining: 1459,
+              period_started_at: '2026-08-01T00:00:00.000Z',
+              period_ends_at: '2026-08-31T00:00:00.000Z',
+              daily_limit: 200,
+              daily_used: 200 - dailyRemaining,
+              daily_reserved: 0,
+              daily_remaining: dailyRemaining,
+              day_utc: '2026-08-06'
+            }
+          : null,
+      support: { enabled: false, url: '', headline: '', body: '' }
     }
   };
 }
 
 function mockShell({
-  registered = false,
+  accountState = 'GUEST',
+  blockReason = null,
   withCharacter = false,
-  platformAvailable = true,
-  quotaAvailable = 30
+  dailyRemaining = 191
 }: {
-  registered?: boolean;
+  accountState?: string;
+  blockReason?: string | null;
   withCharacter?: boolean;
-  platformAvailable?: boolean;
-  quotaAvailable?: number;
+  dailyRemaining?: number;
 } = {}) {
+  const registered = accountState !== 'GUEST';
   vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
     const path = String(input);
     if (path === '/v1/cloud/status') {
-      return json(cloudStatus({ registered, platformAvailable, quotaAvailable }));
+      return json(cloudStatus({ accountState, blockReason, dailyRemaining }));
     }
     if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
     if (path === '/v1/identities/anonymous') {
@@ -86,11 +91,7 @@ function mockShell({
           anonymous_id: 'anonymous-1',
           identity_type: registered ? 'EMAIL' : 'ANONYMOUS',
           email: registered ? 'user@example.com' : null,
-          registered,
-          free_quota_total: quotaAvailable > 0 ? 30 : 0,
-          free_quota_remaining: quotaAvailable,
-          free_quota_available: quotaAvailable,
-          free_quota_enabled: platformAvailable
+          registered
         }
       });
     }
@@ -153,16 +154,17 @@ describe('home information architecture', () => {
     expect(within(settings).getByText(/不影响正常使用、Cloud 注册、同步、套餐或 Alpha 资格/)).toBeInTheDocument();
   });
 
-  it('explains Cloud registration, sync, plan, quota, and Alpha before opening auth', async () => {
-    mockShell();
+  it('explains Cloud registration, sync and Alpha before opening auth', async () => {
+    mockShell({ accountState: 'GUEST' });
     render(<App />);
 
     fireEvent.click(await screen.findByRole('button', { name: '登录' }));
     const account = screen.getByRole('dialog', { name: '账号与同步' });
     expect(within(account).getByText('未登录')).toBeInTheDocument();
     expect(within(account).getByText('角色、对话与记忆')).toBeInTheDocument();
-    expect(within(account).getByText('未注册')).toBeInTheDocument();
-    expect(within(account).getByText(/注册不会自动获得 Alpha 资格/)).toBeInTheDocument();
+    expect(within(account).getByText('游客')).toBeInTheDocument();
+    // Registering is not the same as getting in, and the panel must not imply it.
+    expect(within(account).getByText(/注册并验证邮箱本身不占用名额/)).toBeInTheDocument();
 
     fireEvent.click(
       within(account).getByRole('button', { name: '注册 LiteTavern Cloud 账号' })
@@ -170,12 +172,13 @@ describe('home information architecture', () => {
     const auth = screen.getByRole('dialog', {
       name: '注册或登录 LiteTavern Cloud 账号'
     });
-    expect(within(auth).getByText(/创建云端账号并进入 LiteTavern Free/)).toBeInTheDocument();
-    expect(within(auth).getByText(/Alpha 资格需要单独申请/)).toBeInTheDocument();
+    // No Free tier exists any more, under that or any other name.
+    expect(within(auth).queryByText(/Free/)).not.toBeInTheDocument();
+    expect(within(auth).getByText(/是否获得 Alpha 云端额度由服务端判定/)).toBeInTheDocument();
   });
 
   it('keeps platform quota and BYOK together in model services', async () => {
-    mockShell();
+    mockShell({ accountState: 'ALPHA' });
     render(<App />);
 
     fireEvent.click(await screen.findByRole('button', { name: '模型服务' }));
@@ -184,15 +187,22 @@ describe('home information architecture', () => {
     expect(within(models).getByRole('heading', { name: '自己的模型' })).toBeInTheDocument();
     // Nothing is connected yet, so the BYOK card states where a key would live.
     expect(within(models).getByText(/API Key 只保存在这台设备上/)).toBeInTheDocument();
-    expect(within(models).getByRole('meter', { name: '试用额度剩余量' })).toBeInTheDocument();
+    expect(within(models).getByRole('meter', { name: '今日额度剩余量' })).toBeInTheDocument();
+    expect(within(models).getByRole('meter', { name: '本周期额度剩余量' })).toBeInTheDocument();
   });
 
   it('shows one accurate chat prompt only when no model is available', async () => {
-    mockShell({ withCharacter: true, platformAvailable: true, quotaAvailable: 0 });
+    mockShell({
+      accountState: 'ALPHA',
+      withCharacter: true,
+      blockReason: 'DAILY_QUOTA_EXHAUSTED',
+      dailyRemaining: 0
+    });
     render(<App />);
 
-    const message =
-      'LiteTavern Cloud 的额度已用完。你可以接入自己的模型继续聊天。';
+    // The daily wall names itself and says when it lifts. It is not the same
+    // message as a spent period, a full batch, or a dead provider.
+    const message = '今日云端额度已用完，UTC 2026-08-06 结束后重置。';
     expect(await screen.findAllByText(message)).toHaveLength(1);
     expect(screen.getByRole('button', { name: '连接自己的模型' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '查看 LiteTavern Cloud 额度' })).toBeInTheDocument();

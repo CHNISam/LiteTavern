@@ -16,7 +16,7 @@ import { SiteFooter } from '../components/SiteFooter';
 import { SupporterClaimDialog } from '../components/SupporterClaimDialog';
 import { SupportOrbit } from '../components/SupportOrbit';
 import { analytics } from '../lib/analytics';
-import { readCachedStatus } from '../lib/cloud';
+import { isSignedIn, readCachedStatus } from '../lib/cloud';
 import { useLocale, type Dictionary } from '../lib/i18n';
 import { APP_VERSION, githubUrl as resolveGithubUrl } from '../lib/project-links';
 import { preferredPublicTheme, storePublicTheme, type PublicTheme } from '../lib/public-theme';
@@ -115,7 +115,7 @@ export function SupportPage({
   placement: placementValue,
   config = supportConfig(),
   tracker = defaultTracker,
-  isAuthenticated = readCachedStatus()?.registered ?? false,
+  isAuthenticated = isSignedIn(readCachedStatus()),
   githubUrl = resolveGithubUrl()
 }: SupportPageProps) {
   const { dictionary: t } = useLocale();

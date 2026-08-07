@@ -3,8 +3,9 @@ import { Check, ChevronLeft, ExternalLink, KeyRound, LoaderCircle, Plus, Search,
 import { api, type ModelConfiguration, type Provider } from '../lib/api';
 import {
   cloudProviderName,
-  describeQuota,
+  describeQuotaWindows,
   resolveCloudModelServiceState,
+  resolveCloudNotice,
   type CloudModelServiceState,
   type CloudStatus
 } from '../lib/cloud';
@@ -187,17 +188,16 @@ export function ProviderSettings({
     await refresh();
   }
 
-  const quotaDescription = describeQuota(cloud);
+  const quotaDescription = describeQuotaWindows(cloud);
   const resolvedCloudService =
     cloudService ??
     resolveCloudModelServiceState(cloud, {
       offline,
       selected: usageMode === 'PLATFORM'
     });
-  const platformUsable =
-    resolvedCloudService.availability === 'available' &&
-    Boolean(quotaDescription) &&
-    !quotaDescription!.exhausted;
+  // Usability is the server's answer, never a local reading of the numbers.
+  const platformUsable = resolvedCloudService.availability === 'available';
+  const cloudNotice = resolveCloudNotice(cloud);
 
   function focusProviderCatalog() {
     providerSearchRef.current?.focus();
@@ -256,35 +256,52 @@ export function ProviderSettings({
                 ) : platformUsable && quotaDescription ? (
                   <div className="quota-readout">
                     <div className="quota-figure">
-                      <strong>{quotaDescription.available}</strong>
+                      <strong>{quotaDescription.dailyRemaining}</strong>
                       <span>
-                        {t.models.quotaRemaining(quotaDescription.total, quotaDescription.unitName)}
+                        {t.models.quotaRemaining(
+                          quotaDescription.dailyLimit,
+                          quotaDescription.unitName
+                        )}
                       </span>
                     </div>
                     <div
                       className="quota-meter"
                       role="meter"
                       aria-valuemin={0}
-                      aria-valuemax={quotaDescription.total}
-                      aria-valuenow={quotaDescription.available}
-                      aria-label={t.models.quotaMeterLabel(quotaDescription.poolName)}
+                      aria-valuemax={quotaDescription.dailyLimit}
+                      aria-valuenow={quotaDescription.dailyRemaining}
+                      aria-label={t.models.quotaMeterLabel(t.models.dailyWindow)}
                     >
-                      <i style={{ width: `${percent(quotaDescription.ratio)}%` }} />
+                      <i style={{ width: `${percent(quotaDescription.dailyRatio)}%` }} />
+                    </div>
+                    <div
+                      className="quota-meter"
+                      role="meter"
+                      aria-valuemin={0}
+                      aria-valuemax={quotaDescription.periodLimit}
+                      aria-valuenow={quotaDescription.periodRemaining}
+                      aria-label={t.models.quotaMeterLabel(t.models.periodWindow)}
+                    >
+                      <i style={{ width: `${percent(quotaDescription.periodRatio)}%` }} />
                     </div>
                     <dl className="quota-facts">
                       <div>
-                        <dt>{t.models.quotaSource}</dt>
-                        <dd>{quotaDescription.poolName}</dd>
+                        <dt>{t.models.dailyWindow}</dt>
+                        <dd>{t.models.dailyResets(quotaDescription.dayUtc)}</dd>
                       </div>
                       <div>
                         <dt>{t.models.quotaUsed}</dt>
                         <dd>
-                          {quotaDescription.used} {quotaDescription.unitName}
+                          {quotaDescription.dailyUsed} {quotaDescription.unitName}
                         </dd>
                       </div>
                       <div>
-                        <dt>{t.models.quotaRenewal}</dt>
-                        <dd>{quotaDescription.renewal}</dd>
+                        <dt>{t.models.periodWindow}</dt>
+                        <dd>
+                          {t.models.periodResets(
+                            new Date(quotaDescription.periodEndsAt).toLocaleString(locale)
+                          )}
+                        </dd>
                       </div>
                     </dl>
                     {offline && (
@@ -293,26 +310,25 @@ export function ProviderSettings({
                       </p>
                     )}
                   </div>
-                ) : resolvedCloudService.availability === 'quota_exhausted' ? (
+                ) : resolvedCloudService.availability === 'blocked' && cloudNotice ? (
                   <>
-                    <strong className="service-status-label">
-                      {t.models.quotaExhaustedStatus}
-                    </strong>
-                    <p className="service-unavailable">
-                      {quotaDescription
-                        ? t.models.poolExhausted(
-                            quotaDescription.poolName,
-                            quotaDescription.renewal
-                          )
-                        : t.models.noQuotaOnAccount(cloudName)}
-                    </p>
+                    <strong className="service-status-label">{cloudNotice.title}</strong>
+                    <p className="service-unavailable">{cloudNotice.body}</p>
+                    {cloudNotice.byokHint && (
+                      <p className="service-byok-hint">{cloudNotice.byokHint}</p>
+                    )}
                     <div className="service-card-actions">
+                      {resolvedCloudService.blockReason === 'PROVIDER_UNAVAILABLE' && (
+                        <button type="button" onClick={onRetryCloud}>
+                          {t.models.retryCloud}
+                        </button>
+                      )}
                       <button type="button" onClick={focusProviderCatalog}>
                         {t.models.connectOwnModelAction}
                       </button>
                     </div>
                   </>
-                ) : resolvedCloudService.availability === 'unavailable' ? (
+                ) : resolvedCloudService.availability === 'offline' ? (
                   <>
                     <strong className="service-status-label">
                       {t.models.temporarilyUnavailable}
@@ -323,7 +339,7 @@ export function ProviderSettings({
                     {quotaDescription && (
                       <>
                         <p className="service-quota-paused">
-                          {t.models.quotaAfterRecovery(quotaDescription.available)}
+                          {t.models.quotaAfterRecovery(quotaDescription.dailyRemaining)}
                         </p>
                         {offline && (
                           <p className="quota-stale" role="status">

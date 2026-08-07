@@ -80,7 +80,6 @@ export const en: Dictionary = {
     cloudUnavailable:
       'LiteTavern Cloud is temporarily unavailable. Try again later, or connect your own model.',
     cloudUnavailableStatus: 'LiteTavern Cloud unavailable',
-    cloudQuotaExhaustedStatus: 'LiteTavern Cloud · Allowance used up',
     retryCloud: 'Retry',
     connectOwnModelAction: 'Connect your own model',
     noModelAvailable:
@@ -105,10 +104,6 @@ export const en: Dictionary = {
     localContextFailed: 'Could not prepare the local context.',
     regexOutputTimeout:
       'A Regex script timed out. The model’s original text was kept.',
-    quotaExhausted:
-      'Your LiteTavern Cloud allowance is used up. Connect your own model to keep chatting.',
-    platformDisabled:
-      'LiteTavern Cloud models are switched off right now. Connect your own model to keep chatting.',
     byokMissingConfiguration: 'Add one of your own models first.',
     byokMissingKey: 'This browser has no API key for that configuration. Please add it again.'
   },
@@ -296,9 +291,8 @@ export const en: Dictionary = {
     cloudBlurb: 'The hosted model service run by LiteTavern',
     checkingCloud: 'Checking LiteTavern Cloud…',
     temporarilyUnavailable: 'Temporarily unavailable',
-    quotaExhaustedStatus: 'Allowance used up',
     quotaAfterRecovery: (available: number) =>
-      `${available} remaining, available when service returns`,
+      `${available} left today, available when the service returns`,
     retryCloud: 'Retry',
     connectOwnModelAction: 'Connect your own model',
     inUse: 'In use',
@@ -315,15 +309,16 @@ export const en: Dictionary = {
     currentLabel: 'Active',
     keyLocation: 'Key stored',
     keyLocationValue: 'This browser only',
-    quotaSource: 'Allowance',
     quotaUsed: 'Used',
-    quotaRenewal: 'Renews',
     quotaRemaining: (total: number, unit: string) => `of ${total} ${unit} left`,
     quotaMeterLabel: (pool: string) => `${pool} remaining`,
     quotaStale: (name: string) =>
       `${name} is unreachable — this is the last state that synced.`,
-    poolExhausted: (pool: string, renewal: string) => `Your ${pool} is used up. ${renewal}.`,
-    platformUnavailable: (name: string) => `${name} models are unavailable right now.`,
+    dailyWindow: 'Today’s allowance',
+    periodWindow: 'This period’s allowance',
+    dailyResets: (day: string) => `Resets at the end of ${day} UTC`,
+    periodResets: (moment: string) => `Resets after ${moment}`,
+    platformUnavailable: (name: string) => `${name} is unreachable right now.`,
     connectOwnInstead: 'Connect one of your own models below to keep chatting.',
     noQuotaOnAccount: (name: string) => `This account has no ${name} allowance.`,
     searchLabel: 'Search providers',
@@ -366,16 +361,19 @@ export const en: Dictionary = {
 
   cloud: {
     providerName: 'LiteTavern Cloud',
-    trialPool: 'trial allowance',
-    alphaPool: 'daily Alpha allowance',
+    alphaPool: 'Alpha allowance',
+    dailyPool: 'Today’s allowance',
+    periodPool: 'This period’s allowance',
     replyUnit: 'replies',
-    alphaRenewal: 'Renews daily at 08:00',
-    trialRenewal: 'Does not renew',
     noQuota: (name: string) => `No ${name} allowance`,
-    quotaLabel: (provider: string, pool: string, scope: string, available: number, total: number) =>
-      `${provider} ${pool}: ${available} of ${total} ${scope}`,
-    scopeToday: 'left today',
-    scopeRemaining: 'left',
+    quotaLabel: (
+      provider: string,
+      dailyRemaining: number,
+      dailyLimit: number,
+      periodRemaining: number,
+      periodLimit: number
+    ) =>
+      `${provider}: ${dailyRemaining} of ${dailyLimit} left today, ${periodRemaining} of ${periodLimit} left this period`,
     unavailable: 'LiteTavern Cloud is unavailable. Please try again shortly.',
     requestFailed: 'The request failed. Please try again.',
     streamUnsupported: 'This browser does not support streaming responses.',
@@ -396,31 +394,30 @@ export const en: Dictionary = {
     syncOk: 'Syncing normally',
     syncBroken: 'Sync problem',
     syncAfterLogin: 'Sign in to sync across devices',
-    plan: 'Plan',
-    planFree: 'LiteTavern Free',
     notRegistered: 'No account',
     platformQuota: 'Platform allowance',
-    alphaStatus: 'Alpha access',
-    alphaStates: {
-      waitlisted: 'On the waitlist',
-      granted: 'Granted, not started',
-      active: 'Active',
-      paused: 'Paused',
-      ended: 'Ended',
-      none: 'Not applied for'
+    alphaStatus: 'Alpha status',
+    accountStates: {
+      GUEST: 'Guest',
+      UNVERIFIED: 'Email not verified',
+      REGISTERED: 'Registered',
+      ALPHA: 'Alpha active',
+      WAITLIST: 'On the waitlist',
+      SUSPENDED: 'Suspended'
     },
+    alphaCapacity: (remaining: number, total: number) =>
+      `${remaining} of ${total} seats left`,
+    alphaBatch: (batch: number) => `Batch ${batch}`,
     registrationCopy:
-      'Creating a LiteTavern Cloud account puts you on LiteTavern Free and syncs characters, conversations and memories across devices. Signing up does not grant Alpha access — that is applied for separately — and using your own model stays an independent option.',
-    appliedAt: 'Applied: ',
-    grantedAt: 'Granted: ',
+      'Creating a LiteTavern Cloud account syncs characters, conversations and memories across devices. Registering and verifying your email take no seat on their own — a seat is only claimed the first time you actually use a cloud model. Using your own model stays an independent option.',
+    appliedAt: 'Waitlisted: ',
+    activatedAt: 'Activated: ',
     quotaTodayLabel: 'Platform replies today',
-    quotaTrialLabel: 'LiteTavern Cloud trial allowance',
+    quotaPeriodLabel: 'Platform replies this period',
     quotaRemainingOf: (available: number, total: number) => `${available} of ${total} left`,
-    quotaRemainingCount: (available: number) => `${available} left`,
-    dailyReset: 'Renews daily at 08:00',
+    dailyResetAt: (day: string) => `Resets at the end of ${day} UTC`,
+    periodResetAt: (moment: string) => `Resets after ${moment}`,
     register: 'Create a LiteTavern Cloud account',
-    applyAlpha: 'Apply for Alpha access',
-    enterAlpha: 'Start using Alpha access',
     connectOwnModel: 'Connect your own model instead',
     signOut: 'Sign out',
     actionFailed: 'That did not work. Please try again.'
@@ -706,26 +703,57 @@ export const en: Dictionary = {
     loading: 'Loading the admin console…'
   },
 
-  membership: {
-    anonymousTrialActive: 'Using the trial allowance provided by LiteTavern Cloud',
-    anonymousTrialSpent:
-      'Your LiteTavern Cloud trial allowance is used up. Sign up to join the Alpha waitlist, or switch to your own model to keep chatting.',
-    waitlistSupporter:
-      'You are on the LiteTavern Cloud Alpha waitlist. Thank you for supporting LiteTavern early — you will be given priority in the queue, though supporting is not a purchase of access and we cannot promise a date.',
-    waitlist:
-      'You are on the LiteTavern Cloud Alpha waitlist. Places are limited and released in batches in queue order; we cannot promise a date yet.',
-    alphaGranted:
-      'You have LiteTavern Cloud Alpha access but have not started yet. Entering Alpha unlocks the platform allowance and cloud features.',
-    alphaActive: (available: number, total: number) =>
-      `Platform replies today: ${available} of ${total} left. Renews daily at 08:00.`,
-    alphaPausedWithReason: (reason: string) =>
-      `LiteTavern Cloud Alpha access is paused: ${reason}. You can switch to your own model to keep chatting.`,
-    alphaPaused:
-      'LiteTavern Cloud Alpha access is paused. You can switch to your own model to keep chatting.',
-    alphaEndedWithReason: (reason: string) =>
-      `This round of LiteTavern Cloud Alpha has ended: ${reason}. You can switch to your own model to keep chatting.`,
-    alphaEnded:
-      'This round of LiteTavern Cloud Alpha has ended. You can switch to your own model to keep chatting.',
+  cloudNotice: {
+    byokStillWorks: 'Your own API key still works.',
+    byokWhileWaiting: 'You can use your own API key while you wait.',
+    seatsAvailable: {
+      title: 'First Alpha batch, free to test',
+      remaining: (remaining: number, total: number) =>
+        `Seats left: ${remaining} / ${total}`,
+      howToJoin:
+        'Sign up and verify your email; a seat is granted automatically the first time you use a cloud model.',
+      periodLimit: (limit: number) => `Each period provides ${limit} cloud replies.`
+    },
+    capacityFull: {
+      title: 'The first Alpha batch is full',
+      body: 'Try LiteTavern Cloud once and you will join the waitlist for the second batch.'
+    },
+    waitlisted: {
+      title: 'You are on the waitlist for the second batch.',
+      body: 'Once the first batch’s problems are fixed and the service is stable, we will open the next batch of seats.'
+    },
+    guest: {
+      title: 'Sign up and verify your email to try for an Alpha cloud allowance.',
+      body: 'As a guest you can explore the bundled demo first.'
+    },
+    emailUnverified: {
+      title: 'Your email is not verified yet',
+      body: 'Verify your email to try the cloud models. The verification link was sent to the address you signed up with.'
+    },
+    suspended: {
+      title: 'This account is suspended',
+      body: 'This account cannot use LiteTavern Cloud models at the moment. If you think that is a mistake, tell us through the feedback form.'
+    },
+    dailyExhausted: {
+      title: 'Today’s cloud allowance is used up',
+      body: 'Today’s cloud allowance is used up; it comes back with the next UTC day.',
+      resetsAt: (day: string) =>
+        `Today’s cloud allowance is used up. It resets at the end of ${day} UTC.`
+    },
+    periodExhausted: {
+      title: 'This period’s cloud allowance is used up',
+      body: 'This period’s cloud allowance is used up; it comes back when the next period starts.',
+      resetsAt: (moment: string) =>
+        `This period’s cloud allowance is used up. It resets after ${moment}.`
+    },
+    concurrent: {
+      title: 'A reply is already being generated',
+      body: 'Wait for that reply to finish before sending the next one.'
+    },
+    providerUnavailable: {
+      title: 'The model provider is temporarily unavailable',
+      body: 'This is a temporary failure — try again shortly. Nothing was deducted from your allowance.'
+    },
     disclaimer:
       'LiteTavern Cloud Alpha is still a test. Allowances, models and cloud rules may change based on real costs, stability and what the test shows.'
   },
@@ -736,7 +764,7 @@ export const en: Dictionary = {
     signInOrUp: 'Sign in or sign up',
     enterCode: 'Enter the code',
     lead:
-      'Enter your email. An existing account signs straight in; a new one is created after verification and starts on LiteTavern Free, which syncs characters, conversations and memories. Alpha access is applied for separately.',
+      'Enter your email. An existing account signs straight in; a new one is created after verification and syncs characters, conversations and memories. Whether you get an Alpha cloud allowance is decided by the server.',
     email: 'Email',
     codeSentTo: (masked: string) => `We sent a code to ${masked}`,
     codeLabel: '6-digit code',

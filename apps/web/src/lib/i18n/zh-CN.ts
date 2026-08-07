@@ -75,7 +75,6 @@ export const zhCN = {
     cloudChecking: '正在检查 LiteTavern Cloud…',
     cloudUnavailable: 'LiteTavern Cloud 暂时不可用。请稍后重试，或连接自己的模型。',
     cloudUnavailableStatus: 'LiteTavern Cloud 暂不可用',
-    cloudQuotaExhaustedStatus: 'LiteTavern Cloud · 额度已用完',
     retryCloud: '重试',
     connectOwnModelAction: '连接自己的模型',
     noModelAvailable: '当前没有可用模型。请接入自己的模型，或查看 LiteTavern Cloud 的平台额度。',
@@ -97,8 +96,6 @@ export const zhCN = {
     regexInputTimeout: '一个 Regex 脚本执行超时，已使用原始输入。',
     localContextFailed: '本地上下文准备失败。',
     regexOutputTimeout: '一个 Regex 脚本执行超时，已保留模型原文。',
-    quotaExhausted: 'LiteTavern Cloud 的额度已用完。你可以接入自己的模型继续聊天。',
-    platformDisabled: 'LiteTavern Cloud 平台模型当前已关闭。你可以接入自己的模型继续聊天。',
     byokMissingConfiguration: '请先添加一个用户自带模型。',
     byokMissingKey: '当前浏览器中找不到该配置的 API Key，请重新绑定。'
   },
@@ -278,8 +275,7 @@ export const zhCN = {
     cloudBlurb: '由 LiteTavern 运营的托管模型服务',
     checkingCloud: '正在检查 LiteTavern Cloud…',
     temporarilyUnavailable: '暂时不可用',
-    quotaExhaustedStatus: '额度已用完',
-    quotaAfterRecovery: (available: number) => `剩余 ${available} 次，服务恢复后可用`,
+    quotaAfterRecovery: (available: number) => `今日剩余 ${available} 次，服务恢复后可用`,
     retryCloud: '重试',
     connectOwnModelAction: '连接自己的模型',
     inUse: '使用中',
@@ -294,14 +290,15 @@ export const zhCN = {
     currentLabel: '当前',
     keyLocation: 'Key 保存位置',
     keyLocationValue: '仅当前浏览器',
-    quotaSource: '额度来源',
     quotaUsed: '已用',
-    quotaRenewal: '恢复方式',
     quotaRemaining: (total: number, unit: string) => `/ ${total} ${unit}剩余`,
     quotaMeterLabel: (pool: string) => `${pool}剩余量`,
     quotaStale: (name: string) => `${name} 暂时无法连接，以上是最后一次同步到的数据。`,
-    poolExhausted: (pool: string, renewal: string) => `${pool}已用完，${renewal}。`,
-    platformUnavailable: (name: string) => `${name} 平台模型当前不可用。`,
+    dailyWindow: '今日额度',
+    periodWindow: '本周期额度',
+    dailyResets: (day: string) => `UTC ${day} 结束后重置`,
+    periodResets: (moment: string) => `${moment} 结束后重置`,
+    platformUnavailable: (name: string) => `${name} 暂时无法连接。`,
     connectOwnInstead: '你可以在下方接入自己的模型继续聊天。',
     noQuotaOnAccount: (name: string) => `这个账号还没有 ${name} 平台额度。`,
     searchLabel: '搜索服务商',
@@ -343,16 +340,19 @@ export const zhCN = {
 
   cloud: {
     providerName: 'LiteTavern Cloud',
-    trialPool: '试用额度',
-    alphaPool: 'Alpha 每日额度',
+    alphaPool: 'Alpha 额度',
+    dailyPool: '今日额度',
+    periodPool: '本周期额度',
     replyUnit: '次回复',
-    alphaRenewal: '每天 08:00 恢复',
-    trialRenewal: '用完后不再恢复',
     noQuota: (name: string) => `暂无 ${name} 额度`,
-    quotaLabel: (provider: string, pool: string, scope: string, available: number, total: number) =>
-      `${provider} ${pool}：${scope} ${available} / ${total} 次`,
-    scopeToday: '今日剩余',
-    scopeRemaining: '剩余',
+    quotaLabel: (
+      provider: string,
+      dailyRemaining: number,
+      dailyLimit: number,
+      periodRemaining: number,
+      periodLimit: number
+    ) =>
+      `${provider}：今日剩余 ${dailyRemaining} / ${dailyLimit} 次，本周期剩余 ${periodRemaining} / ${periodLimit} 次`,
     unavailable: 'LiteTavern Cloud 暂不可用，请稍后重试。',
     requestFailed: '请求失败，请稍后重试。',
     streamUnsupported: '浏览器不支持流式响应。',
@@ -372,31 +372,29 @@ export const zhCN = {
     syncOk: '同步正常',
     syncBroken: '同步异常',
     syncAfterLogin: '登录后可跨设备同步',
-    plan: '当前套餐',
-    planFree: 'LiteTavern Free',
     notRegistered: '未注册',
     platformQuota: '平台模型额度',
-    alphaStatus: 'Alpha 资格',
-    alphaStates: {
-      waitlisted: '候补中',
-      granted: '已获得，待启用',
-      active: '使用中',
-      paused: '已暂停',
-      ended: '已结束',
-      none: '未申请'
+    alphaStatus: 'Alpha 状态',
+    accountStates: {
+      GUEST: '游客',
+      UNVERIFIED: '邮箱未验证',
+      REGISTERED: '已注册',
+      ALPHA: 'Alpha 使用中',
+      WAITLIST: '候补名单中',
+      SUSPENDED: '已停用'
     },
+    alphaCapacity: (remaining: number, total: number) => `剩余名额 ${remaining} / ${total}`,
+    alphaBatch: (batch: number) => `第 ${batch} 批`,
     registrationCopy:
-      '注册 LiteTavern Cloud 账号后，会建立云端账号并进入 LiteTavern Free，可跨设备同步角色、对话与记忆。注册不会自动获得 Alpha 资格，Alpha 需要单独申请；自带模型仍是独立的接入方式。',
-    appliedAt: '申请时间：',
-    grantedAt: '获得资格时间：',
+      '注册 LiteTavern Cloud 账号后，会建立云端账号，可跨设备同步角色、对话与记忆。注册并验证邮箱本身不占用名额，只有首次真正使用云端模型时才会去争取；自带模型仍是独立的接入方式。',
+    appliedAt: '候补时间：',
+    activatedAt: '启用时间：',
     quotaTodayLabel: '今日平台回复',
-    quotaTrialLabel: 'LiteTavern Cloud 试用额度',
+    quotaPeriodLabel: '本周期平台回复',
     quotaRemainingOf: (available: number, total: number) => `剩余 ${available} / ${total}`,
-    quotaRemainingCount: (available: number) => `剩余 ${available} 次`,
-    dailyReset: '每天 08:00 恢复',
+    dailyResetAt: (day: string) => `UTC ${day} 结束后重置`,
+    periodResetAt: (moment: string) => `${moment} 结束后重置`,
     register: '注册 LiteTavern Cloud 账号',
-    applyAlpha: '申请 Alpha 资格',
-    enterAlpha: '开始使用 Alpha 资格',
     connectOwnModel: '连接自己的模型继续聊天',
     signOut: '退出登录',
     actionFailed: '操作失败，请稍后重试。'
@@ -657,24 +655,54 @@ export const zhCN = {
     loading: '正在加载管理后台…'
   },
 
-  membership: {
-    anonymousTrialActive: '正在使用 LiteTavern Cloud 提供的试用额度',
-    anonymousTrialSpent:
-      'LiteTavern Cloud 试用额度已用完。注册后可加入 Alpha 候补名单，或切换到自己的模型服务继续聊天。',
-    waitlistSupporter:
-      '已加入 LiteTavern Cloud Alpha 候补名单。感谢你成为 LiteTavern 的早期支持者——你在候补排序中会被优先考虑，但支持本身不等于购买资格，我们也无法承诺确切的开放日期。',
-    waitlist:
-      '已加入 LiteTavern Cloud Alpha 候补名单。名额有限，我们会按候补顺序逐批开放，暂时无法承诺确切的开放日期。',
-    alphaGranted:
-      '你已获得 LiteTavern Cloud Alpha 资格，还没有开始使用。进入 Alpha 后即可使用平台额度和云服务。',
-    alphaActive: (available: number, total: number) =>
-      `今日平台回复：剩余 ${available} / ${total}。每天 08:00 恢复。`,
-    alphaPausedWithReason: (reason: string) =>
-      `LiteTavern Cloud Alpha 访问已暂停：${reason}。你可以切换到自己的模型服务继续聊天。`,
-    alphaPaused: 'LiteTavern Cloud Alpha 访问已暂停。你可以切换到自己的模型服务继续聊天。',
-    alphaEndedWithReason: (reason: string) =>
-      `本轮 LiteTavern Cloud Alpha 已结束：${reason}。你可以切换到自己的模型服务继续聊天。`,
-    alphaEnded: '本轮 LiteTavern Cloud Alpha 已结束。你可以切换到自己的模型服务继续聊天。',
+  cloudNotice: {
+    byokStillWorks: '你自己的 API Key 仍然可以使用。',
+    byokWhileWaiting: '等待期间可以使用自己的 API Key。',
+    seatsAvailable: {
+      title: '第一批 Alpha 免费测试',
+      remaining: (remaining: number, total: number) =>
+        `剩余名额：${remaining} / ${total}`,
+      howToJoin: '注册并验证邮箱，首次使用云端模型时自动获得资格。',
+      periodLimit: (limit: number) => `每个周期提供 ${limit} 次云端回复额度。`
+    },
+    capacityFull: {
+      title: '第一批 Alpha 名额已满',
+      body: '尝试使用 LiteTavern Cloud 后，你将进入第二批候补。'
+    },
+    waitlisted: {
+      title: '你已进入第二批候补名单。',
+      body: '首批问题解决、服务稳定后，我们将再开放下一批名额。'
+    },
+    guest: {
+      title: '注册并验证邮箱后，可尝试获得 Alpha 云端额度。',
+      body: '游客可以先体验预置演示。'
+    },
+    emailUnverified: {
+      title: '邮箱还没有验证',
+      body: '验证邮箱后即可尝试使用云端模型。验证链接已发送到你注册时填写的邮箱。'
+    },
+    suspended: {
+      title: '账号已被停用',
+      body: '这个账号暂时无法使用 LiteTavern Cloud 的云端模型。如果你认为这是误判，请通过反馈入口联系我们。'
+    },
+    dailyExhausted: {
+      title: '今日云端额度已用完',
+      body: '今日云端额度已用完，需要等待下一个 UTC 日重置。',
+      resetsAt: (day: string) => `今日云端额度已用完，UTC ${day} 结束后重置。`
+    },
+    periodExhausted: {
+      title: '本周期云端额度已用完',
+      body: '本周期云端额度已用完，需要等待下一个周期开始。',
+      resetsAt: (moment: string) => `本周期云端额度已用完，${moment} 结束后重置。`
+    },
+    concurrent: {
+      title: '已经有一条回复正在生成',
+      body: '等这条回复结束后再发送下一条。'
+    },
+    providerUnavailable: {
+      title: '模型服务商暂时不可用',
+      body: '这是暂时的故障，稍后重试即可，本次不会消耗额度。'
+    },
     disclaimer:
       'LiteTavern Cloud Alpha 仍处于测试阶段。额度、模型和云服务规则可能根据实际成本、稳定性和测试结果进行调整。'
   },
@@ -685,7 +713,7 @@ export const zhCN = {
     signInOrUp: '注册或登录',
     enterCode: '输入验证码',
     lead:
-      '输入邮箱后，已有账号将直接登录；新邮箱验证后会创建云端账号并进入 LiteTavern Free，可同步角色、对话和记忆。Alpha 资格需要单独申请。',
+      '输入邮箱后，已有账号将直接登录；新邮箱验证后会创建云端账号，可同步角色、对话和记忆。是否获得 Alpha 云端额度由服务端判定。',
     email: '邮箱',
     codeSentTo: (masked: string) => `验证码已发送至 ${masked}`,
     codeLabel: '6 位验证码',

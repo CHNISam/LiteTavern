@@ -1,14 +1,12 @@
-import { useState } from 'react';
-import { CloudOff, Gift, LoaderCircle, LogOut, X } from 'lucide-react';
+import { CloudOff, LogOut, X } from 'lucide-react';
 import {
-  activateAlpha,
   alphaDisclaimer,
-  joinAlphaWaitlist,
-  membershipNotice,
+  describeQuotaWindows,
+  isSignedIn,
   quotaLabel,
+  resolveCloudNotice,
   type CloudStatus
 } from '../lib/cloud';
-import { analytics } from '../lib/analytics';
 import { useLocale } from '../lib/i18n';
 import type { AnonymousIdentity } from '../lib/api';
 
@@ -18,7 +16,6 @@ interface AccountSyncPanelProps {
   offline: boolean;
   account: AnonymousIdentity | null;
   onClose: () => void;
-  onStatusChanged: (status: CloudStatus) => void;
   onLogin: () => void;
   onLogout: () => void;
   onConnectModel: () => void;
@@ -28,9 +25,23 @@ function percent(ratio: number): number {
   return Math.round(Math.max(0, Math.min(1, ratio)) * 100);
 }
 
+function formatDay(value: string, locale: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString(locale);
+}
+
+function formatMoment(value: string, locale: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString(locale);
+}
+
 /**
  * The single account surface. Cloud is named as the provider, while account,
- * sync, plan, model quota, and Alpha remain separate facts.
+ * sync, allowance and Alpha state remain separate facts.
+ *
+ * Nothing here decides entitlement: the account state, the batch capacity, the
+ * allowance and the reason the platform is blocked all come from the server, and
+ * the panel only chooses how to lay them out.
  */
 export function AccountSyncPanel({
   open,
@@ -38,74 +49,21 @@ export function AccountSyncPanel({
   offline,
   account,
   onClose,
-  onStatusChanged,
   onLogin,
   onLogout,
   onConnectModel
 }: AccountSyncPanelProps) {
   const { locale, dictionary: t } = useLocale();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   if (!open) return null;
 
-  async function join() {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await joinAlphaWaitlist('app');
-      onStatusChanged(result.cloud);
-      analytics.criticalAction('alpha_waitlist_joined', 'model_config', {
-        result: result.joined ? 'success' : 'already'
-      });
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t.account.actionFailed);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function enterAlpha() {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await activateAlpha();
-      onStatusChanged(result.cloud);
-      analytics.criticalAction('alpha_activated', 'model_config', {
-        result: result.activated ? 'success' : 'already'
-      });
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t.account.actionFailed);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const notice = membershipNotice(status);
-  const quota = status?.quota;
-  const showJoin =
-    status?.registered === true &&
-    status.membership_status === 'REGISTERED_WAITLIST' &&
-    !status.waitlist_joined_at;
-  // Entitlement comes from the server's membership status, never from local state.
-  const showEnterAlpha = status?.membership_status === 'ALPHA_GRANTED';
-  const suspended =
-    status?.membership_status === 'ALPHA_PAUSED' ||
-    status?.membership_status === 'ALPHA_ENDED';
+  const notice = resolveCloudNotice(status);
+  const quota = describeQuotaWindows(status);
   const registered =
+    isSignedIn(status) ||
     account?.registered === true ||
-    account?.identity_type === 'EMAIL' ||
-    status?.registered === true;
-  const alphaLabel = (() => {
-    switch (status?.membership_status) {
-      case 'REGISTERED_WAITLIST': return t.account.alphaStates.waitlisted;
-      case 'ALPHA_GRANTED': return t.account.alphaStates.granted;
-      case 'ALPHA_ACTIVE': return t.account.alphaStates.active;
-      case 'ALPHA_PAUSED': return t.account.alphaStates.paused;
-      case 'ALPHA_ENDED': return t.account.alphaStates.ended;
-      default: return t.account.alphaStates.none;
-    }
-  })();
+    account?.identity_type === 'EMAIL';
+  const accountState = status ? t.account.accountStates[status.account_state] : null;
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -146,16 +104,23 @@ export function AccountSyncPanel({
               </dd>
             </div>
             <div>
-              <dt>{t.account.plan}</dt>
-              <dd>{registered ? t.account.planFree : t.account.notRegistered}</dd>
-            </div>
-            <div>
               <dt>{t.account.platformQuota}</dt>
               <dd>{quotaLabel(status)}</dd>
             </div>
             <div>
               <dt>{t.account.alphaStatus}</dt>
-              <dd>{alphaLabel}</dd>
+              <dd>
+                {accountState ?? t.account.notRegistered}
+                {status && (
+                  <small>
+                    {t.account.alphaBatch(status.alpha.active_batch)} ·{' '}
+                    {t.account.alphaCapacity(
+                      status.alpha.remaining_capacity,
+                      status.alpha.cumulative_capacity
+                    )}
+                  </small>
+                )}
+              </dd>
             </div>
           </dl>
 
@@ -165,35 +130,39 @@ export function AccountSyncPanel({
             </p>
           )}
 
-          {notice && registered && (
-            <p className="cloud-notice" role={suspended ? 'alert' : undefined}>{notice}</p>
+          {notice && (
+            <div
+              className={`cloud-notice cloud-notice-${notice.tone}`}
+              role={notice.tone === 'error' ? 'alert' : 'status'}
+            >
+              <strong>{notice.title}</strong>
+              {notice.body.split('\n').map((line, index) =>
+                line ? <p key={index}>{line}</p> : <br key={index} />
+              )}
+              {notice.byokHint && <p className="cloud-notice-byok">{notice.byokHint}</p>}
+            </div>
           )}
 
-          {status?.on_waitlist && status.waitlist_joined_at && (
+          {status?.waitlist.on_waitlist && status.waitlist.joined_at && (
             <small className="cloud-waitlist-meta">
               {t.account.appliedAt}
-              {new Date(status.waitlist_joined_at).toLocaleString(locale)}
+              {formatMoment(status.waitlist.joined_at, locale)}
             </small>
           )}
 
-          {status?.membership_status === 'ALPHA_GRANTED' &&
-            status.alpha_granted_at && (
-              <small className="cloud-waitlist-meta">
-                {t.account.grantedAt}
-                {new Date(status.alpha_granted_at).toLocaleString(locale)}
-              </small>
-            )}
+          {status?.alpha.activated_at && (
+            <small className="cloud-waitlist-meta">
+              {t.account.activatedAt}
+              {formatMoment(status.alpha.activated_at, locale)}
+            </small>
+          )}
 
-          {quota && quota.source !== 'NONE' && (
+          {quota && (
             <div className="cloud-quota">
               <div className="cloud-quota-head">
-                <span>
-                  {quota.source === 'ALPHA' ? t.account.quotaTodayLabel : t.account.quotaTrialLabel}
-                </span>
+                <span>{t.account.quotaTodayLabel}</span>
                 <strong>
-                  {quota.source === 'ALPHA'
-                    ? t.account.quotaRemainingOf(quota.available, quota.total)
-                    : t.account.quotaRemainingCount(quota.available)}
+                  {t.account.quotaRemainingOf(quota.dailyRemaining, quota.dailyLimit)}
                 </strong>
               </div>
               <div
@@ -201,24 +170,31 @@ export function AccountSyncPanel({
                 role="progressbar"
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-valuenow={percent(quota.remaining_ratio)}
+                aria-valuenow={percent(quota.dailyRatio)}
               >
-                <i style={{ width: `${percent(quota.remaining_ratio)}%` }} />
+                <i style={{ width: `${percent(quota.dailyRatio)}%` }} />
               </div>
-              {quota.source === 'ALPHA' && <small>{t.account.dailyReset}</small>}
+              <small>{t.account.dailyResetAt(formatDay(quota.dayUtc, locale))}</small>
+
+              <div className="cloud-quota-head">
+                <span>{t.account.quotaPeriodLabel}</span>
+                <strong>
+                  {t.account.quotaRemainingOf(quota.periodRemaining, quota.periodLimit)}
+                </strong>
+              </div>
+              <div
+                className="cloud-quota-bar"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={percent(quota.periodRatio)}
+              >
+                <i style={{ width: `${percent(quota.periodRatio)}%` }} />
+              </div>
+              <small>
+                {t.account.periodResetAt(formatMoment(quota.periodEndsAt, locale))}
+              </small>
             </div>
-          )}
-
-          {status?.founding_supporter && (
-            <p className="cloud-supporter">
-              <Gift size={16} /> Founding Supporter
-            </p>
-          )}
-
-          {error && (
-            <p className="login-error" role="alert">
-              {error}
-            </p>
           )}
 
           <div className="cloud-actions">
@@ -227,21 +203,7 @@ export function AccountSyncPanel({
                 {t.account.register}
               </button>
             )}
-            {showJoin && (
-              <button className="gold-button" disabled={busy} onClick={() => void join()}>
-                {busy ? <LoaderCircle className="spin" size={16} /> : t.account.applyAlpha}
-              </button>
-            )}
-            {showEnterAlpha && (
-              <button
-                className="gold-button"
-                disabled={busy}
-                onClick={() => void enterAlpha()}
-              >
-                {busy ? <LoaderCircle className="spin" size={16} /> : t.account.enterAlpha}
-              </button>
-            )}
-            {status?.alpha_active && (
+            {status?.byok_available && (
               <button className="secondary-button" onClick={onConnectModel}>
                 {t.account.connectOwnModel}
               </button>

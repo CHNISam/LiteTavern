@@ -68,10 +68,28 @@ export interface AnonymousIdentity {
   identity_type: 'ANONYMOUS' | 'EMAIL';
   email?: string | null;
   registered?: boolean;
-  free_quota_total: number;
-  free_quota_remaining: number;
-  free_quota_available: number;
-  free_quota_enabled: boolean;
+}
+
+/**
+ * The server's allowance snapshot, exactly as `/v1/cloud/status` and the
+ * generation endpoints report it. Both windows are authoritative: the client
+ * never derives one figure from another.
+ *
+ * It lives here rather than in `lib/cloud` because the generation transport
+ * carries it too, and `lib/cloud` already depends on this module.
+ */
+export interface CloudQuotaSnapshot {
+  period_limit: number;
+  period_used: number;
+  period_reserved: number;
+  period_remaining: number;
+  period_started_at: string;
+  period_ends_at: string;
+  daily_limit: number;
+  daily_used: number;
+  daily_reserved: number;
+  daily_remaining: number;
+  day_utc: string;
 }
 
 export type AuthOutcome = 'REGISTERED' | 'LOGGED_IN' | 'MERGED';
@@ -177,15 +195,12 @@ export interface TurnPlan {
   turn_id: string;
   messages: string[];
   suggestions?: string[];
-  free_quota_remaining?: number;
-  /** Present for platform-paid turns: which pool paid and what is left of it. */
-  cloud_quota?: {
-    source: 'TRIAL' | 'ALPHA' | 'BYOK' | 'NONE';
-    total: number;
-    available: number;
-    remaining_ratio: number;
-    cycle_ends_at: string | null;
-  };
+  /**
+   * The post-deduction allowance for a platform-paid turn, so the badge stays
+   * honest without an extra round trip. Null for a BYOK turn: the client's own
+   * key has no server-side allowance to report.
+   */
+  quota?: CloudQuotaSnapshot | null;
 }
 
 // Generate a whole Agent turn (1–4 bubbles) in one model call. The bubbles are not
@@ -229,7 +244,8 @@ export async function streamGeneration(
 ): Promise<{
   generationRequestId?: string;
   messageId?: string;
-  freeQuotaRemaining?: number;
+  /** The allowance after this generation, when the platform paid for it. */
+  quota?: CloudQuotaSnapshot | null;
 }> {
   const response = await fetch(cloudUrl(`/v1/conversations/${conversationId}/generations`), {
     method: 'POST',
@@ -258,7 +274,7 @@ export async function streamGeneration(
   let buffer = '';
   let generationRequestId: string | undefined;
   let messageId: string | undefined;
-  let freeQuotaRemaining: number | undefined;
+  let quota: CloudQuotaSnapshot | null | undefined;
   const consumeFrame = (frame: string) => {
     const lines = frame.split(/\r?\n/);
     const event = lines.find((line) => line.startsWith('event:'))
@@ -276,16 +292,15 @@ export async function streamGeneration(
       code?: string;
       retryable?: boolean;
       request_id?: string;
-      free_quota_remaining?: number;
+      quota?: CloudQuotaSnapshot | null;
     };
     if (event === 'start') generationRequestId = parsed.generation_request_id;
     if (event === 'delta' && parsed.text) options.onDelta(parsed.text);
     if (event === 'done') {
       generationRequestId = parsed.generation_request_id ?? generationRequestId;
       messageId = parsed.message_id;
-      if (parsed.free_quota_remaining !== undefined) {
-        freeQuotaRemaining = parsed.free_quota_remaining;
-      }
+      // `null` is a real answer (a BYOK turn), so absence and null differ here.
+      if (parsed.quota !== undefined) quota = parsed.quota;
     }
     if (event === 'error') {
       throw new ApiError(
@@ -308,7 +323,7 @@ export async function streamGeneration(
   return {
     ...(generationRequestId ? { generationRequestId } : {}),
     ...(messageId ? { messageId } : {}),
-    ...(freeQuotaRemaining === undefined ? {} : { freeQuotaRemaining })
+    ...(quota === undefined ? {} : { quota })
   };
 }
 

@@ -19,19 +19,35 @@ afterEach(() => {
 describe('OpenAI provider settings', () => {
   function alphaCloud(overrides: Record<string, unknown> = {}) {
     return {
+      stage: 'ALPHA',
+      account_state: 'ALPHA',
+      email_verified: true,
       platform_models_available: true,
-      model_service: {
-        available: true,
-        reason_code: null
+      block_reason: null,
+      byok_available: true,
+      alpha: {
+        active_batch: 1,
+        cumulative_capacity: 10,
+        remaining_capacity: 3,
+        batch_no: 1,
+        activated_at: '2026-08-01T00:00:00.000Z',
+        promotion_expires_at: null
       },
+      waitlist: { on_waitlist: false, joined_at: null },
       quota: {
-        source: 'ALPHA',
-        total: 20,
-        used: 6,
-        reserved: 0,
-        available: 14,
-        remaining_ratio: 0.7
+        period_limit: 1500,
+        period_used: 41,
+        period_reserved: 0,
+        period_remaining: 1459,
+        period_started_at: '2026-08-01T00:00:00.000Z',
+        period_ends_at: '2026-08-31T00:00:00.000Z',
+        daily_limit: 20,
+        daily_used: 6,
+        daily_reserved: 0,
+        daily_remaining: 14,
+        day_utc: '2026-08-06'
       },
+      support: { enabled: false, url: '', headline: '', body: '' },
       ...overrides
     } as never;
   }
@@ -59,11 +75,15 @@ describe('OpenAI provider settings', () => {
     expect(screen.getByRole('heading', { name: 'LiteTavern Cloud' })).toBeInTheDocument();
     expect(screen.getByText('由 LiteTavern 运营的托管模型服务')).toBeInTheDocument();
     // The bare number is now a figure out of a total, with its source and reset.
-    const meter = screen.getByRole('meter', { name: 'Alpha 每日额度剩余量' });
-    expect(meter).toHaveAttribute('aria-valuenow', '14');
-    expect(meter).toHaveAttribute('aria-valuemax', '20');
-    expect(screen.getByText('Alpha 每日额度')).toBeInTheDocument();
-    expect(screen.getByText('每天 08:00 恢复')).toBeInTheDocument();
+    const daily = screen.getByRole('meter', { name: '今日额度剩余量' });
+    expect(daily).toHaveAttribute('aria-valuenow', '14');
+    expect(daily).toHaveAttribute('aria-valuemax', '20');
+    // Both windows are metered: a reader who is fine on the day but nearly out
+    // for the period must be able to see that before they hit the wall.
+    const period = screen.getByRole('meter', { name: '本周期额度剩余量' });
+    expect(period).toHaveAttribute('aria-valuenow', '1459');
+    expect(period).toHaveAttribute('aria-valuemax', '1500');
+    expect(screen.getByText('UTC 2026-08-06 结束后重置')).toBeInTheDocument();
     expect(screen.getByText('6 次回复')).toBeInTheDocument();
     expect(screen.queryByText(/Neurons|TPD|TPM/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/官方/)).not.toBeInTheDocument();
@@ -108,17 +128,19 @@ describe('OpenAI provider settings', () => {
         onConfigurationsChanged={() => undefined}
         cloud={alphaCloud({
           platform_models_available: false,
-          model_service: {
-            available: false,
-            reason_code: 'SERVICE_UNAVAILABLE'
-          }
+          block_reason: 'PROVIDER_UNAVAILABLE'
         })}
         {...({ onRetryCloud: retry } as object)}
       />
     );
 
-    expect(screen.getByText('暂时不可用')).toBeInTheDocument();
-    expect(screen.getByText('剩余 14 次，服务恢复后可用')).toBeInTheDocument();
+    // A dead upstream reads as a dead upstream, not as "you are out of quota"
+    // and not as the catch-all the old build showed for every blocked state.
+    expect(screen.getByText('模型服务商暂时不可用')).toBeInTheDocument();
+    expect(
+      screen.getByText('这是暂时的故障，稍后重试即可，本次不会消耗额度。')
+    ).toBeInTheDocument();
+    expect(screen.getByText('你自己的 API Key 仍然可以使用。')).toBeInTheDocument();
     expect(screen.queryByText('使用中')).not.toBeInTheDocument();
     expect(screen.queryByText('正在使用此服务')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '重试' }));

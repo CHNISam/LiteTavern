@@ -21,54 +21,71 @@ afterEach(async () => {
 });
 
 type CloudQuotaOverrides = {
-  source?: 'TRIAL' | 'ALPHA' | 'NONE';
-  total?: number;
-  available?: number;
-  remaining_ratio?: number;
+  daily_limit?: number;
+  daily_used?: number;
+  daily_remaining?: number;
+  period_limit?: number;
+  period_used?: number;
+  period_remaining?: number;
 };
 
-/** A `/v1/cloud/status` body with sensible anonymous-Trial defaults. */
+/**
+ * A `/v1/cloud/status` body on the wire contract.
+ *
+ * The default is an activated Alpha account with room left, because that is the
+ * only state in which the platform models are usable at all — there is no
+ * anonymous allowance any more, so a guest fixture can never chat.
+ */
 function cloudStatus(
   overrides: Record<string, unknown> = {},
-  quota: CloudQuotaOverrides = {}
+  quota: CloudQuotaOverrides | null = {}
 ) {
-  const available = quota.available ?? 30;
   return {
     cloud: {
       stage: 'ALPHA',
+      account_state: 'ALPHA',
+      email_verified: true,
       platform_models_available: true,
-      model_service: {
-        available: available > 0,
-        reason_code: available > 0 ? null : 'QUOTA_EXHAUSTED'
+      block_reason: null,
+      byok_available: true,
+      alpha: {
+        active_batch: 1,
+        cumulative_capacity: 10,
+        remaining_capacity: 3,
+        batch_no: 1,
+        activated_at: '2026-08-01T00:00:00.000Z',
+        promotion_expires_at: null
       },
-      identity_type: 'ANONYMOUS',
-      registered: false,
-      membership_status: 'ANONYMOUS_TRIAL',
-      on_waitlist: false,
-      waitlist_joined_at: null,
-      alpha_active: false,
-      alpha_granted: false,
-      alpha_granted_at: null,
-      alpha_activated_at: null,
-      alpha_batch_id: null,
-      alpha_grant_source: null,
-      alpha_status_reason: null,
-      founding_supporter: false,
-      quota: {
-        source: 'TRIAL',
-        total: 30,
-        used: 0,
-        reserved: 0,
-        available: 30,
-        remaining_ratio: 1,
-        cycle_no: null,
-        cycle_starts_at: null,
-        cycle_ends_at: null,
+      waitlist: { on_waitlist: false, joined_at: null },
+      quota: quota && {
+        period_limit: 1500,
+        period_used: 41,
+        period_reserved: 0,
+        period_remaining: 1459,
+        period_started_at: '2026-08-01T00:00:00.000Z',
+        period_ends_at: '2026-08-31T00:00:00.000Z',
+        daily_limit: 200,
+        daily_used: 9,
+        daily_reserved: 0,
+        daily_remaining: 191,
+        day_utc: '2026-08-06',
         ...quota
       },
       support: { enabled: false, url: '', headline: '', body: '' },
-      next_actions: ['START_CHATTING', 'REGISTER'],
       ...overrides
+    }
+  };
+}
+
+/** The identity payload no longer carries any allowance; there is none to carry. */
+function identity(registered = true) {
+  return {
+    user: {
+      user_id: 'user-1',
+      anonymous_id: 'anonymous-1',
+      identity_type: registered ? 'EMAIL' : 'ANONYMOUS',
+      email: registered ? 'a@example.com' : null,
+      registered
     }
   };
 }
@@ -82,15 +99,7 @@ describe('HSR message shell', () => {
       if (path === '/v1/cloud/status') return json(cloudStatus());
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') {
-        return json({
-          user: {
-            user_id: 'user-1',
-            anonymous_id: 'anonymous-1',
-            identity_type: 'ANONYMOUS',
-            free_quota_remaining: 30,
-            free_quota_enabled: true
-          }
-        });
+        return json(identity());
       }
       if (path === '/v1/analytics/events') {
         return json({ accepted: 1, duplicates: 0 }, 202);
@@ -141,21 +150,13 @@ describe('HSR message shell', () => {
     ).toBe(false);
   });
 
-  it('shows the LiteTavern Cloud trial balance and updates it after a reply', async () => {
+  it('shows the LiteTavern Cloud allowance and updates it after a reply', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
       if (path === '/v1/cloud/status') return json(cloudStatus());
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') {
-        return json({
-          user: {
-            user_id: 'user-1',
-            anonymous_id: 'anonymous-1',
-            identity_type: 'ANONYMOUS',
-            free_quota_remaining: 30,
-            free_quota_enabled: true
-          }
-        });
+        return json(identity());
       }
       if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
       if (path === '/v1/characters') return json({ characters: [{
@@ -170,13 +171,18 @@ describe('HSR message shell', () => {
         return json({
           turn_id: 'turn-1',
           messages: ['收到。'],
-          free_quota_remaining: 29,
-          cloud_quota: {
-            source: 'TRIAL',
-            total: 30,
-            available: 29,
-            remaining_ratio: 0.97,
-            cycle_ends_at: null
+          quota: {
+            period_limit: 1500,
+            period_used: 42,
+            period_reserved: 0,
+            period_remaining: 1458,
+            period_started_at: '2026-08-01T00:00:00.000Z',
+            period_ends_at: '2026-08-31T00:00:00.000Z',
+            daily_limit: 200,
+            daily_used: 10,
+            daily_reserved: 0,
+            daily_remaining: 190,
+            day_utc: '2026-08-06'
           }
         }, 201);
       }
@@ -185,36 +191,41 @@ describe('HSR message shell', () => {
 
     render(<App />);
 
-    expect(await screen.findByTitle('LiteTavern Cloud 试用额度：剩余 30 / 30 次')).toBeInTheDocument();
+    expect(
+      await screen.findByTitle(
+        'LiteTavern Cloud：今日剩余 191 / 200 次，本周期剩余 1459 / 1500 次'
+      )
+    ).toBeInTheDocument();
     const composer = screen.getByPlaceholderText('给流萤发送短信…');
     fireEvent.change(composer, { target: { value: '你好' } });
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
 
-    expect(await screen.findByTitle('LiteTavern Cloud 试用额度：剩余 29 / 30 次')).toBeInTheDocument();
+    // One delivered reply costs exactly one unit, and the figure the client shows
+    // is the one the server sent back — not a local decrement.
+    expect(
+      await screen.findByTitle(
+        'LiteTavern Cloud：今日剩余 190 / 200 次，本周期剩余 1458 / 1500 次'
+      )
+    ).toBeInTheDocument();
   });
 
-  it('points an anonymous visitor at registration and BYOK when the trial is spent', async () => {
+  it('points at BYOK and the reset time when the day is spent', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
       if (path === '/v1/cloud/status') {
         return json(
-          cloudStatus({ next_actions: ['REGISTER', 'USE_BYOK'] }, {
-            available: 0,
-            remaining_ratio: 0
-          })
+          cloudStatus(
+            {
+              platform_models_available: false,
+              block_reason: 'DAILY_QUOTA_EXHAUSTED'
+            },
+            { daily_used: 200, daily_remaining: 0 }
+          )
         );
       }
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') {
-        return json({
-          user: {
-            user_id: 'user-1',
-            anonymous_id: 'anonymous-1',
-            identity_type: 'ANONYMOUS',
-            free_quota_remaining: 0,
-            free_quota_enabled: true
-          }
-        });
+        return json(identity());
       }
       if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
       if (path === '/v1/characters') return json({ characters: [{
@@ -230,14 +241,13 @@ describe('HSR message shell', () => {
 
     render(<App />);
 
+    // The daily wall says when it lifts, and says BYOK still works. It is not the
+    // same message as a spent period or a dead provider.
     expect(
-      await screen.findByText(
-        'LiteTavern Cloud 的额度已用完。你可以接入自己的模型继续聊天。'
-      )
+      await screen.findByText('今日云端额度已用完，UTC 2026-08-06 结束后重置。')
     ).toBeInTheDocument();
+    expect(screen.getByText('你自己的 API Key 仍然可以使用。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '连接自己的模型' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '查看 LiteTavern Cloud 额度' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'LiteTavern Cloud · 额度已用完' })).not.toHaveClass('active');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
   });
 
@@ -247,15 +257,7 @@ describe('HSR message shell', () => {
       if (path === '/v1/cloud/status') return json(cloudStatus());
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') {
-        return json({
-          user: {
-            user_id: 'user-1',
-            anonymous_id: 'anonymous-1',
-            identity_type: 'ANONYMOUS',
-            free_quota_remaining: 30,
-            free_quota_enabled: true
-          }
-        });
+        return json(identity());
       }
       if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
       if (path === '/v1/characters') return json({ characters: [{
@@ -269,8 +271,8 @@ describe('HSR message shell', () => {
       if (path === '/v1/conversations/conversation-1/turns') {
         return json({
           error: {
-            code: 'FREE_SERVICE_UNAVAILABLE',
-            message: '官方免费服务暂时繁忙，请稍后再试。本次不会扣除免费次数。',
+            code: 'PROVIDER_UNAVAILABLE',
+            message: '模型服务商暂时不可用，本次不会消耗额度。',
             retryable: true,
             request_id: 'request-1'
           }
@@ -285,18 +287,16 @@ describe('HSR message shell', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
 
     expect(
-      await screen.findByText(
-        'LiteTavern Cloud 暂时不可用。请稍后重试，或连接自己的模型。'
-      )
+      await screen.findByText('这是暂时的故障，稍后重试即可，本次不会消耗额度。')
     ).toBeInTheDocument();
+    // The upstream's own wording never reaches the reader, and neither does any
+    // hint about how the platform's credentials are configured.
     expect(screen.queryByText(/官方免费服务|凭证未配置/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'LiteTavern Cloud 暂不可用' })).not.toHaveClass('active');
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '模型服务' }));
-    expect(
-      within(await screen.findByRole('dialog', { name: '模型服务' }))
-        .getByText('剩余 30 次，服务恢复后可用')
-    ).toBeInTheDocument();
+    // The allowance is untouched: a failed call costs nothing.
+    const panel = await screen.findByRole('dialog', { name: '模型服务' });
+    expect(within(panel).getByText('模型服务商暂时不可用')).toBeInTheDocument();
   });
 
   it('blocks a selected unavailable Cloud service without silently switching to BYOK', async () => {
@@ -312,23 +312,12 @@ describe('HSR message shell', () => {
         if (statusRequest > 1) return retryResponse;
         return json(cloudStatus({
           platform_models_available: false,
-          model_service: {
-            available: false,
-            reason_code: 'SERVICE_UNAVAILABLE'
-          }
+          block_reason: 'PROVIDER_UNAVAILABLE'
         }));
       }
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') {
-        return json({
-          user: {
-            user_id: 'user-1',
-            anonymous_id: 'anonymous-1',
-            identity_type: 'ANONYMOUS',
-            free_quota_remaining: 30,
-            free_quota_enabled: true
-          }
-        });
+        return json(identity());
       }
       if (path === '/v1/analytics/events') return json({}, 202);
       if (path === '/v1/characters') return json({ characters: [{
@@ -356,14 +345,15 @@ describe('HSR message shell', () => {
     render(<App />);
 
     expect(await screen.findByText(
-      'LiteTavern Cloud 暂时不可用。请稍后重试，或连接自己的模型。'
+      '这是暂时的故障，稍后重试即可，本次不会消耗额度。'
     )).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'LiteTavern Cloud 暂不可用' })).not.toHaveClass('active');
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '连接自己的模型' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '自己的模型' })).not.toHaveClass('active');
-    expect(screen.queryByText(/凭证|API Key|环境变量|Provider/)).not.toBeInTheDocument();
+    // Nothing about how the *platform's* credentials are configured leaks out.
+    // The BYOK hint mentions the reader's own key, which is the point of it.
+    expect(screen.queryByText(/凭证|环境变量|Provider/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     expect(
@@ -373,37 +363,19 @@ describe('HSR message shell', () => {
 
     finishRetry?.(new Response(JSON.stringify(cloudStatus({
       platform_models_available: false,
-      model_service: {
-        available: false,
-        reason_code: 'SERVICE_UNAVAILABLE'
-      }
+      block_reason: 'PROVIDER_UNAVAILABLE'
     })), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     }));
   });
 
-  it('shows the exact Alpha daily balance and 08:00 reset without upstream units', async () => {
+  it('shows the exact Alpha balance and its UTC reset without upstream units', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
       if (path === '/v1/cloud/status') {
         return json(
-          cloudStatus(
-            {
-              identity_type: 'EMAIL',
-              registered: true,
-              membership_status: 'ALPHA_ACTIVE',
-              alpha_active: true,
-              alpha_batch_id: 'batch-1',
-              alpha_grant_source: 'WAITLIST'
-            },
-            {
-              source: 'ALPHA',
-              total: 20,
-              available: 14,
-              remaining_ratio: 0.7
-            }
-          )
+          cloudStatus({}, { daily_limit: 20, daily_used: 6, daily_remaining: 14 })
         );
       }
       if (path === '/v1/cloud/support') {
@@ -417,17 +389,7 @@ describe('HSR message shell', () => {
       }
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') {
-        return json({
-          user: {
-            user_id: 'user-1',
-            anonymous_id: 'anonymous-1',
-            identity_type: 'EMAIL',
-            email: 'a@example.com',
-            registered: true,
-            free_quota_remaining: 0,
-            free_quota_enabled: true
-          }
-        });
+        return json(identity());
       }
       if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
       if (path === '/v1/characters') return json({ characters: [] });
@@ -439,8 +401,10 @@ describe('HSR message shell', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '模型服务' }));
     const panel = await screen.findByRole('dialog', { name: '模型服务' });
-    expect(within(panel).getByRole('meter', { name: 'Alpha 每日额度剩余量' })).toBeInTheDocument();
-    expect(within(panel).getByText('每天 08:00 恢复')).toBeInTheDocument();
+    const daily = within(panel).getByRole('meter', { name: '今日额度剩余量' });
+    expect(daily).toHaveAttribute('aria-valuenow', '14');
+    expect(daily).toHaveAttribute('aria-valuemax', '20');
+    expect(within(panel).getByText('UTC 2026-08-06 结束后重置')).toBeInTheDocument();
     // A raw token count is never shown to an ordinary user.
     expect(screen.queryByText(/token/i)).not.toBeInTheDocument();
   });
@@ -452,14 +416,23 @@ describe('HSR message shell', () => {
         return json(
           cloudStatus(
             {
-              identity_type: 'EMAIL',
-              registered: true,
-              membership_status: 'REGISTERED_WAITLIST',
-              on_waitlist: true,
-              waitlist_joined_at: '2026-07-20T00:00:00.000Z',
-              next_actions: ['WAIT_FOR_ALPHA', 'USE_BYOK']
+              account_state: 'WAITLIST',
+              platform_models_available: false,
+              block_reason: 'WAITLISTED',
+              waitlist: {
+                on_waitlist: true,
+                joined_at: '2026-07-20T00:00:00.000Z'
+              },
+              alpha: {
+                active_batch: 1,
+                cumulative_capacity: 10,
+                remaining_capacity: 0,
+                batch_no: null,
+                activated_at: null,
+                promotion_expires_at: null
+              }
             },
-            { source: 'NONE', total: 0, available: 0, remaining_ratio: 0 }
+            null
           )
         );
       }
@@ -478,8 +451,7 @@ describe('HSR message shell', () => {
         return json({
           user: {
             user_id: 'user-1', anonymous_id: 'anonymous-1', identity_type: 'EMAIL',
-            email: 'a@example.com', registered: true,
-            free_quota_remaining: 0, free_quota_enabled: true
+            email: 'a@example.com', registered: true
           }
         });
       }
@@ -493,20 +465,18 @@ describe('HSR message shell', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '管理账号与同步' }));
     const panel = await screen.findByRole('dialog', { name: '账号与同步' });
+    expect(within(panel).getByText('你已进入第二批候补名单。')).toBeInTheDocument();
     expect(
-      within(panel).getByText(
-        '已加入 LiteTavern Cloud Alpha 候补名单。名额有限，我们会按候补顺序逐批开放，暂时无法承诺确切的开放日期。'
-      )
+      within(panel).getByText('首批问题解决、服务稳定后，我们将再开放下一批名额。')
     ).toBeInTheDocument();
-    // The application time is factual and shown; a queue position is not, because it
+    expect(within(panel).getByText('等待期间可以使用自己的 API Key。')).toBeInTheDocument();
+    // The join time is factual and shown; a queue position is not, because it
     // moves as people join, leave and are released.
-    expect(within(panel).getByText(/申请时间：/)).toBeInTheDocument();
+    expect(within(panel).getByText(/候补时间：/)).toBeInTheDocument();
     expect(within(panel).queryByText(/第\s*\d+\s*位/)).not.toBeInTheDocument();
     expect(within(panel).queryByText(/排名/)).not.toBeInTheDocument();
-    // A waitlisted user is not offered the Alpha entry point.
-    expect(
-      within(panel).queryByRole('button', { name: /开始使用 Alpha/ })
-    ).not.toBeInTheDocument();
+    // No allowance is shown, because a waitlisted account has none to show.
+    expect(within(panel).queryByRole('meter')).not.toBeInTheDocument();
     // The stage disclaimer is always present, and no plan or price is invented.
     expect(within(panel).getByText(/仍处于测试阶段/)).toBeInTheDocument();
     expect(within(panel).queryByText(/Pro/)).not.toBeInTheDocument();
@@ -517,7 +487,10 @@ describe('HSR message shell', () => {
    * Builds a fetch mock whose only interesting answer is the cloud status; every
    * other call the shell makes on boot gets a benign stub.
    */
-  function mockCloud(overrides: Record<string, unknown>, quota: CloudQuotaOverrides) {
+  function mockCloud(
+    overrides: Record<string, unknown>,
+    quota: CloudQuotaOverrides | null
+  ) {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
       if (path === '/v1/cloud/status') {
@@ -538,8 +511,7 @@ describe('HSR message shell', () => {
         return json({
           user: {
             user_id: 'user-1', anonymous_id: 'anonymous-1', identity_type: 'EMAIL',
-            email: 'a@example.com', registered: true,
-            free_quota_remaining: 0, free_quota_enabled: true
+            email: 'a@example.com', registered: true
           }
         });
       }
@@ -550,44 +522,52 @@ describe('HSR message shell', () => {
     });
   }
 
-  it('offers the Alpha entry point to a granted user who has not entered yet', async () => {
+  /**
+   * There is no "granted but not entered" state any more: a promoted waitlister
+   * holds no seat, only permission to compete again inside a window. Until they
+   * actually get a reply they are still on the list, and the panel must not
+   * suggest a seat is being held for them.
+   */
+  it('shows a promoted waitlister as still waiting, holding no seat', async () => {
     mockCloud(
       {
-        identity_type: 'EMAIL',
-        registered: true,
-        membership_status: 'ALPHA_GRANTED',
-        alpha_granted: true,
-        alpha_granted_at: '2026-07-25T00:00:00.000Z',
-        alpha_batch_id: 'batch-1',
-        alpha_grant_source: 'WAITLIST',
-        next_actions: ['ENTER_ALPHA', 'USE_BYOK']
+        account_state: 'WAITLIST',
+        platform_models_available: true,
+        block_reason: null,
+        waitlist: { on_waitlist: true, joined_at: '2026-07-20T00:00:00.000Z' },
+        alpha: {
+          active_batch: 2,
+          cumulative_capacity: 30,
+          remaining_capacity: 4,
+          batch_no: null,
+          activated_at: null,
+          promotion_expires_at: '2026-08-13T00:00:00.000Z'
+        }
       },
-      { source: 'NONE', total: 0, available: 0, remaining_ratio: 0 }
+      null
     );
 
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '管理账号与同步' }));
     const panel = await screen.findByRole('dialog', { name: '账号与同步' });
 
-    expect(
-      within(panel).getByText(/你已获得 LiteTavern Cloud Alpha 资格，还没有开始使用/)
-    ).toBeInTheDocument();
-    expect(within(panel).getByText(/获得资格时间：/)).toBeInTheDocument();
-    expect(
-      within(panel).getByRole('button', { name: '开始使用 Alpha 资格' })
-    ).toBeInTheDocument();
+    expect(within(panel).getByText('候补名单中')).toBeInTheDocument();
+    expect(within(panel).getByText(/候补时间：/)).toBeInTheDocument();
+    expect(within(panel).getByText(/剩余名额 4 \/ 30/)).toBeInTheDocument();
+    // Nothing is activated, so no activation time and no allowance are claimed.
+    expect(within(panel).queryByText(/启用时间：/)).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('meter')).not.toBeInTheDocument();
   });
 
-  it('states the reason and withdraws the Alpha entry point once a seat is suspended', async () => {
+  it('states the reason and withdraws every Alpha entry point once suspended', async () => {
     mockCloud(
       {
-        identity_type: 'EMAIL',
-        registered: true,
-        membership_status: 'ALPHA_PAUSED',
-        alpha_status_reason: '疑似异常调用',
-        next_actions: ['USE_BYOK']
+        account_state: 'SUSPENDED',
+        platform_models_available: false,
+        block_reason: 'ACCOUNT_SUSPENDED',
+        byok_available: false
       },
-      { source: 'NONE', total: 0, available: 0, remaining_ratio: 0 }
+      null
     );
 
     render(<App />);
@@ -595,11 +575,10 @@ describe('HSR message shell', () => {
     const panel = await screen.findByRole('dialog', { name: '账号与同步' });
 
     const notice = within(panel).getByRole('alert');
-    expect(notice).toHaveTextContent('访问已暂停：疑似异常调用');
-    // A suspended user is not offered any Alpha-only entry point.
-    expect(
-      within(panel).queryByRole('button', { name: /开始使用 Alpha/ })
-    ).not.toBeInTheDocument();
+    expect(notice).toHaveTextContent('账号已被停用');
+    // Suspension outranks every other reason, and BYOK is withdrawn with it.
+    expect(within(panel).queryByText(/你自己的 API Key 仍然可以使用/)).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('meter')).not.toBeInTheDocument();
     // Model service remains an independent top-level entry.
     expect(screen.getByRole('button', { name: '模型服务' })).toBeInTheDocument();
   });
@@ -656,11 +635,11 @@ describe('HSR message shell', () => {
           user: {
             user_id: 'user-1',
             anonymous_id: 'anonymous-1',
+            // Signed out: this test opens the login flow, which only exists
+            // for someone who has not registered yet.
             identity_type: 'ANONYMOUS',
-            free_quota_total: 30,
-            free_quota_remaining: 30,
-            free_quota_available: 30,
-            free_quota_enabled: true
+            email: null,
+            registered: false
           }
         });
       }

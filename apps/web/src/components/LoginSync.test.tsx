@@ -16,11 +16,7 @@ const registeredUser = {
   anonymous_id: 'anon-1',
   identity_type: 'EMAIL' as const,
   email: 'user@example.com',
-  registered: true,
-  free_quota_total: 30,
-  free_quota_remaining: 28,
-  free_quota_available: 28,
-  free_quota_enabled: true
+  registered: true
 };
 
 afterEach(() => {

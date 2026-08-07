@@ -39,6 +39,9 @@ import {
   readCachedStatus,
   reportSyncCheckpoint,
   resolveCloudModelServiceState,
+  resolveCloudNotice,
+  type CloudBlockReason,
+  type CloudNotice,
   type CloudModelServiceState,
   type CloudStatus
 } from './lib/cloud';
@@ -85,44 +88,38 @@ type View = 'chat' | 'profile' | 'memories';
 
 const AdminApp = lazy(() => import('./admin/AdminApp'));
 
+/**
+ * Every reason the Cloud can refuse a platform generation. The error code and the
+ * status field share one vocabulary, so a refusal mid-generation lands the client
+ * in exactly the state a fresh `/v1/cloud/status` would have described.
+ */
+const BLOCK_REASONS: readonly CloudBlockReason[] = [
+  'GUEST',
+  'EMAIL_UNVERIFIED',
+  'ALPHA_CAPACITY_FULL',
+  'WAITLISTED',
+  'ACCOUNT_SUSPENDED',
+  'DAILY_QUOTA_EXHAUSTED',
+  'PERIOD_QUOTA_EXHAUSTED',
+  'CONCURRENT_GENERATION',
+  'PROVIDER_UNAVAILABLE'
+];
+
+function blockReasonFor(code: string | undefined): CloudBlockReason | null {
+  const match = BLOCK_REASONS.find((reason) => reason === code);
+  return match ?? null;
+}
+
 function analyticsErrorCode(code: string): string {
-  if (
-    code === 'FREE_QUOTA_EXHAUSTED' ||
-    code === 'CLOUD_QUOTA_EXHAUSTED' ||
-    code === 'CLOUD_QUOTA_DAILY_LIMIT' ||
-    code === 'CLOUD_BUDGET_EXHAUSTED'
-  ) {
+  if (code === 'DAILY_QUOTA_EXHAUSTED' || code === 'PERIOD_QUOTA_EXHAUSTED') {
     return 'quota_exhausted';
   }
   if (code === 'PROVIDER_TIMEOUT') return 'generation_timeout';
-  if (
-    code === 'FREE_SERVICE_UNAVAILABLE' ||
-    code === 'FREE_SERVICE_DISABLED' ||
-    code === 'PROVIDER_UNAVAILABLE' ||
-    code === 'PROVIDER_RATE_LIMITED'
-  ) {
+  if (code === 'PROVIDER_UNAVAILABLE' || code === 'PROVIDER_RATE_LIMITED') {
     return 'provider_unavailable';
   }
+  if (blockReasonFor(code)) return 'cloud_blocked';
   return 'generation_failed';
-}
-
-function isCloudServiceFailure(code: string | undefined): boolean {
-  return [
-    'FREE_SERVICE_UNAVAILABLE',
-    'FREE_SERVICE_DISABLED',
-    'PROVIDER_UNAVAILABLE',
-    // Older Cloud deployments used this for missing platform configuration.
-    'CREDENTIAL_INVALID'
-  ].includes(code ?? '');
-}
-
-function isCloudQuotaFailure(code: string | undefined): boolean {
-  return [
-    'FREE_QUOTA_EXHAUSTED',
-    'CLOUD_QUOTA_EXHAUSTED',
-    'CLOUD_QUOTA_DAILY_LIMIT',
-    'CLOUD_BUDGET_EXHAUSTED'
-  ].includes(code ?? '');
 }
 
 function avatarUrl(character: Character) {
@@ -240,6 +237,10 @@ function ProductApp() {
   const generationAbortRef = useRef<AbortController | null>(null);
   const streamingRef = useRef(false);
 
+  // The latest known Cloud status, readable from callbacks that run outside render.
+  const cloudRef = useRef<CloudStatus | null>(cloud);
+  useEffect(() => { cloudRef.current = cloud; }, [cloud]);
+
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { usageModeRef.current = usageMode; }, [usageMode]);
@@ -253,27 +254,35 @@ function ProductApp() {
     runtimeUnavailable: cloudRuntimeUnavailable,
     selected: usageMode === 'PLATFORM'
   });
+  // The one explanation of what the Cloud is doing for this account. Every
+  // surface reads it, so no two block reasons can drift apart.
+  const cloudNotice = resolveCloudNotice(cloud);
 
   function reportGenerationFailure(reason: unknown) {
     setTyping(false);
     const apiError = reason instanceof ApiError ? reason : null;
     const platformRequest = usageModeRef.current === 'PLATFORM';
-    const serviceFailure = platformRequest && isCloudServiceFailure(apiError?.code);
-    const quotaFailure = platformRequest && isCloudQuotaFailure(apiError?.code);
-    if (serviceFailure) setCloudRuntimeUnavailable(true);
-    if (quotaFailure) {
-      setCloud((current) => current ? {
-        ...current,
-        model_service: { available: false, reason_code: 'QUOTA_EXHAUSTED' }
-      } : current);
+    const blockReason = platformRequest ? blockReasonFor(apiError?.code) : null;
+    // The refusal is recorded as server state, so every surface explains it the
+    // same way a fresh status would — and no reason collapses into a generic one.
+    const blockedStatus: CloudStatus | null =
+      blockReason && cloudRef.current
+        ? {
+            ...cloudRef.current,
+            platform_models_available: false,
+            block_reason: blockReason
+          }
+        : null;
+    if (blockedStatus) {
+      setCloud(blockedStatus);
+      if (blockReason === 'PROVIDER_UNAVAILABLE') setCloudRuntimeUnavailable(true);
     }
-    const message = serviceFailure
-      ? translate().chat.cloudUnavailable
-      : quotaFailure
-        ? translate().chat.quotaExhausted
-        : reason instanceof Error
-          ? reason.message
-          : translate().chat.sendFailed;
+    const blockedNotice = resolveCloudNotice(blockedStatus);
+    const message = blockedNotice
+      ? blockedNotice.body
+      : reason instanceof Error
+        ? reason.message
+        : translate().chat.sendFailed;
     setError(message);
     setErrorCode(apiError?.code ?? 'GENERATION_FAILED');
     analytics.blockingError(
@@ -430,7 +439,7 @@ function ProductApp() {
       const result = await fetchCloudStatus();
       if (result.status) setCloud(result.status);
       setCloudOffline(result.offline);
-      if (!result.offline && result.status?.model_service?.available) {
+      if (!result.offline && result.status?.platform_models_available) {
         setCloudRuntimeUnavailable(false);
       }
       return result.status;
@@ -634,11 +643,7 @@ function ProductApp() {
   async function impersonate() {
     if (!conversationId || !active || draft.trim() || sending || impersonating) return;
     if (usageMode === 'PLATFORM' && cloudService.availability !== 'available') {
-      setError(
-        cloudService.availability === 'quota_exhausted'
-          ? t.chat.quotaExhausted
-          : t.chat.cloudUnavailable
-      );
+      setError(cloudNotice?.body ?? t.chat.cloudUnavailable);
       return;
     }
     setImpersonating(true);
@@ -676,20 +681,20 @@ function ProductApp() {
       usageMode === 'PLATFORM' &&
       cloudService.availability !== 'available'
     ) {
-      const exhausted = cloudService.availability === 'quota_exhausted';
-      const code = exhausted
-        ? 'FREE_QUOTA_EXHAUSTED'
-        : 'FREE_SERVICE_DISABLED';
+      const blocked = cloudService.availability === 'blocked';
+      const code = cloudService.blockReason ?? 'CLOUD_UNAVAILABLE';
       setErrorCode(code);
-      setError(exhausted ? t.chat.quotaExhausted : t.chat.cloudUnavailable);
+      setError(
+        blocked && cloudNotice ? cloudNotice.body : t.chat.cloudUnavailable
+      );
       analytics.blockingError(analyticsErrorCode(code), 'chat', {
         errorStage:
           cloudService.availability === 'checking'
             ? 'service_check'
-            : exhausted
-              ? 'quota_check'
+            : blocked
+              ? 'block_reason'
               : 'service_availability',
-        retryable: !exhausted,
+        retryable: !blocked || code === 'PROVIDER_UNAVAILABLE',
         ...(active ? { characterId: active.character_id } : {}),
         ...(conversationId ? { conversationId } : {})
       });
@@ -838,24 +843,11 @@ function ProductApp() {
       });
       streamStarted = true;
       turnIdRef.current = result.generationRequestId ?? turnRequestId;
-      if (result.freeQuotaRemaining !== undefined) {
-        const remaining = result.freeQuotaRemaining;
-        setCloud((current) => current ? {
-          ...current,
-          quota: {
-            ...current.quota,
-            available: remaining,
-            remaining_ratio: current.quota.total > 0
-              ? remaining / current.quota.total
-              : 0
-          },
-          ...(remaining === 0 ? {
-            model_service: {
-              available: false,
-              reason_code: 'QUOTA_EXHAUSTED' as const
-            }
-          } : {})
-        } : current);
+      // The stream reports the post-deduction allowance; whether that allowance
+      // still permits another turn is the server's call, not this client's.
+      if (result.quota !== undefined) {
+        const quota = result.quota;
+        setCloud((current) => (current ? { ...current, quota } : current));
       }
       // Replace optimistic ids and the transient STREAMING row with the canonical
       // persisted branch. If this read fails, keep the complete text visible and let
@@ -919,38 +911,11 @@ function ProductApp() {
         turnRequestId
       );
       turnIdRef.current = plan.turn_id;
-      if (plan.free_quota_remaining !== undefined) {
-        const remaining = plan.free_quota_remaining;
-        setCloud((current) =>
-          current
-            ? {
-                ...current,
-                quota: {
-                  ...current.quota,
-                  available: remaining,
-                  remaining_ratio:
-                    current.quota.total > 0
-                      ? remaining / current.quota.total
-                      : 0
-                },
-                ...(remaining === 0
-                  ? {
-                      model_service: {
-                        available: false,
-                        reason_code: 'QUOTA_EXHAUSTED' as const
-                      }
-                    }
-                  : {})
-              }
-            : current
-        );
-      }
       // The reply carries the post-deduction quota, so the badge stays honest
       // without an extra round trip.
-      if (plan.cloud_quota) {
-        setCloud((current) =>
-          current ? { ...current, quota: { ...current.quota, ...plan.cloud_quota } } : current
-        );
+      if (plan.quota !== undefined) {
+        const quota = plan.quota;
+        setCloud((current) => (current ? { ...current, quota } : current));
       }
       setSuggestions(plan.suggestions?.slice(0, 3) ?? []);
       const scripts = await regexScriptsForCharacter(active.character_id);
@@ -1141,7 +1106,7 @@ function ProductApp() {
         ) : view === 'chat' ? (
           <ChatPage
             character={active} messages={messages} draft={draft} sending={sending} error={error}
-            cloud={cloud} cloudService={cloudService}
+            cloud={cloud} cloudService={cloudService} cloudNotice={cloudNotice}
             usageMode={usageMode} configurations={configurations} selectedConfigurationId={selectedConfigurationId}
             suggestions={suggestions} quickReplies={quickReplies}
             typing={typing} impersonating={impersonating}
@@ -1304,7 +1269,6 @@ function ProductApp() {
         offline={cloudOffline}
         account={account}
         onClose={() => setAccountOpen(false)}
-        onStatusChanged={setCloud}
         onLogin={() => {
           setAccountOpen(false);
           openLogin();
@@ -1530,10 +1494,11 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   );
 }
 
-function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, usageMode, configurations, selectedConfigurationId, suggestions, quickReplies, typing, impersonating, onProfile, onDraft, onSend, onStop, onPick, onQuickReply, onImpersonate, onEditSubmit, onDeleteMessage, onRegenerate, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
+function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, cloudNotice, usageMode, configurations, selectedConfigurationId, suggestions, quickReplies, typing, impersonating, onProfile, onDraft, onSend, onStop, onPick, onQuickReply, onImpersonate, onEditSubmit, onDeleteMessage, onRegenerate, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
   character: Character; messages: Message[]; draft: string; sending: boolean; error: string | null;
   cloud: CloudStatus | null;
   cloudService: CloudModelServiceState;
+  cloudNotice: CloudNotice | null;
   usageMode: 'PLATFORM' | 'BYOK'; configurations: ModelConfiguration[]; selectedConfigurationId: string;
   suggestions: string[]; quickReplies: QuickReplySettings; typing: boolean; impersonating: boolean;
   onProfile: () => void; onDraft: (value: string) => void; onSend: (event: FormEvent) => void; onStop: () => void; onPick: (text: string) => void;
@@ -1551,17 +1516,19 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
 
   const platformBlocked =
     cloudService.selected && cloudService.availability !== 'available';
+  // Each block reason keeps its own words here: the mode switch is the shortest
+  // surface, so it borrows the notice's title rather than a generic status.
   const platformLabel =
     cloudService.availability === 'checking'
       ? t.chat.cloudChecking
-      : cloudService.availability === 'unavailable'
+      : cloudService.availability === 'offline'
         ? t.chat.cloudUnavailableStatus
-        : cloudService.availability === 'quota_exhausted'
-          ? t.chat.cloudQuotaExhaustedStatus
+        : cloudService.availability === 'blocked'
+          ? cloudNotice?.title ?? t.chat.cloudUnavailableStatus
           : 'LiteTavern Cloud';
   const serviceNoticeOwnsError =
     platformBlocked &&
-    (error === t.chat.cloudUnavailable || error === t.chat.quotaExhausted);
+    (error === t.chat.cloudUnavailable || error === cloudNotice?.body);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -1675,17 +1642,23 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
                 : <CircleAlert size={16} />}
               {cloudService.availability === 'checking'
                 ? t.chat.cloudChecking
-                : cloudService.availability === 'quota_exhausted'
-                  ? t.chat.quotaExhausted
+                : cloudService.availability === 'blocked' && cloudNotice
+                  ? cloudNotice.body
                   : t.chat.cloudUnavailable}
             </span>
+            {cloudService.availability === 'blocked' && cloudNotice?.byokHint && (
+              <span className="quota-notice-byok">{cloudNotice.byokHint}</span>
+            )}
             {cloudService.availability !== 'checking' && (
               <div className="quota-notice-actions">
-                {cloudService.availability === 'unavailable' && (
+                {(cloudService.availability === 'offline' ||
+                  cloudService.blockReason === 'PROVIDER_UNAVAILABLE' ||
+                  cloudService.blockReason === 'CONCURRENT_GENERATION') && (
                   <button type="button" onClick={onRetryCloud}>{t.chat.retryCloud}</button>
                 )}
                 <button type="button" onClick={onProvider}>{t.chat.connectOwnModelAction}</button>
-                {cloudService.availability === 'quota_exhausted' && (
+                {(cloudService.blockReason === 'DAILY_QUOTA_EXHAUSTED' ||
+                  cloudService.blockReason === 'PERIOD_QUOTA_EXHAUSTED') && (
                   <button type="button" onClick={onPlatformQuota}>{t.chat.viewCloudQuota}</button>
                 )}
               </div>
