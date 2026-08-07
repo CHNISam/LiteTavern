@@ -44,9 +44,53 @@ async function serveAssets(request, env) {
   });
 }
 
+/**
+ * Paths owned by LiteTavern Cloud, forwarded verbatim to the Cloud Worker.
+ *
+ * Accounts, Alpha seats, quota and provider credentials are Cloud business and
+ * live in the Cloud repository. This file only decides *where a request goes*: it
+ * never reads a body, checks an entitlement, counts a quota or touches a
+ * credential. Adding any of that here would be reimplementing Cloud inside the
+ * open-source client, which is exactly what the repository boundary forbids.
+ *
+ * The forward keeps the browser same-origin, so the HttpOnly session cookie stays
+ * first-party and survives iOS Safari's tracking prevention. A redirect or a
+ * cross-origin fetch to a workers.dev hostname would not.
+ */
+function isCloudPath(pathname) {
+  return (
+    pathname.startsWith('/v1/auth/') ||
+    pathname === '/v1/cloud/status' ||
+    /^\/v1\/conversations\/[^/]+\/generations$/.test(pathname)
+  );
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (isCloudPath(url.pathname)) {
+      if (!env.CLOUD) {
+        return new Response(JSON.stringify({
+          error: {
+            code: 'CLOUD_BINDING_MISSING',
+            message: 'LiteTavern Cloud 尚未接入本环境。',
+            retryable: true
+          }
+        }), {
+          status: 503,
+          headers: {
+            'Cache-Control': 'no-store',
+            'Content-Type': 'application/json; charset=utf-8',
+            'X-Robots-Tag': 'noindex, nofollow'
+          }
+        });
+      }
+      // Pass the request object through untouched — headers, cookies, body and
+      // the streaming response all belong to Cloud.
+      return env.CLOUD.fetch(request);
+    }
+
     if (url.pathname.startsWith('/v1/')) {
       if (!env.DB || !env.ASSETS_BUCKET) {
         return new Response(JSON.stringify({

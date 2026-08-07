@@ -14,6 +14,15 @@
       "migrations_dir": "migrations"
     }
   ],
+  // LiteTavern Cloud 的 Web Worker（另一个仓库部署）。用 service binding 而不是
+  // 公开 URL：浏览器全程只与本 Pages 域通信，同源 Cookie 才能在 iPhone Safari 上留存。
+  "services": [
+    {
+      "binding": "CLOUD",
+      "service": "litetavern-cloud-dev"
+    }
+  ],
+
   "r2_buckets": [
     {
       "binding": "ASSETS_BUCKET",

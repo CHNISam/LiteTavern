@@ -478,48 +478,76 @@ test('relationship validation rejects non-JSON model commentary', async () => {
   assert.ok(body.issues.some((issue) => issue.code === 'INVALID_JSON'));
 });
 
-/** Top-level field names of an exported interface in the client's cloud contract. */
-function contractFields(text, name) {
-  const source = text.replace(/\r\n/g, '\n');
-  const opens = source.indexOf(`export interface ${name} {`);
-  assert.ok(opens > -1, `missing the ${name} contract`);
-  const closes = source.indexOf('\n}', opens);
-  const body = source.slice(opens, closes);
-  return [...body.matchAll(/^ {2}(\w+)\??:/gm)].map((match) => match[1]);
-}
+// Accounts, Alpha seats, quota and provider credentials belong to LiteTavern
+// Cloud. The internal gate used to answer /v1/cloud/status itself with a stubbed
+// membership and a trial balance; that is the capability this repository is not
+// allowed to grow, so the route is gone and the request is forwarded instead.
 
-test('the internal cloud status answers with every field the client contract declares', async () => {
+test('the internal gate no longer answers anything Cloud owns', async () => {
   const repository = new MemoryRepository();
   const objects = new MemoryObjects();
   const cookie = await identity(repository, objects);
-  const response = await handleApiRequest(
-    new Request('https://internal.example/v1/cloud/status', {
-      headers: { Cookie: cookie }
-    }),
-    { repository, objects }
-  );
 
-  assert.equal(response.status, 200);
-  const { cloud } = await response.json();
+  for (const path of [
+    '/v1/cloud/status',
+    '/v1/auth/login',
+    '/v1/conversations/abc/generations'
+  ]) {
+    const response = await handleApiRequest(
+      new Request(`https://internal.example${path}`, { headers: { Cookie: cookie } }),
+      { repository, objects }
+    );
+    assert.equal(response.status, 404, `${path} must not be served here`);
+  }
+});
 
-  // The client reads a missing field as a broken service rather than as unknown:
-  // an absent model_service alone makes the whole environment report an outage.
-  const contract = await readFile(
-    new URL('../apps/web/src/lib/cloud.ts', import.meta.url),
+test('the gate worker forwards Cloud paths and implements none of them', async () => {
+  const worker = await readFile(
+    new URL('../deploy/internal-gate/_worker.js', import.meta.url),
     'utf8'
   );
-  for (const field of contractFields(contract, 'CloudStatus')) {
-    assert.ok(field in cloud, `/v1/cloud/status is missing "${field}"`);
-  }
-  for (const field of contractFields(contract, 'CloudQuota')) {
-    assert.ok(field in cloud.quota, `/v1/cloud/status quota is missing "${field}"`);
-  }
 
-  // The internal gate has no hosted model path, and it must say so honestly
-  // instead of leaving the client to infer an outage from silence.
-  assert.deepEqual(cloud.model_service, {
-    available: false,
-    reason_code: 'SERVICE_UNAVAILABLE'
-  });
-  assert.equal(cloud.platform_models_available, false);
+  // Forwarding must be the whole of it: one pass-through of the untouched
+  // Request. Reading the body here would mean the entitlement decision could be
+  // made in this repository, which is exactly the boundary being enforced.
+  assert.match(worker, /env\.CLOUD\.fetch\(request\)/);
+  assert.match(worker, /pathname\.startsWith\('\/v1\/auth\/'\)/);
+  assert.match(worker, /pathname === '\/v1\/cloud\/status'/);
+  assert.ok(
+    worker.includes('/generations$/'),
+    'the generation route must be forwarded too'
+  );
+
+  // Comments are allowed to explain the boundary; code is not allowed to cross
+  // it. Strip the prose before looking for Cloud business.
+  const code = worker
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  for (const forbidden of [
+    'quota',
+    'alpha',
+    'period_used',
+    'TURNSTILE',
+    'API_KEY',
+    'request.json',
+    'request.text'
+  ]) {
+    assert.doesNotMatch(
+      code,
+      new RegExp(forbidden.replace('.', '\\.'), 'i'),
+      `the forwarding worker must not do anything with "${forbidden}"`
+    );
+  }
+});
+
+test('the internal gate hands out no quota of any kind', async () => {
+  const api = await readFile(
+    new URL('../deploy/internal-gate/api.js', import.meta.url),
+    'utf8'
+  );
+  // The abolished anonymous trial left a balance on every identity payload.
+  for (const forbidden of ['free_quota', 'ANONYMOUS_TRIAL', 'quotaTrial']) {
+    assert.doesNotMatch(api, new RegExp(forbidden), `api.js still mentions ${forbidden}`);
+  }
 });
