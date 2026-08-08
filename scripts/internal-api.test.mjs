@@ -502,7 +502,7 @@ test('the internal gate no longer answers anything Cloud owns', async () => {
 
 test('the gate worker forwards Cloud paths and implements none of them', async () => {
   const worker = await readFile(
-    new URL('../deploy/internal-gate/_worker.js', import.meta.url),
+    new URL('../deploy/cloud-gateway.js', import.meta.url),
     'utf8'
   );
 

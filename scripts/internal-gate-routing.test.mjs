@@ -13,7 +13,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isCloudPath } from '../deploy/internal-gate/_worker.js';
+import { isCloudPath } from '../deploy/cloud-gateway.js';
 
 test('accounts, quota and the model gateway are forwarded to Cloud', () => {
   for (const path of [

@@ -6,9 +6,16 @@ const HOSTED_BRANCHES = new Set(['develop', 'main']);
 export function validateDeploymentEnvironment({ cloudBaseUrl, refName, apiMode }) {
   if (!HOSTED_BRANCHES.has(refName)) return;
 
-  if (refName === 'develop' && apiMode === 'same-origin-worker') return;
-
   const candidate = cloudBaseUrl?.trim();
+  if (apiMode === 'same-origin-worker') {
+    if (candidate) {
+      throw new Error(
+        'VITE_CLOUD_BASE_URL must be empty when the hosted deployment uses the same-origin Worker.'
+      );
+    }
+    return;
+  }
+
   if (!candidate) {
     throw new Error(
       `VITE_CLOUD_BASE_URL is required for the hosted ${refName} deployment.`

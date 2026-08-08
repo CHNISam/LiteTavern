@@ -19,7 +19,7 @@
   "services": [
     {
       "binding": "CLOUD",
-      "service": "litetavern-cloud-dev"
+      "service": "litetavern-cloud-development"
     }
   ],
 
