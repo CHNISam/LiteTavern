@@ -50,8 +50,10 @@ jobs:
         run: |
           gh release download "$STABLE_TAG" --pattern "litetavern-web-$STABLE_TAG.tar.gz*"
           sha256sum -c "litetavern-web-$STABLE_TAG.tar.gz.sha256"
-          mkdir deploy
-          tar -xzf "litetavern-web-$STABLE_TAG.tar.gz" -C deploy
+          mkdir -p apps/web/dist
+          tar -xzf "litetavern-web-$STABLE_TAG.tar.gz" -C apps/web/dist
+          cp deploy/production-worker.js apps/web/dist/_worker.js
+          cp deploy/cloud-gateway.js apps/web/dist/cloud-gateway.js
 
       - name: Restore production artifact
         uses: cloudflare/wrangler-action@v3
@@ -59,9 +61,8 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: >-
-            pages deploy deploy
-            --project-name=${{ vars.CLOUDFLARE_PRODUCTION_PROJECT }}
-            --branch=main
+            pages deploy --branch main
+            --cwd deploy/production
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify restored production routes

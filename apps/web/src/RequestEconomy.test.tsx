@@ -98,14 +98,18 @@ function mockShell({
     } });
     }
     if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+    if (path === '/v1/auth/me') return json({ user: {
+      user_id: 'user-1', anonymous_id: 'user-1', identity_type: 'EMAIL',
+      email: 'a@example.com', registered: true
+    } });
     if (path === '/v1/identities/anonymous') {
       return json({
         user: {
           user_id: 'user-1',
           anonymous_id: 'anonymous-1',
-          identity_type: 'EMAIL',
-          email: 'a@example.com',
-          registered: true
+          identity_type: 'ANONYMOUS',
+          email: null,
+          registered: false
         }
       });
     }

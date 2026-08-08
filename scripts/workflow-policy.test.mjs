@@ -51,12 +51,48 @@ test("internal Pages deployment copies every static Worker dependency", () => {
   const source = workflow("deploy");
   assert.match(
     source,
-    /cp deploy\/internal-gate\/api\.js apps\/web\/dist\/api\.js/,
+    /cp deploy\/cloud-gateway\.js apps\/web\/dist\/cloud-gateway\.js/,
   );
   assert.match(
     source,
-    /cp deploy\/internal-gate\/relationship-import\.js apps\/web\/dist\/relationship-import\.js/,
+    /cp deploy\/internal-gate\/api\.js apps\/web\/dist\/internal-gate\/api\.js/,
   );
+  assert.match(
+    source,
+    /cp deploy\/internal-gate\/relationship-import\.js apps\/web\/dist\/internal-gate\/relationship-import\.js/,
+  );
+});
+
+test("the development workflow cannot deploy production", () => {
+  const source = workflow("deploy");
+  assert.match(source, /push:\n {4}branches: \[develop\]/);
+  assert.doesNotMatch(source, /branches: \[[^\]]*main/);
+  assert.doesNotMatch(source, /name:.*production/);
+  assert.doesNotMatch(source, /deploy\/production-worker\.js/);
+});
+
+test("development and production bind to isolated Cloud Workers", () => {
+  const development = readFileSync(
+    "deploy/internal-gate/wrangler.jsonc",
+    "utf8",
+  );
+  const production = readFileSync(
+    "deploy/production/wrangler.jsonc",
+    "utf8",
+  );
+
+  assert.match(development, /"service": "litetavern-cloud-development"/);
+  assert.match(production, /"service": "litetavern-cloud-production"/);
+  assert.doesNotMatch(production, /litetavern-cloud-dev(?:elopment)?"/);
+});
+
+test("every production path packages the same-origin Cloud gateway", () => {
+  for (const name of ["production", "rollback"]) {
+    const source = workflow(name);
+    assert.match(source, /deploy\/production-worker\.js/);
+    assert.match(source, /deploy\/cloud-gateway\.js/);
+    assert.match(source, /--cwd deploy\/production/);
+  }
 });
 
 test("candidate stays draft and stable release requires main", () => {

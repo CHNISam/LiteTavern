@@ -40,23 +40,25 @@ test('accepts an explicit HTTPS Cloud API URL', () => {
   );
 });
 
-test('accepts the explicitly configured same-origin Worker for internal only', () => {
-  assert.doesNotThrow(() =>
-    validateDeploymentEnvironment({
-      apiMode: 'same-origin-worker',
-      cloudBaseUrl: '',
-      refName: 'develop'
-    })
-  );
-  assert.throws(
-    () =>
+test('requires both hosted branches to use the same-origin Worker exclusively', () => {
+  for (const refName of ['develop', 'main']) {
+    assert.doesNotThrow(() =>
       validateDeploymentEnvironment({
         apiMode: 'same-origin-worker',
         cloudBaseUrl: '',
-        refName: 'main'
-      }),
-    /VITE_CLOUD_BASE_URL/
-  );
+        refName
+      })
+    );
+    assert.throws(
+      () =>
+        validateDeploymentEnvironment({
+          apiMode: 'same-origin-worker',
+          cloudBaseUrl: 'https://cross-origin.example',
+          refName
+        }),
+      /must be empty/
+    );
+  }
 });
 
 test('CLI exits non-zero before a hosted deployment can publish without an API', () => {

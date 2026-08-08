@@ -40,6 +40,35 @@ test('phone landscape uses the full short viewport without desktop minimum heigh
   assert.match(landscape, /\.top-chrome\s*\{[^}]*height:\s*56px/);
 });
 
+test('portrait and landscape are separate layouts, not one overriding the other', () => {
+  // 844×390 — a phone held sideways — used to match both blocks. The landscape one
+  // only won because it came later in the file and marked `.contact-rail` with
+  // `!important`, so every rule added to either block had to be checked against the
+  // other by hand. Disjoint conditions are what make each orientation a complete
+  // description of itself rather than the leftovers of the other.
+  assert.match(
+    styles,
+    /@media \(max-width: 900px\) and \(not \(\(max-width: 960px\) and \(orientation: landscape\)\)\) \{/
+  );
+
+  const landscape = styles.match(
+    /@media \(max-width: 960px\) and \(orientation: landscape\) \{([\s\S]*?)\n\}/
+  )?.[1];
+  assert.ok(landscape);
+  assert.doesNotMatch(landscape, /\.contact-rail\s*\{[^}]*display:\s*flex\s*!important/);
+});
+
+test('the composer moves out from under the soft keyboard', () => {
+  // iOS draws the keyboard over a viewport that stays full height, so a composer
+  // anchored to the bottom of 100dvh ends up behind it — the reader types into a box
+  // they cannot see. Android is handled by the viewport meta; iOS needs the variable.
+  assert.match(styles, /--keyboard-inset:\s*0px/);
+  assert.match(
+    styles,
+    /\.reply-area\s*\{[^}]*max\(var\(--safe-bottom\),\s*var\(--keyboard-inset\)\)/
+  );
+});
+
 test('the document opts into the full iOS viewport so safe-area insets are real', async () => {
   const html = await readFile(
     new URL('../apps/web/index.html', import.meta.url),
@@ -78,6 +107,7 @@ test('the feedback launcher leaves the phone composer alone', () => {
   const portrait = source.indexOf(
     '@media (max-width: 900px) {\n  .feedback-launcher { display: none; }'
   );
+  assert.ok(portrait > -1, 'missing the portrait hide');
   const landscape = source.indexOf(
     '@media (max-width: 960px) and (orientation: landscape) {\n  .feedback-launcher { display: none; }'
   );

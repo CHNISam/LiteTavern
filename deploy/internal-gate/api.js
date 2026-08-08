@@ -581,27 +581,19 @@ export async function handleApiRequest(request, { repository, objects }) {
       return json({ deleted: true });
     }
 
-    if (request.method === 'POST' && path === '/v1/conversations') {
-      const body = await request.json();
-      const character = await repository.getCharacter(
-        user.user_id,
-        string(body.character_id)
-      );
-      if (!character) return error('NOT_FOUND', '角色不存在。', 404);
-      const conversationId = await repository.getOrCreateConversation(
-        user.user_id,
-        character
-      );
-      return json({ conversation_id: conversationId }, 201);
-    }
-
-    const messagesMatch = path.match(/^\/v1\/conversations\/([^/]+)\/messages$/);
-    if (request.method === 'GET' && messagesMatch) {
-      const messages = await repository.listMessages(user.user_id, messagesMatch[1]);
-      return messages === null
-        ? error('NOT_FOUND', '会话不存在。', 404)
-        : json({ messages });
-    }
+    // Conversations and messages are gone from here. `_worker.js` forwards both to
+    // LiteTavern Cloud before this file is consulted, because the transcript has to
+    // outlive the browser tab and reappear on another device — that is cloud sync,
+    // and it belongs to Cloud.
+    //
+    // This deployment used to answer them from its own D1, while generation already
+    // ran against Cloud's database. Nothing ever wrote a reply back here, so the
+    // conversation this file returned contained the opening line and nothing else:
+    // a reply would stream in and then vanish on the next read.
+    //
+    // The rows those routes wrote are left in place for the migration in
+    // `docs/plans/2026-08-08-chat-infrastructure-rebuild.md`; they are simply no
+    // longer served.
 
     const memoriesMatch = path.match(/^\/v1\/characters\/([^/]+)\/memories$/);
     if (request.method === 'GET' && memoriesMatch) {
