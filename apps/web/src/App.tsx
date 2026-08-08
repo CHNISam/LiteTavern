@@ -30,7 +30,11 @@ import {
   streamGeneration,
   type AnonymousIdentity, type Character, type Message, type ModelConfiguration
 } from './lib/api';
-import { patchCharacterCard, type CharacterModel } from './lib/character-card';
+import {
+  fetchCharacterCard,
+  patchCharacterCard,
+  type CharacterModel
+} from './lib/character-card';
 import { t as translate, useT } from './lib/i18n';
 import { analytics, type AnalyticsPageName } from './lib/analytics';
 import {
@@ -353,10 +357,55 @@ function ProductApp() {
     setError(null);
     setErrorCode(null);
     setSuggestions([]);
-    const created = await api<{ conversation_id: string; persona_id?: string | null }>(
-      '/v1/conversations',
-      { method: 'POST', body: JSON.stringify({ character_id: character.character_id }) }
-    );
+    // The card travels with the open. LiteTavern Cloud holds no character store —
+    // characters are a local asset — so without this it would have to prompt from a
+    // name alone, and `scenario`, `example_messages`, `system_prompt` and
+    // `post_history_instructions` would keep being fields the app parses, stores and
+    // never actually uses. Cloud dedupes on the card's content hash, so re-opening
+    // the same character costs a comparison rather than a write.
+    const card = await fetchCharacterCard(character.character_id).catch(() => null);
+    let created: { conversation_id: string; persona_id?: string | null };
+    try {
+      created = await api<{ conversation_id: string; persona_id?: string | null }>(
+        '/v1/conversations',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            character_id: character.character_id,
+            card: card?.normalized_data ?? {
+              name: character.name,
+              description: character.profile_summary,
+              personality: character.personality_summary,
+              first_message: character.first_message
+            }
+          })
+        }
+      );
+    } catch (reason) {
+      // A signed-out reader has no cloud transcript, because a transcript belongs to
+      // an account. That is not an outage and must not be reported as one: they can
+      // still browse their characters and read the opening line, and the sign-in
+      // prompt is already the answer the shell offers. Failing the whole bootstrap
+      // here would drop the app into the offline banner over a state that is simply
+      // "not signed in yet".
+      if (reason instanceof ApiError && reason.code === 'GUEST') {
+        if (token !== openTokenRef.current) return;
+        setMessages(
+          character.first_message
+            ? [
+                {
+                  message_id: `greeting-${character.character_id}`,
+                  role: 'ASSISTANT',
+                  content_text: character.first_message,
+                  status: 'COMPLETED'
+                }
+              ]
+            : []
+        );
+        return;
+      }
+      throw reason;
+    }
     // The reader has already moved on; writing this state back would drag them
     // to a contact they left, so the response is recorded and otherwise dropped.
     cacheConversationId(character.character_id, created.conversation_id);
@@ -801,6 +850,11 @@ function ProductApp() {
     const payload = {
       ...selector,
       input: { type: 'text', text },
+      // The optimistic row's id travels with the send, so "one message per tap" is
+      // enforced by a unique index rather than by this component's guards. A retry
+      // whose first response was lost carries the same id and is refused, instead of
+      // adding a second copy of something the reader typed once.
+      client_message_id: userMessage.message_id,
       ...localContext,
       ...(editOfMessageId ? { edit_of_message_id: editOfMessageId } : {})
     };
@@ -854,8 +908,19 @@ function ProductApp() {
       // the next open recover it from Cloud.
       try {
         const loaded = await fetchMessages(targetConversationId);
-        cacheMessages(targetConversationId, loaded);
-        if (conversationIdRef.current === targetConversationId) setMessages(loaded);
+        // A server branch that does not contain this turn is not a newer view of the
+        // conversation — it is a view from before it. Adopting it would erase the
+        // reply the reader just watched arrive, which is exactly what the dev
+        // deployment did while the transcript lived in a database nobody wrote to.
+        const persisted =
+          result.messageId !== undefined &&
+          loaded.some((message) => message.message_id === result.messageId);
+        if (conversationIdRef.current === targetConversationId && persisted) {
+          cacheMessages(targetConversationId, loaded);
+          setMessages(loaded);
+        } else {
+          throw new Error('turn missing from server branch');
+        }
       } catch {
         setMessages((current) => current.map((message) =>
           message.message_id === streamingMessageId

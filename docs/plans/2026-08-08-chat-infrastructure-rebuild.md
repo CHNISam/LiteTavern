@@ -1,0 +1,319 @@
+# 核心聊天基础设施重构
+
+日期：2026-08-08
+分支：`feature/chat-infrastructure-rebuild`
+跨仓库：`LiteTavern`（开源客户端）+ `LiteTavern Cloud`（托管服务端）
+
+## 真机故障与根因
+
+真机现象：AI 回复流式生成后短暂显示，随后退回角色卡初始状态，历史不可见；额度扣减正常。
+
+根因不是前端渲染，而是**一次没有做完的后端移植**：
+
+`LiteTavern Cloud/docs/plans/2026-08-06-web-cloud-worker-d1-r2.md:104-110`（阶段 2）列出的
+「角色、会话、消息的读写」从未接线。Worker 的路由表
+（`apps/api/src/worker/index.ts:56-127`）只有 auth / providers / cloud-status / generations。
+
+于是形成三个互不相通的后端：
+
+| 运行环境 | transcript 实际存放 | 状态 |
+|---|---|---|
+| 本地 dev（`vite proxy → 127.0.0.1:3000`） | Cloud Fastify + PGlite，完整实现 | 正常 |
+| **dev 真机**（`litetavern-dev.pages.dev`） | internal-gate D1（本仓库） | **只有开场白** |
+| generation | Cloud Worker D1（另一个库） | 只写 `generation` / `quota_ledger` |
+
+- internal-gate 的 `message` 表唯一写入点是建会话时插开场白
+  （`deploy/internal-gate/api.js:947-957`）；全仓库没有第二处 `INSERT INTO message`。
+- Cloud Worker 的 generation 路由不持久化任何 message
+  （`apps/api/src/worker/routes/generation.ts` 全文无 message 写入）。
+- 客户端在流结束后用 `fetchMessages()` 覆盖本地乐观状态
+  （`apps/web/src/App.tsx:856`），拿回来的永远只有开场白。
+
+## 第二个、更严重的缺陷：模型收不到上下文
+
+分工契约本身是对的：客户端编译**本地资产**（persona、worldbook、regex 输出），
+Cloud 从**自己的库**取角色卡与历史，再按 `Context Order` 装配。
+（`docs/research/2026-07-30-sillytavern-runtime-compatibility.md`）
+
+- 客户端**确实**发送了 persona 与 worldbook：`App.tsx:749` → `lore-runtime.ts:164-177`
+  → `client_context.{persona, worldbook_entries}`，有测试断言
+  （`RequestEconomy.test.tsx:192-196`、`lore-runtime.test.ts:74-78`）。
+- 客户端**按设计不发**角色卡本体与历史——它们本该由服务端持有。
+- 但 Worker 侧**两样都没有**：没有 character 表，`conversation` / `message` 表无人写；
+  且 `toModelMessages()`（`generation.ts:473-478`）读的是 `payload.messages`，
+  一个客户端从不发送的字段，`client_context` 被整体忽略。
+
+因此当前每一次生成，模型实际收到的只有当前这一句话。
+Fastify 侧实现了完整装配，Worker 侧一处都没有。
+
+### 附带发现：已解析但从未进入生成链路的字段
+
+`system_prompt`、`post_history_instructions`（服务端已存储，无人消费）、
+`alternate_greetings`、`scenario` 与 `example_messages`（宏槽位存在但 `App.tsx:729-735`
+从不填充，恒为空串）、`depth_prompt` / `talkativeness` / `fav`（被列入 `known` 故不报
+"未应用"，但无任何消费者，静默丢失）、persona `title`、worldbook 的 `AT_DEPTH` 实际插入、
+regex 的 `markdownOnly` / `promptOnly`。
+
+### 附带发现：上下文静默失效路径
+
+- `clientContextField` 在 `!characterId || !conversationId` 时返回 `{}`
+  （`lore-runtime.ts:204`）→ 该轮完全没有 persona 与 worldbook，UI 无提示。
+- worldbook 激活 Worker 75ms 超时（`worldbook-activation.ts:362-373`）
+  → 该轮 `worldbook_entries` 为空数组，仅一条 warning 文案。
+- `droppedForBudget` / `stoppedBy` / `timedOut` 停在客户端
+  （`lore-runtime.ts:52-53`），服务端无从知晓上下文被裁剪过，也无法记入 provenance。
+
+## 已存在、可复用的资产
+
+不是从零重建。以下已经存在：
+
+- `LiteTavern Cloud/packages/database/src/migration-sqlite.ts`：从 Postgres 完整移植的
+  SQLite schema。`chat_message` 已有 `turn_no` / `variant_no` / `is_active_variant` /
+  `reply_to_message_id` / `status(PENDING|STREAMING|COMPLETED|FAILED|CANCELLED|SUPERSEDED)`；
+  `agent_generation_request` 已有 `UNIQUE(user_id, idempotency_key)` /
+  `context_manifest_json` / `prompt_version` / token 计数；另有 `agent_session_summary`、
+  `agent_memory`、`lore_worldbook`、`user_persona`。
+- `AlphaD1Store` 已实现 `createConversation` / `findConversation` / `listConversations` /
+  `appendMessage` / `listMessages`（`d1-store.ts:1050-1174`），**从未被路由调用**。
+- `docs/solutions/integration-issues/real-roleplay-stress-gates.md`：Fastify 侧曾用真实
+  Provider 跑通 16 轮，含世界书预算排序、Groq 推理参数、空正文不得记为 COMPLETED。
+  这些规则在 Worker 侧全部缺失。
+
+## 既定架构决策
+
+### D1. 数据归属：全部迁往 Cloud，internal-gate 退回纯路由
+
+依据：
+
+1. `LiteTavern Cloud/docs/plans/2026-08-06-trial-removal-inventory.md:14` 已判定
+   `deploy/internal-gate/api.js` **整体删除**。
+2. 生产环境没有等价后端：`.github/workflows/deploy.yml` 的 `Add internal worker` 与
+   `Apply internal D1 migrations` 都带 `if: github.ref_name != 'main'`；
+   `apps/web/public/_redirects` 只有 SPA 回落；
+   `scripts/validate-deployment-env.mjs` 强制 `main` 必须提供外部 `VITE_CLOUD_BASE_URL`。
+   internal-gate 是 develop 专属临时桩，把长期数据模型建在它上面等于建在沙上。
+3. 仓库边界（`AGENTS.md`）：账号、云同步、云备份属于 Cloud。跨设备恢复历史就是云同步。
+
+结论：`chat_conversation` / `chat_message` / `agent_generation_request` 及其派生数据
+全部由 Cloud 持有；`_worker.js` 只保留 `isCloudPath` 转发，`api.js` 与 internal-gate
+的 D1 数据在迁移完成后退役。
+
+### D2. schema 收敛到 `migration-sqlite.ts` 全量模型
+
+Cloud 仓库内现存两套 schema：`alpha/migrations/0001_alpha_core.sql` 的
+`account` + 扁平 `message`，与 `packages/database/src/migration-sqlite.ts` 的
+`app_user` + `chat_message`。继续扩展前者会造出第三套数据模型。
+
+收敛方向：Alpha 自有域（`account` / `session` / `alpha_claim` / `generation` /
+`quota_ledger` / `email_verification` / `rate_limit`）保留不动，它们已经正确；
+会话域改用全量 schema 的 `chat_conversation` / `chat_message` /
+`agent_generation_request`，并建立 `account_id → app_user.user_id` 桥接。
+`alpha_core.sql` 里未被路由使用的桩表 `conversation` / `message` 退役。
+
+### D3. 身份模型：匿名服务端身份退役，游客本地优先
+
+`trial-removal-inventory.md` 已判定「匿名身份与 initialQuota 整体取消」，
+Worker 的 generation 对无账号请求返回 401 `GUEST`。当前客户端 `bootstrap()` 仍在调用
+`/v1/identities/anonymous`，而 Worker 没有这条路由——这意味着**公开生产站点永远进不了
+在线状态**，只会落到 `bootstrapOffline()`。
+
+目标模型：
+
+- **游客 / BYOK**：角色卡、Persona、Worldbook、Regex、会话全部本地（IndexedDB），
+  浏览器内编译上下文，直连 Provider。服务端不持有任何 transcript。
+- **Cloud 账号**：服务端是 transcript 的权威源，跨设备恢复。
+
+### D4. Prompt 编译的分工
+
+任务书要求「不要让客户端每次自行拼一坨未经服务端验证的历史，作为 Cloud 唯一事实来源」。
+同时 BYOK 直连要求编译逻辑能在浏览器执行。因此：
+
+- **历史**由 Cloud 从自己的 `chat_message` 构造，不接受客户端提交的历史作为事实源。
+- **本地资产**（角色卡、Persona、Worldbook 激活结果、Regex 输出）由客户端编译后提交，
+  Cloud 校验边界（长度、数量、权限）后按 `Context Order` 装配。
+- 为了让 Cloud 能独立重建 prompt 并记录 provenance，客户端在**会话创建时**和**资产变更时**
+  上传不可变的 **revision 快照**（`character_revision` / `persona_revision` /
+  `worldbook_revision`），而不是每轮重传全文。会话绑定当前 revision；
+  每次 generation 记录实际使用的 revision id。
+
+这同时满足三件事：服务端可验证、跨设备可渲染、provenance 可解释。
+
+### D5. Portrait / Landscape 双一等公民
+
+不强制横屏。当前 `900px` 与 `960px landscape` 两个断点区间重叠
+（844×390 同时命中），横屏块只能靠 `!important`（`styles.css:1508`）和源序取胜。
+改为互斥条件，并把 `.contact-rail` 的显隐从「JS `view==='chat'` + CSS `:has` + `!important`」
+三轨统一到单一机制。
+
+星铁视觉语言与布局解耦（集中在 `:root` token、`.hsr-app` 伪元素、
+`.message-bubble` 硬阴影切角、`.rail-dark .selected` 近白描边），重做栅格不动这些。
+
+`scripts/responsive-layout.test.mjs` 是对 CSS 原文做正则与源序比较的契约测试，
+钉死了横屏块的 `30vw` / `56px` / `100dvh` 表达式和两处规则的文件内相对顺序。
+布局语义变更属于「修改测试中的业务预期」，按 `AGENTS.md` 需同步更新测试并说明理由。
+
+软键盘目前完全没有处理（无 `visualViewport`、无 `interactive-widget`、只有 `dvh`），
+在本阶段一并补齐。
+
+## 分阶段交付
+
+### 阶段 A —— 闭环（本次首要目标）
+
+目标：真机连续聊天正常、回复不消失、刷新历史仍在、模型真正收到角色卡与历史。
+
+#### A0. 身份与 schema 的收敛方式（定稿）
+
+Worker 的 `account`（Alpha 域）与全量 schema 的 `app_user` 是两套身份体系。
+一次性把 `migration-sqlite.ts` 的 50 张表整体接上会同时引入第二套身份和大量当前
+用不到的表，风险与本次目标不匹配。因此：
+
+- 新增 D1 迁移 `0003_conversation_domain.sql`，建 `chat_conversation` /
+  `chat_message` / `agent_generation_request`，**列结构逐列对齐
+  `migration-sqlite.ts` 的同名表**，仅把 owner 列换成
+  `account_id REFERENCES account(account_id)`。
+- 未来收敛到全量 schema 时，差异只剩 owner 列名，不是重新建模。
+- `0001_alpha_core.sql` 的桩表 `conversation` / `message` 在迁移中把既有行搬入新表后停用，
+  不直接 DROP（dev 环境已有数据，不得静默丢弃）。
+
+#### A1. 角色卡如何到达 Cloud：revision 快照
+
+Cloud 没有 character 表，角色卡是客户端本地资产（仓库边界）。因此不把 character 表
+整体搬到 Cloud，而是：
+
+- 新增 `character_revision`（不可变快照：`revision_id`、`account_id`、
+  `character_id`、`content_hash`、`normalized_data` JSON、`created_at`）。
+- 客户端在**创建会话时**和**角色卡内容哈希变化时**上传快照；
+  `content_hash` 唯一，重复上传是 no-op。
+- `chat_conversation.character_revision_id` 绑定当前 revision；
+  `agent_generation_request` 记录本轮实际使用的 revision id（provenance 起点）。
+- persona 与 worldbook 沿用现有 `client_context` 逐轮提交（它们本就是逐轮激活结果），
+  阶段 B 再补它们的 revision 快照。
+
+#### A2. 服务端 prompt 装配
+
+把 `apps/api/src/modules/context-assembler.ts` 的装配顺序移植到 Worker
+（PG 查询改 D1 查询，5 组查询均为纯读）。历史从 `chat_message` 取
+（`status='COMPLETED' AND is_active_variant=1`），角色卡取自绑定的
+`character_revision`，persona / worldbook 取自请求的 `client_context`。
+
+`generation.ts` 的 `payload.messages` 与 `payload.system` 入口**删除**——
+客户端从不发送它们，保留只会让"客户端可以自带历史"成为可用后门。
+
+#### A3. Message 生命周期
+
+```
+submit
+→ 事务①：落 USER message(COMPLETED) + agent_generation_request(GENERATING)
+          + ASSISTANT 占位(STREAMING) + 推进 next_sequence_no/next_turn_no
+→ 装配 prompt（USER message 已在库，历史天然包含本轮）
+→ provider 流式
+→ 首个可见正文 → 结算额度（现有 EffectiveBodyDetector 门控不变）
+→ 事务②：ASSISTANT → COMPLETED + token_count；request → COMPLETED
+```
+
+失败与中断：
+
+- provider 失败且无可见正文 → ASSISTANT `FAILED`，额度释放，**USER message 保留**。
+- 有可见正文后中断 → ASSISTANT `INCOMPLETE`，保留已展示正文，额度已计入。
+- 空正文 → 沿用现有 `EMPTY_RESPONSE`，不得记为 `COMPLETED`
+  （`real-roleplay-stress-gates.md` 已确立的规则）。
+
+#### A4. 路由与转发
+
+- Cloud 新增：`POST /v1/conversations`、`GET /v1/conversations/:id/messages`、
+  `POST /v1/character-revisions`。
+- `deploy/internal-gate/_worker.js` 的 `isCloudPath` 扩展到这些路径；
+  `api.js` 对应实现停止提供数据。角色导入、头像、导出等仍暂留 internal-gate，
+  在阶段 F 随存量迁移一并退役。
+
+#### A5. 客户端
+
+`submit()` 流结束后不再无条件 `setMessages(loaded)`：以服务端返回的
+`message_id` / `sequence_no` 对齐本地乐观行，只有对齐失败才整表重拉。
+`fetchMessages` 的空结果不得覆盖非空本地状态。
+
+### 阶段 B —— Message Graph 与幂等
+
+`parent_id` 语义化、`current_head_id`、`client_message_id` 唯一约束、
+Regenerate / Swipe / Edit / Branch、Retry 与 Regenerate 的语义区分、
+乐观并发与 `conflict_pending`、provenance revision 完整记录。
+
+### 阶段 C —— Prompt / Context Compiler
+
+`PromptCompiler` / `ContextBudgetManager` / `WorldBookResolver` / `MemoryProvider` /
+`HistoricalRetriever` / `CompactionStrategy`。以 token budget 取代
+Fastify 侧遗留的 30-message 固定窗口。Canonical Transcript 与 LLM Working Context 分离。
+
+### 阶段 D —— Storage 分层与生命周期
+
+`StorageTier` 抽象、D1 用量监控、archive planner、segment sealer、
+D1 → R2 迁移与 checksum、透明 hydration、GC、Archive 与 Delete 的语义区分。
+
+### 阶段 E —— 客户端与 UI
+
+conversation store 重构；portrait / landscape 双一等公民；软键盘处理。
+
+### 阶段 F —— 迁移与验收
+
+internal-gate D1 存量数据迁入 Cloud；全量测试；真机端到端验收。
+
+## 验收标准
+
+```
+导入/选择 Character → 创建 Conversation → 连续多轮
+→ 模型真正使用 Character + History
+→ 回复稳定展示 → 刷新 → 消息全部恢复
+→ 继续聊天 → 换设备载入 → 历史仍正确
+```
+
+并证明额度只扣一次，且角色卡确实进入 generation context（而非仅显示在 UI）。
+
+## 进度
+
+### 已完成（阶段 A 服务端 + 客户端止血）
+
+**LiteTavern Cloud**
+
+- `apps/api/src/modules/cloud/alpha/migrations/0003_conversation_domain.sql`：
+  `character_revision` / `chat_conversation` / `agent_generation_request` /
+  `chat_message`。0001 的桩表 `conversation` / `message` 保留未删。
+- `apps/api/src/modules/conversation/d1-store.ts`：`ConversationD1Store`。
+  与 `AlphaD1Store` 分离。`openTurn` 在一个 `batch()` 内写入
+  USER + generation_request + ASSISTANT 占位并推进序号，序号计数器带守卫，
+  并发轮次不会分配到同一个 `sequence_no`。
+- `apps/api/src/modules/conversation/prompt-assembler.ts`：按 `Context Order` 装配。
+- `apps/api/src/worker/routes/conversations.ts`：`POST /v1/conversations`（带卡）、
+  `GET /v1/conversations/:id/messages`。
+- `apps/api/src/worker/routes/generation.ts`：删除 `payload.messages` 与
+  `payload.system` 入口；先落 USER 再调 provider；
+  COMPLETED / INCOMPLETE / FAILED 三种落库结局。
+- `apps/api/src/worker/routes/transcript.test.ts`：12 个新用例。
+
+**LiteTavern（客户端）**
+
+- `deploy/internal-gate/_worker.js`：`/v1/conversations` 与
+  `/v1/conversations/:id/messages` 转发给 Cloud。
+- `deploy/internal-gate/api.js`：移除这两条路由的本地实现。
+- `apps/web/src/App.tsx`：开会话时携带角色卡；流结束后只在服务端分支**确实包含本轮**
+  时才采用它；未登录（`GUEST`）不再让整个 bootstrap 掉进离线模式。
+- `apps/web/src/TranscriptRecovery.test.tsx`：3 个新用例。
+
+### 未完成
+
+阶段 B / C / D / E / F 全部未开始。阶段 A 中仍未做的部分：
+
+- `input_tokens` / `output_tokens` 未写入（gateway 的 usage promise 未接）。
+- 角色、头像、导出、model-configurations 仍在 internal-gate，生产环境仍无后端。
+- 客户端 `deleteUserMessage`、编辑重发、重新生成三条路径仍走旧的整表重拉语义。
+- 存量数据迁移（internal-gate D1 → Cloud）未做。
+- 真机验证未做。
+
+## Open Questions
+
+1. 生产环境（`main`）目前没有任何后端，且 `bootstrap()` 调用的
+   `/v1/identities/anonymous` 在 Cloud Worker 上不存在。公开站点是否应当在
+   本阶段就切到 Cloud，还是继续保持"仅 develop 可用"？这决定阶段 F 的迁移目标。
+2. BYOK 当前不是浏览器直连 Provider：`api_key` 每轮以明文 JSON 经 Cloud Worker
+   转发（`App.tsx:629-635` → `_worker.js:99`）。任务书 §18 假设的是直连。
+   是否要改为真正的浏览器直连（需要客户端具备完整 PromptCompiler，即阶段 C 的
+   共享编译器落地后才可能）？

@@ -25,7 +25,17 @@ test('accounts, quota and the model gateway are forwarded to Cloud', () => {
     // connection check calls that endpoint with the reader's key.
     '/v1/providers',
     '/v1/provider-connections/validate',
-    '/v1/conversations/conversation-1/generations'
+    '/v1/conversations/conversation-1/generations',
+    // The transcript. It used to be answered here, and that split is what produced
+    // the failure this list exists to prevent: generation ran against Cloud's
+    // database while the conversation was read from this deployment's, so nothing
+    // ever wrote a reply where the client looked for it. A reply streamed in and
+    // then disappeared on the next read, with quota correctly spent.
+    //
+    // It is Cloud's for a product reason too: a conversation has to survive the tab
+    // that produced it and reappear on a second device, which is cloud sync.
+    '/v1/conversations',
+    '/v1/conversations/conversation-1/messages'
   ]) {
     assert.equal(isCloudPath(path), true, path);
   }
@@ -33,8 +43,10 @@ test('accounts, quota and the model gateway are forwarded to Cloud', () => {
 
 test('local content stays local', () => {
   for (const path of [
+    // Characters, model configuration and analytics are still this deployment's.
+    // They move in the migration stage of
+    // `docs/plans/2026-08-08-chat-infrastructure-rebuild.md`, not before.
     '/v1/characters',
-    '/v1/conversations',
     '/v1/model-configurations',
     '/v1/analytics/events',
     '/v1/cloud/sync/checkpoint'
@@ -43,10 +55,11 @@ test('local content stays local', () => {
   }
 });
 
-test('the generation pattern does not over-match', () => {
-  // `/generations` is Cloud's because it spends quota; the conversation itself
-  // is not, and neither is a path that merely contains the word.
+test('the conversation patterns do not over-match', () => {
   assert.equal(isCloudPath('/v1/conversations/c1/generations'), true);
-  assert.equal(isCloudPath('/v1/conversations/c1/messages'), false);
+  assert.equal(isCloudPath('/v1/conversations/c1/messages'), true);
   assert.equal(isCloudPath('/v1/conversations/c1/generations/extra'), false);
+  // A single message is not the transcript; deleting one is still answered locally
+  // until characters move too.
+  assert.equal(isCloudPath('/v1/conversations/c1/messages/m1'), false);
 });

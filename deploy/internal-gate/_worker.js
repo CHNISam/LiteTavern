@@ -61,6 +61,13 @@ export function isCloudPath(pathname) {
   return (
     pathname.startsWith('/v1/auth/') ||
     pathname === '/v1/cloud/status' ||
+    // The transcript. It moved to Cloud because a conversation has to survive the
+    // tab that produced it and reappear on a second device, which is cloud sync —
+    // Cloud's business, not this deployment's. While these were answered here, the
+    // generation ran against Cloud's database and the transcript was read from this
+    // one, so a reply arrived and the next read denied it had ever happened.
+    pathname === '/v1/conversations' ||
+    /^\/v1\/conversations\/[^/]+\/messages$/.test(pathname) ||
     // The BYOK provider catalogue decides which endpoint a provider id may
     // reach, and the connection check calls that endpoint with the reader's
     // key. Both are model-gateway concerns, so both belong to Cloud — this

@@ -199,7 +199,7 @@ async function identity(repository, objects) {
   return cookieFrom(response);
 }
 
-test('creates an anonymous identity, character and resumable opening conversation', async () => {
+test('creates an anonymous identity and character, and leaves the transcript to Cloud', async () => {
   const repository = new MemoryRepository();
   const objects = new MemoryObjects();
   const cookie = await identity(repository, objects);
@@ -242,7 +242,12 @@ test('creates an anonymous identity, character and resumable opening conversatio
     ['流萤']
   );
 
-  const conversation = await handleApiRequest(
+  // The transcript is no longer this deployment's to answer. `_worker.js` forwards
+  // both paths to LiteTavern Cloud before this file is reached, so reaching them here
+  // at all means the forward was lost — which is the failure that produced a reply
+  // the next read denied had happened. Asserting the 404 keeps that regression
+  // visible instead of letting the gate quietly serve a transcript again.
+  for (const request of [
     new Request('https://internal.example/v1/conversations', {
       method: 'POST',
       headers: {
@@ -252,19 +257,13 @@ test('creates an anonymous identity, character and resumable opening conversatio
       },
       body: JSON.stringify({ character_id: characterId })
     }),
-    { repository, objects }
-  );
-  const conversationId = (await conversation.json()).conversation_id;
-  const messages = await handleApiRequest(
-    new Request(`https://internal.example/v1/conversations/${conversationId}/messages`, {
+    new Request('https://internal.example/v1/conversations/conv-1/messages', {
       headers: { Cookie: cookie }
-    }),
-    { repository, objects }
-  );
-  assert.deepEqual(
-    (await messages.json()).messages.map((item) => item.content_text),
-    ['你好。']
-  );
+    })
+  ]) {
+    const response = await handleApiRequest(request, { repository, objects });
+    assert.equal(response.status, 404, request.url);
+  }
 });
 
 test('previews and imports the reported CCv2 PNG shape into object storage', async () => {
