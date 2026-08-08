@@ -13,6 +13,7 @@ import {
   RotateCcw, Settings, Sparkles, Square,
   Trash2, Upload, UserRound, Volume2, VolumeX
 } from 'lucide-react';
+import { Avatar } from './components/Avatar';
 import { AccountSyncPanel } from './components/CloudPanel';
 import { ProviderSettings } from './components/ProviderSettings';
 import { AppSettingsPanel } from './components/AppSettingsPanel';
@@ -128,22 +129,6 @@ function analyticsErrorCode(code: string): string {
   }
   if (blockReasonFor(code)) return 'cloud_blocked';
   return 'generation_failed';
-}
-
-function avatarUrl(character: Character) {
-  const version = character.version ? `?v=${character.version}` : '';
-  // Avatars are served by LiteTavern Cloud, which may live on another origin.
-  return cloudUrl(`/v1/characters/${character.character_id}/avatar${version}`);
-}
-
-function Avatar({ character, className = '' }: { character: Character; className?: string }) {
-  const t = useT();
-  return (
-    <span className={`hsr-avatar ${className}`} aria-hidden="false">
-      <span className="avatar-fallback">{character.name.slice(0, 1)}</span>
-      <img src={avatarUrl(character)} alt={t.chat.avatarAlt(character.name)} onError={(event) => { event.currentTarget.hidden = true; }} />
-    </span>
-  );
 }
 
 export function App() {
