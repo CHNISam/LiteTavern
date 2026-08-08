@@ -326,6 +326,13 @@ Cloud 迁移 `0005_message_graph.sql`，全部为增量列/索引，边仍只有
   全部移除，只留 `deleted_conversation`（id + 时间 + character_id，无内容）。
   Archive 是另一个端点，一字不动、可撤销。原先的 `status='DELETED'` 就是
   §15 所禁止的"永久 soft delete 冒充删除"。
+- **归档水位必须落后于压缩水位**（本阶段发现并修掉的一个隐性缺陷）：
+  prompt compiler 从 D1 读历史、用摘要顶替更早的部分，而两个水位由两套规则决定
+  （一个是 token 预算，一个是消息条数），没有任何机制让它们对齐。
+  归档若跑在压缩前面，就会删掉 compiler 本该发送、且没有任何摘要描述的消息——
+  没有报错，只是角色忘掉了那几天。因此 `sealNextSegment` 的上界取
+  `min(head - keepRecent, 当前 READY 摘要的 coverage_end, start + MAX_SEGMENT - 1)`；
+  没有摘要就一行都不能删。这也是 `recentActiveMessages` 可以只读 D1 的前提。
 - Sealing 与 compaction 一样挂在 `waitUntil`，不用 cron：
   只有"有人在聊"才是会话在增长的信号。
 - `TRANSCRIPTS_BUCKET` 与 `ASSETS_BUCKET` 分开（生命周期与访问策略不同），
