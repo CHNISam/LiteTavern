@@ -5,7 +5,16 @@
     <!-- viewport-fit=cover: iOS home-screen apps already paint under the notch and
          the home indicator, so declare it and pay the insets back with
          env(safe-area-inset-*) in CSS instead of losing the right edge. -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- interactive-widget=resizes-content: when the soft keyboard opens, shrink the
+         viewport rather than sliding the page up behind it. The default on Android
+         Chrome pans the whole document, which moves the composer off the top of the
+         screen the moment it gains focus — the reader is typing into a box they can
+         no longer see. iOS ignores the hint and needs `visualViewport`; that is what
+         `useKeyboardInset` is for. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="theme-color" content="#111421" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

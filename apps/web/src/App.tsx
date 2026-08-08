@@ -36,6 +36,7 @@ import {
   type CharacterModel
 } from './lib/character-card';
 import { t as translate, useT } from './lib/i18n';
+import { trackKeyboardInset } from './lib/keyboard-inset';
 import { analytics, type AnalyticsPageName } from './lib/analytics';
 import {
   fetchCloudStatus,
@@ -236,6 +237,8 @@ function ProductApp() {
     if (!next) playClick();
   }
   const conversationIdRef = useRef<string | null>(null);
+  /** The last message the server said this conversation ends at. */
+  const headIdRef = useRef<string | null>(null);
   const activeRef = useRef<Character | null>(null);
   const usageModeRef = useRef<'PLATFORM' | 'BYOK'>(usageMode);
   // Monotonic token for character opens: only the newest open may write state, so a
@@ -253,11 +256,28 @@ function ProductApp() {
   useEffect(() => { cloudRef.current = cloud; }, [cloud]);
 
   useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
+  // Cleared whenever the conversation changes: a head id from a different
+  // conversation would be refused by the server as stale, which is the right answer
+  // to the wrong question.
+  useEffect(() => { headIdRef.current = null; }, [conversationId]);
   useEffect(() => { activeRef.current = active; }, [active]);
   useEffect(() => { usageModeRef.current = usageMode; }, [usageMode]);
   useEffect(() => {
     writeModelPreference({ usageMode, configurationId: selectedConfigurationId });
   }, [selectedConfigurationId, usageMode]);
+
+  // Published on the document root, not on a component, because the composer is not
+  // the only thing that has to move out from under the keyboard — panels and sheets
+  // read the same variable.
+  useEffect(
+    () =>
+      trackKeyboardInset(
+        document.documentElement,
+        window.visualViewport,
+        () => window.innerHeight
+      ),
+    []
+  );
 
   const cloudService = resolveCloudModelServiceState(cloud, {
     checking: cloudChecking,
@@ -510,7 +530,18 @@ function ProductApp() {
   // Empty-bodied messages (a failed mid-stream reply, or a character with no opening
   // line) would otherwise render as an endless "typing" bubble, so they are dropped.
   async function fetchMessages(targetConversationId: string): Promise<Message[]> {
-    const response = await api<{ messages: Message[] }>(`/v1/conversations/${targetConversationId}/messages`);
+    const response = await api<{
+      messages: Message[];
+      conversation?: { current_head_id?: string | null };
+    }>(`/v1/conversations/${targetConversationId}/messages`);
+    // Where the server says the story currently ends. Sent back on the next turn as
+    // `expected_head_id`, which is what lets the server refuse a send written against
+    // a conversation this tab has not seen — the second device answering a question
+    // nobody asked. Recorded from the read rather than guessed from the local list,
+    // because the local list is exactly the thing that might be stale.
+    if (targetConversationId === conversationIdRef.current) {
+      headIdRef.current = response.conversation?.current_head_id ?? null;
+    }
     return response.messages.filter((message) => message.content_text.trim() !== '');
   }
 
@@ -849,6 +880,10 @@ function ProductApp() {
       // whose first response was lost carries the same id and is refused, instead of
       // adding a second copy of something the reader typed once.
       client_message_id: userMessage.message_id,
+      // Only when this tab has actually read the conversation. Sending a guess would
+      // be worse than sending nothing: the server treats an absent field as "not
+      // claiming to know", and a wrong claim is refused.
+      ...(headIdRef.current ? { expected_head_id: headIdRef.current } : {}),
       ...localContext,
       ...(editOfMessageId ? { edit_of_message_id: editOfMessageId } : {})
     };
@@ -940,6 +975,28 @@ function ProductApp() {
         return;
       }
       const apiError = reason instanceof ApiError ? reason : null;
+
+      // The conversation moved while this tab was looking at an older version of it,
+      // or this exact send already landed. Neither is a failure of the send, and
+      // neither should be retried: re-sending after a duplicate would be the reader
+      // asking for one message and getting two. Both are resolved by reading the
+      // server's branch, which is also what refreshes the head this tab sends next.
+      if (apiError?.code === 'HEAD_MISMATCH' || apiError?.code === 'DUPLICATE_MESSAGE') {
+        setMessages((current) => current.filter(
+          (message) =>
+            message.message_id !== streamingMessageId &&
+            message.message_id !== userMessage.message_id
+        ));
+        try {
+          const loaded = await fetchMessages(targetConversationId);
+          cacheMessages(targetConversationId, loaded);
+          if (conversationIdRef.current === targetConversationId) setMessages(loaded);
+        } catch {
+          reportGenerationFailure(reason);
+        }
+        return;
+      }
+
       const legacyEndpoint =
         !streamedText && [404, 405, 501].includes(apiError?.status ?? 0);
       if (!legacyEndpoint) {
@@ -1436,7 +1493,10 @@ function ContactRail({ characters, active, tone, onSelect, onCreate }: {
 }) {
   const t = useT();
   return (
-    <aside className={`contact-rail rail-${tone}`}>
+    // `data-has-selection` states the fact the narrow layout needs instead of making
+    // CSS infer it from a descendant's class name. `:has(.contact-item.selected)` read
+    // the same thing, and broke silently the moment that class moved.
+    <aside className={`contact-rail rail-${tone}`} data-has-selection={active ? 'true' : 'false'}>
       <div className="contact-scroll">
         {characters.map((character) => (
           <button key={character.character_id} className={`contact-item ${active?.character_id === character.character_id ? 'selected' : ''}`} onClick={() => onSelect(character)}>

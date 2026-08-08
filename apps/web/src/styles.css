@@ -57,6 +57,11 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
+  /* How much of the screen the soft keyboard is covering, published by
+     `lib/keyboard-inset.ts`. Zero unless a keyboard is open. iOS draws the keyboard
+     over a viewport that stays full height, so without this the composer sits behind
+     it and the reader types into a box they cannot see. */
+  --keyboard-inset: 0px;
 
   /* Motion — strong custom curves (built-in easings feel weak) */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -590,7 +595,11 @@ button { color: inherit; }
 /* Composer */
 /* The composer is the last thing above the iOS home indicator — pay the bottom
    inset back here so the send button stays fully tappable. */
-.reply-area { flex: 0 0 auto; padding: 10px 40px calc(24px + var(--safe-bottom)); border-top: 1px solid var(--paper-line); }
+/* The bottom padding pays back whichever is larger: the home indicator, or the
+   keyboard drawn on top of it. They are never both visible — the indicator is hidden
+   while the keyboard is up — so adding them would reserve space for one of them
+   twice. */
+.reply-area { flex: 0 0 auto; padding: 10px 40px calc(24px + max(var(--safe-bottom), var(--keyboard-inset))); border-top: 1px solid var(--paper-line); }
 /* A quiet model indicator, not a loud control — tucked to the right above the composer */
 .model-bar { min-height: 26px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-bottom: 8px; }
 .model-bar button {
@@ -1412,14 +1421,27 @@ button { color: inherit; }
 /* ============================================================================
    Responsive — collapse to a single column on narrow viewports
    ========================================================================== */
-@media (max-width: 900px) {
+/* The narrow-screen stack: one column, the rail giving way to the chat.
+ *
+ * The exclusion in the condition is load-bearing. This block and the phone-landscape
+ * block below it both used to match a 844×390 phone held sideways, and the landscape
+ * layout only won because it came later in the file and marked `.contact-rail` with
+ * `!important`. That is not a layout system, it is two layouts arguing, and every rule
+ * added to either one had to be checked against the other by hand.
+ *
+ * Made disjoint, each orientation is a complete description of itself. Neither is the
+ * fallback for the other, which is what "portrait and landscape are both first-class"
+ * has to mean if it means anything — the app is never rotated into a layout that is
+ * merely the other one's leftovers. */
+@media (max-width: 900px) and (not ((max-width: 960px) and (orientation: landscape))) {
   body { overflow: auto; }
   .top-chrome { height: 72px; padding: 18px 16px 0; }
   .close-game { display: none; }
   .hsr-stage { width: 100%; height: calc(100dvh - 72px - var(--safe-top)); min-height: 0; margin: 0; grid-template-columns: 1fr; gap: 0; border-radius: 0; }
   .view-profile .hsr-stage, .view-settings .hsr-stage, .view-memories .hsr-stage { border-radius: 0; }
   .contact-rail { border-radius: 0; }
-  .contact-rail:has(.contact-item.selected) { display: none; }
+  /* One column: once a character is chosen the chat takes the screen. */
+  .contact-rail[data-has-selection='true'] { display: none; }
   .chat-paper, .empty-paper { border-radius: 0; }
   .empty-paper { display: none; }
   .contact-item { min-height: 78px; }
@@ -1429,7 +1451,7 @@ button { color: inherit; }
   .hsr-message { max-width: 92%; }
   .hsr-message .hsr-avatar, .user-avatar { width: 46px; height: 46px; }
   .message-bubble { font-size: 15px; }
-  .reply-area { padding: 8px 12px calc(12px + var(--safe-bottom)); }
+  .reply-area { padding: 8px 12px calc(12px + max(var(--safe-bottom), var(--keyboard-inset))); }
   /* Without a character selected the rail runs to the bottom of the screen. */
   .contact-rail { padding-bottom: var(--safe-bottom); }
   .profile-paper, .settings-paper { padding: 18px; }
@@ -1505,7 +1527,9 @@ button { color: inherit; }
     line-height: 1.4;
   }
   .contact-rail {
-    display: flex !important;
+    /* No `!important`: the portrait block that used to hide this rail no longer
+       matches in this orientation at all. */
+    display: flex;
     grid-column: 1;
     grid-row: 2;
     min-height: 0;
@@ -1578,7 +1602,7 @@ button { color: inherit; }
   .hsr-message .hsr-avatar,
   .user-avatar { width: 36px; height: 36px; }
   .message-bubble { padding: 8px 10px; font-size: 12px; line-height: 1.45; }
-  .reply-area { padding: 5px 10px 8px; }
+  .reply-area { padding: 5px 10px calc(8px + var(--keyboard-inset)); }
   .model-bar { min-height: 20px; margin-bottom: 3px; }
   .model-bar button { padding: 2px 7px; font-size: 9px; }
   .reply-composer { min-height: 40px; }

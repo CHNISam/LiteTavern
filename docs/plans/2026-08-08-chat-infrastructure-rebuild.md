@@ -270,6 +270,97 @@ internal-gate D1 存量数据迁入 Cloud；全量测试；真机端到端验收
 
 ## 进度
 
+### 阶段 B —— Message Graph 与幂等（已完成）
+
+Cloud 迁移 `0005_message_graph.sql`，全部为增量列/索引，边仍只有 `reply_to_message_id`。
+
+- `chat_conversation.current_head_id`：客户端回传 `expected_head_id`，守卫写在
+  分配 sequence 的同一条 `UPDATE ... WHERE` 里；不带该字段的旧客户端不受限制而非被拒。
+- **Regenerate**：在同一条 USER 消息下新增 variant，旧回复 `is_active_variant=0`
+  但**不**置 SUPERSEDED（否则 swipe 列表为空）；其后续消息才置 SUPERSEDED。
+- **Retry**：原地重试 FAILED 回复，不占新 sequence、不新增消息行，新开一条
+  `agent_generation_request(kind='RETRY', attempt_no=n+1)`。
+  是 Retry 还是 Regenerate 由**目标消息的状态**决定，不接受客户端指定。
+- **Swipe**：`activateVariant` 仅允许在会话末尾切换；中间切换等同于删除其后内容，
+  按编辑处理而非导航，直接拒绝。
+- **Branch**：`branched_from_*`，前缀复制（不共享指针）；
+  `chat_conversation_account_character_uq` 改为排除分支，而不是删除该约束。
+- **Provenance**：新增 `context_revision`（PERSONA / WORLDBOOK_ENTRY，按内容哈希去重），
+  `agent_generation_request` 记录 `persona_revision_id` / `worldbook_revision_ids`。
+  稳态是一次读、零写。
+- 冲突码分离：`HEAD_MISMATCH` / `DUPLICATE_MESSAGE` / `MESSAGE_STATE_CONFLICT` /
+  `CONVERSATION_CONFLICT`（仅后者可重试）。
+- 新路由：`GET|POST /v1/conversations/:cid/messages/:mid/{variants,activate}`、
+  `POST /v1/conversations/:cid/branches`。
+- 测试：`worker/routes/message-graph.test.ts`（21 例）。变异验证：去掉 head 预检查、
+  把被替换的 variant 置为 SUPERSEDED，均被测试捕获。
+
+### 阶段 C —— Prompt / Context Compiler（已完成）
+
+`messages.slice(-30)` 已删除。
+
+- `token-budget.ts`：字符级估算（CJK 1 token/字，其余 1/3），**故意高估**——
+  低估会撑爆窗口导致整轮失败，高估只是多丢一条旧消息。真实 token 数仍由 provider 返回并入库。
+- `prompt-compiler.ts`：Canonical Transcript 与 LLM Working Context 分离；
+  先量 system 块（含角色卡、世界书、persona、摘要、memory）再决定历史容量；
+  最后一条消息无论多大都必发。产出 `budget` manifest（丢了几条、可压缩到哪条）。
+- `0006_working_memory.sql`：`agent_session_summary`（压缩）+ `agent_memory`（长期事实）。
+  两者都**不是事实源**，可删可重建。`agent_memory` 默认 `CANDIDATE`，
+  抽取只负责提议；`subject_key` 唯一索引保证同一事实只有一条 ACTIVE。
+- `compaction.ts`：绝不在请求路径内执行，挂在 `ctx.waitUntil`；
+  版本号唯一约束使并发压缩只有一个真正调用模型；空摘要记 FAILED 而非 READY
+  （否则它会"覆盖"一段谁也不再回头处理的对话）。
+- `HISTORY_CEILING = 200` 是**成本护栏**，不是上下文规则。
+- 测试：`prompt-compiler.test.ts`（12 例）、`compaction.test.ts`（11 例）。
+
+### 阶段 D —— Storage 分层与生命周期（已完成）
+
+- `0007_storage_tiers.sql`：`chat_segment`（SEALING→SEALED→VERIFIED→PRUNED）、
+  `chat_conversation.pruned_through_sequence_no`、`deleted_conversation` 墓碑表。
+- `archiver.ts`：写对象 → **读回** → 比对 checksum → 才删 D1 行。
+  `pruneSegment` 守卫在 `state='VERIFIED'`，无法从"写返回了"直接跳到删除。
+  最近 60 条永不下沉（否则把 R2 往返放到了请求路径上最热的数据上）。
+- `readTranscript` 透明 hydration：调用方无法分辨消息来自哪一层。
+  从未归档的会话零 R2 请求。对象缺失**报错**而不是返回半截历史。
+- **Delete 真的删除**：消息、generation request、摘要、memory、provenance、R2 对象
+  全部移除，只留 `deleted_conversation`（id + 时间 + character_id，无内容）。
+  Archive 是另一个端点，一字不动、可撤销。原先的 `status='DELETED'` 就是
+  §15 所禁止的"永久 soft delete 冒充删除"。
+- Sealing 与 compaction 一样挂在 `waitUntil`，不用 cron：
+  只有"有人在聊"才是会话在增长的信号。
+- `TRANSCRIPTS_BUCKET` 与 `ASSETS_BUCKET` 分开（生命周期与访问策略不同），
+  且**可选**——未绑定时全部留在 D1，是成本问题不是故障。
+- 测试：`archiver.test.ts`（15 例）。变异验证：去掉 checksum 比对、
+  去掉 VERIFIED 守卫，均被捕获。
+
+### 阶段 E —— 客户端与 UI（已完成）
+
+- **Portrait / Landscape 互斥**：`(max-width: 900px)` 块加上
+  `and (not ((max-width: 960px) and (orientation: landscape)))`。
+  844×390 过去同时命中两块，横屏块只靠源序与 `!important` 取胜——那不是布局系统，
+  是两套布局在打架。`display: flex !important` 已删除。**没有强制横屏**。
+- `.contact-rail` 的 `:has(.contact-item.selected)` 改为 `data-has-selection`：
+  CSS 读取被陈述的事实，而不是从后代 class 名反推。
+  （JS 侧的 `view === 'chat'` 保留：那是路由，与布局是两件事。）
+- **软键盘**：viewport meta 加 `interactive-widget=resizes-content`（Android）；
+  `lib/keyboard-inset.ts` 用 `visualViewport` 发布 `--keyboard-inset`（iOS 忽略前者）。
+  `.reply-area` 用 `max(--safe-bottom, --keyboard-inset)`——两者不会同时出现。
+  阈值 120px 过滤地址栏收缩与 pinch-zoom；计入 `offsetTop`（iOS 会同时滚动 visual viewport）。
+- **客户端 conversation store**：`headIdRef` 记录服务端 head，随会话切换清空，
+  发送时带 `expected_head_id`（没读过就不带——猜一个比不说更糟）。
+  `HEAD_MISMATCH` / `DUPLICATE_MESSAGE` 不重试、不报错，直接重读服务端分支。
+- 测试：`keyboard-inset.test.ts`（6 例）、`responsive-layout.test.mjs` 新增 2 例。
+
+### 阶段 F —— 迁移（部分完成）
+
+- `legacy-import.ts`：internal-gate D1 → Cloud schema 的导入器。
+  **拒绝猜测归属**：匿名身份已退役，没有任何地方记录哪个匿名 id 对应哪个人，
+  因此账号映射由操作者显式提供，映射不到的 legacy user 记入 `unmappedUsers`
+  而不是丢弃或归并。sequence 重新致密编号（旧表允许空洞，留着会让
+  `next_sequence_no` 与实际行不一致，之后每一次发送都被守卫判为并发写而永久拒绝）。
+  已存在的会话一律跳过——旧库是临时桩，此后写在这里的才是真的。
+  幂等，可重复运行。测试 `legacy-import.test.ts`（9 例）。
+
 ### 已完成（阶段 A 服务端 + 客户端止血）
 
 **LiteTavern Cloud**
@@ -300,13 +391,21 @@ internal-gate D1 存量数据迁入 Cloud；全量测试；真机端到端验收
 
 ### 未完成
 
-阶段 B / C / D / E / F 全部未开始。阶段 A 中仍未做的部分：
-
-- `input_tokens` / `output_tokens` 未写入（gateway 的 usage promise 未接）。
-- 角色、头像、导出、model-configurations 仍在 internal-gate，生产环境仍无后端。
+- **Swipe / Regenerate / Branch 的 UI 尚未接线。** 服务端与路由齐备、有测试覆盖，
+  客户端还没有触发它们的按钮。这是纯前端工作，不需要改 schema。
+- **角色、头像、导出、model-configurations 仍在 internal-gate。**
+  搬迁需要在 Cloud 建角色域（表 + 路由 + R2 头像 + 导出），
+  且**取决于 Open Question 1 的答复**：生产站点是否现在切到 Cloud。
+  在方向确定前做这块有做反的风险，因此未开工。
+- **真机端到端验收未做。** 需要 push + CI 部署，本机无法访问 `api.cloudflare.com`
+  （见 Cloud 仓库的部署工作流说明），且部署属于对外动作，等你确认。
+- **`TRANSCRIPTS_BUCKET` 桶尚未创建**（`litetavern-cloud-dev-transcripts` /
+  `litetavern-cloud-production-transcripts`）。绑定是可选的，未创建时归档不发生、
+  全部留在 D1，服务正常；创建后归档自动开始。
+- **Memory 的抽取环节未实现。** `agent_memory` 的读取、去重、注入、删除都已就绪并有测试，
+  但"从对话中提炼出候选事实"这一步还没有写。缺它的表现是 memory 永远为空，
+  而不是错误的 memory 被注入——这是刻意选择的失败方向。
 - 客户端 `deleteUserMessage`、编辑重发、重新生成三条路径仍走旧的整表重拉语义。
-- 存量数据迁移（internal-gate D1 → Cloud）未做。
-- 真机验证未做。
 
 ## Open Questions
 
