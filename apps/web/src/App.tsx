@@ -111,8 +111,18 @@ const BLOCK_REASONS: readonly CloudBlockReason[] = [
   'DAILY_QUOTA_EXHAUSTED',
   'PERIOD_QUOTA_EXHAUSTED',
   'CONCURRENT_GENERATION',
-  'PROVIDER_UNAVAILABLE'
+  'PROVIDER_UNAVAILABLE',
+  'PLATFORM_MODELS_NOT_CONFIGURED'
 ];
+
+/**
+ * Block reasons the deployment cannot recover from on its own. Retrying one of
+ * these can only ever fail again, so no retry affordance and no `retryable`
+ * analytics flag may be attached to them.
+ */
+function isSelfHealing(reason: CloudBlockReason | null): boolean {
+  return reason === 'PROVIDER_UNAVAILABLE';
+}
 
 function blockReasonFor(code: string | undefined): CloudBlockReason | null {
   const match = BLOCK_REASONS.find((reason) => reason === code);
@@ -124,6 +134,11 @@ function analyticsErrorCode(code: string): string {
     return 'quota_exhausted';
   }
   if (code === 'PROVIDER_TIMEOUT') return 'generation_timeout';
+  // Its own event, deliberately: folding it into `provider_unavailable` is what
+  // hid "this deployment was never configured" inside "the upstream blipped".
+  if (code === 'PLATFORM_MODELS_NOT_CONFIGURED') {
+    return 'platform_models_not_configured';
+  }
   if (code === 'PROVIDER_UNAVAILABLE' || code === 'PROVIDER_RATE_LIMITED') {
     return 'provider_unavailable';
   }
@@ -202,7 +217,12 @@ function ProductApp() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [cloud, setCloud] = useState<CloudStatus | null>(() => readCachedStatus());
   const [cloudChecking, setCloudChecking] = useState(true);
-  const [cloudRuntimeUnavailable, setCloudRuntimeUnavailable] = useState(false);
+  // Why a generation was just refused at the service level, kept because a
+  // cached or lagging `/v1/cloud/status` may still claim the models are
+  // available. It stores the reason rather than a flag so a deployment that was
+  // never configured is not re-told as a passing provider outage.
+  const [cloudRuntimeBlock, setCloudRuntimeBlock] =
+    useState<CloudBlockReason | null>(null);
   const [cloudOffline, setCloudOffline] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [analyticsReady, setAnalyticsReady] = useState(false);
@@ -269,7 +289,7 @@ function ProductApp() {
   const cloudService = resolveCloudModelServiceState(cloud, {
     checking: cloudChecking,
     offline: cloudOffline,
-    runtimeUnavailable: cloudRuntimeUnavailable,
+    runtimeBlockReason: cloudRuntimeBlock,
     selected: usageMode === 'PLATFORM'
   });
   // The one explanation of what the Cloud is doing for this account. Every
@@ -293,7 +313,15 @@ function ProductApp() {
         : null;
     if (blockedStatus) {
       setCloud(blockedStatus);
-      if (blockReason === 'PROVIDER_UNAVAILABLE') setCloudRuntimeUnavailable(true);
+      // Both service-level refusals outlive the response that carried them: the
+      // status endpoint may still say the models are available, and the reader
+      // would otherwise be handed back a working-looking Cloud.
+      if (
+        blockReason === 'PROVIDER_UNAVAILABLE' ||
+        blockReason === 'PLATFORM_MODELS_NOT_CONFIGURED'
+      ) {
+        setCloudRuntimeBlock(blockReason);
+      }
     }
     const blockedNotice = resolveCloudNotice(blockedStatus);
     const message = blockedNotice
@@ -503,7 +531,7 @@ function ProductApp() {
       if (result.status) setCloud(result.status);
       setCloudOffline(result.offline);
       if (!result.offline && result.status?.platform_models_available) {
-        setCloudRuntimeUnavailable(false);
+        setCloudRuntimeBlock(null);
       }
       return result.status;
     } catch {
@@ -769,7 +797,10 @@ function ProductApp() {
             : blocked
               ? 'block_reason'
               : 'service_availability',
-        retryable: !blocked || code === 'PROVIDER_UNAVAILABLE',
+        // A block is retryable only when the deployment can recover from it by
+        // itself. `PLATFORM_MODELS_NOT_CONFIGURED` never can, so it must not be
+        // counted alongside a passing provider outage.
+        retryable: !blocked || isSelfHealing(cloudService.blockReason),
         ...(active ? { characterId: active.character_id } : {}),
         ...(conversationId ? { conversationId } : {})
       });
@@ -1920,8 +1951,12 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
             )}
             {cloudService.availability !== 'checking' && (
               <div className="quota-notice-actions">
+                {/* Offline is worth another look, and so are the blocks that
+                    clear on their own. A deployment with no model service
+                    configured gets no retry button: pressing it would only
+                    reproduce the same wall. */}
                 {(cloudService.availability === 'offline' ||
-                  cloudService.blockReason === 'PROVIDER_UNAVAILABLE' ||
+                  isSelfHealing(cloudService.blockReason) ||
                   cloudService.blockReason === 'CONCURRENT_GENERATION') && (
                   <button type="button" onClick={onRetryCloud}>{t.chat.retryCloud}</button>
                 )}

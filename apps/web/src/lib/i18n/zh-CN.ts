@@ -708,6 +708,10 @@ export const zhCN = {
       title: '模型服务商暂时不可用',
       body: '这是暂时的故障，稍后重试即可，本次不会消耗额度。'
     },
+    platformNotConfigured: {
+      title: '这个环境还没有开通云端模型',
+      body: '这个环境还没有开通 LiteTavern Cloud 的云端模型，云端回复在这里无法使用，本次不会消耗额度。如果你需要它，请通过反馈入口告诉我们。'
+    },
     disclaimer:
       'LiteTavern Cloud Alpha 仍处于测试阶段。额度、模型和云服务规则可能根据实际成本、稳定性和测试结果进行调整。'
   },

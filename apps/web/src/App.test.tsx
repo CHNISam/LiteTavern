@@ -440,6 +440,113 @@ describe('HSR message shell', () => {
     }));
   });
 
+  it('does not offer a retry when the deployment has no model service configured', async () => {
+    // The reported incident: a deployment with no provider credentials answered
+    // every send with the transient copy, so readers retried a wall that could
+    // never come down. This state must read as permanent and offer no retry.
+    const blockingError = vi.spyOn(analytics, 'blockingError');
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      if (path === '/v1/cloud/status') {
+        return json(cloudStatus({
+          platform_models_available: false,
+          block_reason: 'PLATFORM_MODELS_NOT_CONFIGURED'
+        }));
+      }
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/identities/anonymous') return json(identity());
+      if (path === '/v1/analytics/events') return json({}, 202);
+      if (path === '/v1/characters') return json({ characters: [{
+        character_id: 'firefly-card', name: '流萤', profile_summary: '',
+        personality_summary: '', first_message: '', avatar_seed: '流萤'
+      }] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
+      if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+
+    const notice = await screen.findByText(/这个环境还没有开通 LiteTavern Cloud 的云端模型/);
+    expect(notice).toBeInTheDocument();
+    // The transient wording, and any invitation to retry, is gone.
+    expect(
+      screen.queryByText('这是暂时的故障，稍后重试即可，本次不会消耗额度。')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '重试' })).not.toBeInTheDocument();
+    // BYOK is still the way forward, and the allowance promise still holds.
+    expect(screen.getByRole('button', { name: '连接自己的模型' })).toBeInTheDocument();
+    expect(notice.textContent).toContain('本次不会消耗额度');
+
+    // Sending anyway records its own event, not the provider-outage one, and is
+    // never marked retryable.
+    blockingError.mockClear();
+    const composer = screen.getByPlaceholderText('给流萤发送短信…');
+    fireEvent.change(composer, { target: { value: '你好' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+
+    await waitFor(() => expect(blockingError).toHaveBeenCalled());
+    const [event, surface, options] = blockingError.mock.calls.at(-1)!;
+    expect(event).toBe('platform_models_not_configured');
+    expect(surface).toBe('chat');
+    expect(options?.retryable).toBe(false);
+  });
+
+  it('keeps a mid-generation "not configured" refusal from reading as a passing outage', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      // The status endpoint still claims the models work; only the generation
+      // reveals that this deployment was never wired up.
+      if (path === '/v1/cloud/status') return json(cloudStatus());
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/identities/anonymous') return json(identity());
+      if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
+      if (path === '/v1/characters') return json({ characters: [{
+        character_id: 'firefly-card', name: '流萤', profile_summary: '星核猎手成员',
+        personality_summary: '温柔而坚定', first_message: '', avatar_seed: '流萤',
+        is_owned: true, last_message: null
+      }] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
+      if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
+      if (path === '/v1/conversations/conversation-1/turns') {
+        return json({
+          error: {
+            code: 'PLATFORM_MODELS_NOT_CONFIGURED',
+            message: 'platform models are not configured',
+            retryable: false,
+            request_id: 'request-1'
+          }
+        }, 503);
+      }
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+    const composer = await screen.findByPlaceholderText('给流萤发送短信…');
+    fireEvent.change(composer, { target: { value: '你好' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    expect(
+      await screen.findByText(/这个环境还没有开通 LiteTavern Cloud 的云端模型/)
+    ).toBeInTheDocument();
+    // The refusal sticks even though `/v1/cloud/status` still says "available",
+    // and it is not downgraded to the transient provider outage.
+    expect(
+      screen.queryByText('这是暂时的故障，稍后重试即可，本次不会消耗额度。')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '重试' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '模型服务' }));
+    const panel = await screen.findByRole('dialog', { name: '模型服务' });
+    expect(within(panel).getByText('这个环境还没有开通云端模型')).toBeInTheDocument();
+    expect(
+      within(panel).queryByRole('button', { name: '重试' })
+    ).not.toBeInTheDocument();
+  });
+
   it('shows the exact Alpha balance and its UTC reset without upstream units', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);

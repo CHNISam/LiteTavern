@@ -759,6 +759,10 @@ export const en: Dictionary = {
       title: 'The model provider is temporarily unavailable',
       body: 'This is a temporary failure — try again shortly. Nothing was deducted from your allowance.'
     },
+    platformNotConfigured: {
+      title: 'Cloud models are not enabled here',
+      body: 'LiteTavern Cloud models are not enabled in this environment, so cloud replies do not work here. Nothing was deducted from your allowance. Tell us through the feedback form if you need them.'
+    },
     disclaimer:
       'LiteTavern Cloud Alpha is still a test. Allowances, models and cloud rules may change based on real costs, stability and what the test shows.'
   },

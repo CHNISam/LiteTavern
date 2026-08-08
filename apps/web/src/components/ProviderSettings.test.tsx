@@ -148,6 +148,42 @@ describe('OpenAI provider settings', () => {
     expect(screen.getByRole('button', { name: '连接自己的模型' })).toBeInTheDocument();
   });
 
+  it('offers no retry for a deployment that has no model service configured', async () => {
+    const retry = vi.fn();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      if (path === '/v1/providers') return json({ providers: [] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(
+      <ProviderSettings
+        open
+        usageMode="PLATFORM"
+        onClose={() => undefined}
+        onConfigurationsChanged={() => undefined}
+        cloud={alphaCloud({
+          platform_models_available: false,
+          block_reason: 'PLATFORM_MODELS_NOT_CONFIGURED'
+        })}
+        {...({ onRetryCloud: retry } as object)}
+      />
+    );
+
+    // This one never heals, so the panel says so and shows no retry button —
+    // the affordance that made the original incident cost people their evening.
+    expect(screen.getByText('这个环境还没有开通云端模型')).toBeInTheDocument();
+    expect(
+      screen.queryByText('这是暂时的故障，稍后重试即可，本次不会消耗额度。')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '重试' })).not.toBeInTheDocument();
+    expect(retry).not.toHaveBeenCalled();
+    // The way out is still offered: your own key, and the feedback entry.
+    expect(screen.getByRole('button', { name: '连接自己的模型' })).toBeInTheDocument();
+    expect(screen.getByText(/请通过反馈入口告诉我们/)).toBeInTheDocument();
+  });
+
   it('hides ChatGPT OAuth by default and keeps API Key configuration available', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);

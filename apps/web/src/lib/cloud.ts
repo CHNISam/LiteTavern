@@ -32,7 +32,18 @@ export type CloudBlockReason =
   | 'DAILY_QUOTA_EXHAUSTED'
   | 'PERIOD_QUOTA_EXHAUSTED'
   | 'CONCURRENT_GENERATION'
-  | 'PROVIDER_UNAVAILABLE';
+  /**
+   * The upstream provider blipped. Transient, and retrying is a reasonable thing
+   * for the reader to do.
+   */
+  | 'PROVIDER_UNAVAILABLE'
+  /**
+   * This deployment has no platform model service wired up at all, so the cloud
+   * models never worked here and no amount of retrying will change that. Kept
+   * separate from `PROVIDER_UNAVAILABLE` precisely so the client never invites a
+   * retry that cannot succeed.
+   */
+  | 'PLATFORM_MODELS_NOT_CONFIGURED';
 
 export interface CloudStatus {
   stage: 'ALPHA';
@@ -90,8 +101,14 @@ export function resolveCloudModelServiceState(
   options: {
     checking?: boolean;
     offline?: boolean;
-    /** A generation just failed because the upstream provider was down. */
-    runtimeUnavailable?: boolean;
+    /**
+     * A generation just failed with a service-level refusal that a cached or
+     * stale `/v1/cloud/status` may still describe as available. It carries the
+     * server's own reason rather than a boolean, so "the provider blipped" and
+     * "this deployment was never configured" cannot collapse into one another
+     * on the way to the UI.
+     */
+    runtimeBlockReason?: CloudBlockReason | null;
     selected?: boolean;
   } = {}
 ): CloudModelServiceState {
@@ -102,10 +119,10 @@ export function resolveCloudModelServiceState(
   if (options.offline || !status) {
     return { availability: 'offline', blockReason: null, selected };
   }
-  if (options.runtimeUnavailable) {
+  if (options.runtimeBlockReason) {
     return {
       availability: 'blocked',
-      blockReason: 'PROVIDER_UNAVAILABLE',
+      blockReason: options.runtimeBlockReason,
       selected
     };
   }
@@ -436,6 +453,16 @@ export function resolveCloudNotice(status: CloudStatus | null): CloudNotice | nu
         tone: 'warning',
         title: copy.providerUnavailable.title,
         body: copy.providerUnavailable.body,
+        byokHint: stillWorks
+      };
+    // Not a failure that clears on its own: the deployment has no platform model
+    // service at all. The copy therefore states that plainly and never suggests
+    // retrying, which is the trap the transient wording set for readers before.
+    case 'PLATFORM_MODELS_NOT_CONFIGURED':
+      return {
+        tone: 'error',
+        title: copy.platformNotConfigured.title,
+        body: copy.platformNotConfigured.body,
         byokHint: stillWorks
       };
     case null:

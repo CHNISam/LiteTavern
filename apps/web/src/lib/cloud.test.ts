@@ -6,6 +6,7 @@ import {
   type CloudBlockReason,
   type CloudStatus
 } from './cloud';
+import { en } from './i18n/en';
 
 /**
  * The panel copy is a product requirement, not a detail: every reason a request
@@ -50,7 +51,8 @@ const BLOCK_REASONS: CloudBlockReason[] = [
   'DAILY_QUOTA_EXHAUSTED',
   'PERIOD_QUOTA_EXHAUSTED',
   'CONCURRENT_GENERATION',
-  'PROVIDER_UNAVAILABLE'
+  'PROVIDER_UNAVAILABLE',
+  'PLATFORM_MODELS_NOT_CONFIGURED'
 ];
 
 describe('cloud notice copy', () => {
@@ -65,6 +67,50 @@ describe('cloud notice copy', () => {
     // In particular, nothing may fall through to the provider-outage message.
     const providerCopy = rendered[BLOCK_REASONS.indexOf('PROVIDER_UNAVAILABLE')];
     expect(rendered.filter((text) => text === providerCopy)).toHaveLength(1);
+  });
+
+  it('never invites a retry when the deployment has no model service at all', () => {
+    // The real incident this guards: a deployment with no provider credentials
+    // told everyone "这是暂时的故障，稍后重试即可", so readers retried a state that
+    // could not improve. The unconfigured copy must not do that again — and it
+    // must not blame the reader's connection either.
+    const notice = resolveCloudNotice(
+      status({ block_reason: 'PLATFORM_MODELS_NOT_CONFIGURED' })
+    );
+
+    const text = `${notice?.title}\n${notice?.body}`;
+    expect(text).not.toMatch(/重试|再试|稍后|retry|try again/i);
+    expect(text).not.toMatch(/网络|断网|connection|offline/i);
+    // The rollback promise holds on this path too, so the reassurance stays.
+    expect(notice?.body).toContain('本次不会消耗额度');
+    // There is somewhere to go instead of a dead retry button.
+    expect(notice?.body).toContain('反馈');
+  });
+
+  it('does not reuse the transient outage copy for the unconfigured deployment', () => {
+    const transient = resolveCloudNotice(
+      status({ block_reason: 'PROVIDER_UNAVAILABLE' })
+    );
+    const unconfigured = resolveCloudNotice(
+      status({ block_reason: 'PLATFORM_MODELS_NOT_CONFIGURED' })
+    );
+
+    expect(unconfigured?.title).not.toBe(transient?.title);
+    expect(unconfigured?.body).not.toBe(transient?.body);
+    // The transient wording is left exactly as it was: it is still correct for
+    // an upstream that really did blip.
+    expect(transient?.body).toBe('这是暂时的故障，稍后重试即可，本次不会消耗额度。');
+  });
+
+  it('keeps the English unconfigured copy free of retry wording too', () => {
+    const copy = en.cloudNotice.platformNotConfigured;
+    const text = `${copy.title}\n${copy.body}`;
+
+    expect(text).not.toMatch(/retry|try again|later|refresh/i);
+    expect(text).not.toMatch(/connection|network|offline/i);
+    expect(copy.body).toContain('Nothing was deducted from your allowance');
+    expect(copy.body).toContain('feedback');
+    expect(copy.body).not.toBe(en.cloudNotice.providerUnavailable.body);
   });
 
   it('tells a registered account the seat count and what a seat is worth', () => {
@@ -129,6 +175,30 @@ describe('platform model availability', () => {
     expect(
       resolveCloudModelServiceState(status({ platform_models_available: true }))
     ).toMatchObject({ availability: 'available', blockReason: null });
+  });
+
+  it('reports the runtime refusal the server actually sent', () => {
+    // A status that still claims the models are available must not overwrite the
+    // reason the generation was just refused with — and a deployment that was
+    // never configured must not be downgraded to a passing provider outage.
+    const live = status({ platform_models_available: true });
+
+    expect(
+      resolveCloudModelServiceState(live, {
+        runtimeBlockReason: 'PLATFORM_MODELS_NOT_CONFIGURED'
+      })
+    ).toMatchObject({
+      availability: 'blocked',
+      blockReason: 'PLATFORM_MODELS_NOT_CONFIGURED'
+    });
+    expect(
+      resolveCloudModelServiceState(live, {
+        runtimeBlockReason: 'PROVIDER_UNAVAILABLE'
+      })
+    ).toMatchObject({
+      availability: 'blocked',
+      blockReason: 'PROVIDER_UNAVAILABLE'
+    });
   });
 
   it('does not present a stale cached status as live service state', () => {

@@ -318,6 +318,10 @@ export function ProviderSettings({
                       <p className="service-byok-hint">{cloudNotice.byokHint}</p>
                     )}
                     <div className="service-card-actions">
+                      {/* Only the transient outage gets a retry button.
+                          `PLATFORM_MODELS_NOT_CONFIGURED` means this deployment
+                          has no model service at all, so a retry could never
+                          come back with a different answer. */}
                       {resolvedCloudService.blockReason === 'PROVIDER_UNAVAILABLE' && (
                         <button type="button" onClick={onRetryCloud}>
                           {t.models.retryCloud}
