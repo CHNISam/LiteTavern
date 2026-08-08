@@ -35,7 +35,11 @@ test('accounts, quota and the model gateway are forwarded to Cloud', () => {
     // It is Cloud's for a product reason too: a conversation has to survive the tab
     // that produced it and reappear on a second device, which is cloud sync.
     '/v1/conversations',
-    '/v1/conversations/conversation-1/messages'
+    '/v1/conversations/conversation-1/messages',
+    // Swipe. The variant list and the activation both live in Cloud's `chat_message`,
+    // so answering them here would describe a transcript this deployment never wrote.
+    '/v1/conversations/conversation-1/messages/message-1/variants',
+    '/v1/conversations/conversation-1/messages/message-1/activate'
   ]) {
     assert.equal(isCloudPath(path), true, path);
   }
@@ -62,4 +66,10 @@ test('the conversation patterns do not over-match', () => {
   // A single message is not the transcript; deleting one is still answered locally
   // until characters move too.
   assert.equal(isCloudPath('/v1/conversations/c1/messages/m1'), false);
+  assert.equal(isCloudPath('/v1/conversations/c1/messages/m1/variants'), true);
+  assert.equal(isCloudPath('/v1/conversations/c1/messages/m1/activate'), true);
+  // Only those two verbs on a message. An unknown suffix is not forwarded, so a
+  // future Cloud route has to be added here deliberately rather than inherited.
+  assert.equal(isCloudPath('/v1/conversations/c1/messages/m1/variants/extra'), false);
+  assert.equal(isCloudPath('/v1/conversations/c1/messages/m1/branches'), false);
 });

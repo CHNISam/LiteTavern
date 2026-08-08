@@ -8,7 +8,7 @@ import {
   type ReactNode
 } from 'react';
 import {
-  ArrowLeft, BookOpen, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy,
+  ArrowLeft, BookOpen, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Copy,
   Download, KeyRound, LoaderCircle, MessageCircle, MoreHorizontal, Pencil, Plus, Send,
   RotateCcw, Settings, Sparkles, Square,
   Trash2, Upload, UserRound, Volume2, VolumeX
@@ -28,6 +28,8 @@ import { SupportPage } from './pages/SupportPage';
 import {
   ApiError, api, deleteCharacter, fetchCharacterDetail, fetchReplySuggestions, generateTurn, saveTurnBubble,
   streamGeneration,
+  activateMessageVariant,
+  fetchMessageVariants,
   type AnonymousIdentity, type Character, type Message, type ModelConfiguration
 } from './lib/api';
 import {
@@ -738,11 +740,25 @@ function ProductApp() {
     }
   }
 
-  // `editOfMessageId` re-sends an earlier user message: that message and everything
-  // after it leaves the active branch, and this turn continues from the new text.
-  // The turn is generated once and then played out as 1–4 bubbles by the controller;
-  // sending again interrupts any bubbles not yet shown.
-  async function submit(rawText: string, editOfMessageId?: string) {
+  /**
+   * One turn, in any of the three shapes it can take.
+   *
+   * - a plain send;
+   * - `editOfMessageId`: re-sends an earlier user message, so that message and
+   *   everything after it leaves the active branch and this turn continues from the
+   *   new text;
+   * - `regenerateOfMessageId`: answers the *same* user message again. No new user
+   *   message is written; the server files the reply as another variant beside the
+   *   one already there, which is what the swipe control then moves between.
+   *
+   * The turn is generated once and then played out as 1–4 bubbles by the controller;
+   * sending again interrupts any bubbles not yet shown.
+   */
+  async function submit(
+    rawText: string,
+    editOfMessageId?: string,
+    regenerateOfMessageId?: string
+  ) {
     const requestedText = rawText.trim();
     const controller = playbackRef.current;
     if (!requestedText || !conversationId || !active || !controller) return;
@@ -775,7 +791,26 @@ function ProductApp() {
       return;
     }
     const turnRequestId = createId();
-    const scanMessages = messages.flatMap((message) =>
+    // A regenerate re-answers a message that is already in the transcript, so the
+    // local context is built as if that message were being sent now: history stops
+    // before it, and `rawText` — its own text — plays the part the composer's text
+    // plays on a send. Leaving the reply being replaced in the history would also let
+    // a worldbook entry activate on words the model is about to write again.
+    const regenerateIndex = regenerateOfMessageId
+      ? messages.findIndex(
+          (message) => message.message_id === regenerateOfMessageId
+        )
+      : -1;
+    const anchorIndex =
+      regenerateIndex >= 0
+        ? messages
+            .slice(0, regenerateIndex)
+            .map((message) => message.role)
+            .lastIndexOf('USER')
+        : -1;
+    const historyMessages =
+      regenerateIndex >= 0 ? messages.slice(0, Math.max(anchorIndex, 0)) : messages;
+    const scanMessages = historyMessages.flatMap((message) =>
       message.role === 'USER' || message.role === 'ASSISTANT'
         ? [
             {
@@ -807,18 +842,23 @@ function ProductApp() {
         messages: macroMessages,
         activationSeed: turnRequestId
       };
-      const inputResult = await applyRegexScriptsBounded(text, scripts, {
-        placement: RegexPlacement.USER_INPUT,
-        macros: macroContext,
-        editing: Boolean(editOfMessageId)
-      });
-      text = inputResult.text.trim();
-      if (!text) {
-        setError(t.chat.regexRemovedInput);
-        return;
-      }
-      if (inputResult.timedOut) {
-        runtimeWarning = t.chat.regexInputTimeout;
+      // Not on a regenerate: that text was already processed when it was sent, and
+      // it is the server's copy that will be re-answered. Running the scripts over it
+      // a second time would build the context from a string that exists nowhere.
+      if (!regenerateOfMessageId) {
+        const inputResult = await applyRegexScriptsBounded(text, scripts, {
+          placement: RegexPlacement.USER_INPUT,
+          macros: macroContext,
+          editing: Boolean(editOfMessageId)
+        });
+        text = inputResult.text.trim();
+        if (!text) {
+          setError(t.chat.regexRemovedInput);
+          return;
+        }
+        if (inputResult.timedOut) {
+          runtimeWarning = t.chat.regexInputTimeout;
+        }
       }
       localContext = await clientContextField(
         active.character_id,
@@ -838,12 +878,13 @@ function ProductApp() {
     }
     playClick();
     const targetConversationId = conversationId;
-    if (!editOfMessageId) setDraft('');
+    if (!editOfMessageId && !regenerateOfMessageId) setDraft('');
     setSuggestions([]);
     setError(runtimeWarning);
     setErrorCode(null);
     if (
       !editOfMessageId &&
+      !regenerateOfMessageId &&
       !messages.some((message) => message.role === 'USER')
     ) {
       analytics.criticalAction('first_message_submit_attempted', 'chat', {
@@ -868,24 +909,41 @@ function ProductApp() {
     }
     const userMessage: Message = { message_id: createId(), role: 'USER', content_text: text, status: 'COMPLETED' };
     setMessages((current) => {
+      // A regenerate writes no user message. It replaces the reply in place: the old
+      // variant is dropped from the view for the duration of the turn, because two
+      // answers to one message stacked on top of each other would read as the
+      // character having said both.
+      if (regenerateOfMessageId) {
+        return current.filter(
+          (message) => message.message_id !== regenerateOfMessageId
+        );
+      }
       const index = editOfMessageId ? current.findIndex((message) => message.message_id === editOfMessageId) : -1;
       const kept = index >= 0 ? current.slice(0, index) : current;
       return [...kept, userMessage];
     });
     const payload = {
       ...selector,
-      input: { type: 'text', text },
+      // A regenerate carries no input: the message it answers is already in the
+      // transcript, and sending the text again would invite the server to treat it as
+      // a second send of something typed once.
+      ...(regenerateOfMessageId ? {} : { input: { type: 'text', text } }),
       // The optimistic row's id travels with the send, so "one message per tap" is
       // enforced by a unique index rather than by this component's guards. A retry
       // whose first response was lost carries the same id and is refused, instead of
       // adding a second copy of something the reader typed once.
-      client_message_id: userMessage.message_id,
+      ...(regenerateOfMessageId ? {} : { client_message_id: userMessage.message_id }),
       // Only when this tab has actually read the conversation. Sending a guess would
       // be worse than sending nothing: the server treats an absent field as "not
       // claiming to know", and a wrong claim is refused.
       ...(headIdRef.current ? { expected_head_id: headIdRef.current } : {}),
       ...localContext,
-      ...(editOfMessageId ? { edit_of_message_id: editOfMessageId } : {})
+      ...(editOfMessageId ? { edit_of_message_id: editOfMessageId } : {}),
+      // Whether this is a *retry* of a reply that failed or a *regenerate* of one that
+      // arrived is the message's state to decide, so only the target is named here.
+      ...(regenerateOfMessageId
+        ? { regenerate_of_message_id: regenerateOfMessageId }
+        : {})
     };
 
     // Current deployments expose the real SSE route. Keep the legacy structured
@@ -997,13 +1055,28 @@ function ProductApp() {
         return;
       }
 
+      // The legacy structured endpoint knows nothing about variants: it would append a
+      // fresh turn instead of answering the same message again, which is a different
+      // thing from what the reader asked for. A regenerate against a Cloud too old to
+      // stream simply fails.
       const legacyEndpoint =
-        !streamedText && [404, 405, 501].includes(apiError?.status ?? 0);
+        !regenerateOfMessageId &&
+        !streamedText &&
+        [404, 405, 501].includes(apiError?.status ?? 0);
       if (!legacyEndpoint) {
         reportGenerationFailure(reason);
         setMessages((current) => current.filter(
           (message) => message.message_id !== streamingMessageId
         ));
+        // The reply this turn was going to replace was taken out of the view when the
+        // turn started. It is still the server's answer, so put the transcript back
+        // rather than leaving the reader looking at a conversation with a hole in it.
+        if (regenerateOfMessageId) {
+          void fetchMessages(targetConversationId).then((loaded) => {
+            cacheMessages(targetConversationId, loaded);
+            if (conversationIdRef.current === targetConversationId) setMessages(loaded);
+          }).catch(() => undefined);
+        }
         return;
       }
     } finally {
@@ -1066,6 +1139,55 @@ function ProductApp() {
       }
       return processedMessages;
     });
+  }
+
+  /**
+   * Answer the same message again, keeping the reply that is already there.
+   *
+   * Not an edit-and-resend of the user's message, which is what this button used to
+   * do: that wrote a new user message, dropped the old exchange off the branch and
+   * left nothing to swipe back to. Here the user's message stays exactly where it is
+   * and the new reply is filed beside the old one as another variant.
+   */
+  function regenerate(assistantMessageId: string) {
+    const index = messages.findIndex(
+      (message) => message.message_id === assistantMessageId
+    );
+    if (index < 0) return;
+    // The opening line answers nothing, so there is no message to re-answer. The
+    // button is not offered on it; this is the guard behind that.
+    const anchor = [...messages.slice(0, index)]
+      .reverse()
+      .find((message) => message.role === 'USER');
+    if (!anchor) return;
+    void submit(anchor.content_text, undefined, assistantMessageId);
+  }
+
+  /**
+   * Move between the replies given to the same message.
+   *
+   * The variant list is read at the moment of the swipe rather than cached: another
+   * device may have added a reply since this transcript was loaded, and a stale list
+   * would silently activate the wrong one. `direction` does not wrap — the position
+   * indicator states where the ends are, and wrapping past them would make a long
+   * press feel like it had lost the reader's place.
+   */
+  async function swipeVariant(messageId: string, direction: -1 | 1) {
+    const targetConversationId = conversationIdRef.current;
+    if (!targetConversationId || sending || streamingRef.current) return;
+    setError(null);
+    try {
+      const variants = await fetchMessageVariants(targetConversationId, messageId);
+      const current = variants.findIndex((variant) => variant.is_active);
+      const next = current < 0 ? undefined : variants[current + direction];
+      if (!next) return;
+      await activateMessageVariant(targetConversationId, next.message_id);
+      const loaded = await fetchMessages(targetConversationId);
+      cacheMessages(targetConversationId, loaded);
+      if (conversationIdRef.current === targetConversationId) setMessages(loaded);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t.chat.swipeFailed);
+    }
   }
 
   async function exportActiveCharacter() {
@@ -1244,18 +1366,8 @@ function ProductApp() {
             onImpersonate={() => void impersonate()}
             onEditSubmit={(messageId, text) => void submit(text, messageId)}
             onDeleteMessage={(messageId) => void deleteUserMessage(messageId)}
-            onRegenerate={(assistantMessageId) => {
-              const assistantIndex = messages.findIndex(
-                (message) => message.message_id === assistantMessageId
-              );
-              const previousUser = messages
-                .slice(0, assistantIndex)
-                .reverse()
-                .find((message) => message.role === 'USER');
-              if (previousUser) {
-                void submit(previousUser.content_text, previousUser.message_id);
-              }
-            }}
+            onRegenerate={regenerate}
+            onSwipe={(messageId, direction) => void swipeVariant(messageId, direction)}
             onUsageMode={(mode) => {
               setUsageMode(mode);
               if (mode === 'BYOK') {
@@ -1614,7 +1726,7 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   );
 }
 
-function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, cloudNotice, usageMode, configurations, selectedConfigurationId, suggestions, quickReplies, typing, impersonating, onProfile, onDraft, onSend, onStop, onPick, onQuickReply, onImpersonate, onEditSubmit, onDeleteMessage, onRegenerate, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
+function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, cloudNotice, usageMode, configurations, selectedConfigurationId, suggestions, quickReplies, typing, impersonating, onProfile, onDraft, onSend, onStop, onPick, onQuickReply, onImpersonate, onEditSubmit, onDeleteMessage, onRegenerate, onSwipe, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
   character: Character; messages: Message[]; draft: string; sending: boolean; error: string | null;
   cloud: CloudStatus | null;
   cloudService: CloudModelServiceState;
@@ -1626,6 +1738,7 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
   onEditSubmit: (messageId: string, text: string) => void;
   onDeleteMessage: (messageId: string) => void;
   onRegenerate: (messageId: string) => void;
+  onSwipe: (messageId: string, direction: -1 | 1) => void;
   onUsageMode: (mode: 'PLATFORM' | 'BYOK') => void; onConfiguration: (id: string) => void; onProvider: () => void;
   onPlatformQuota: () => void;
   onRetryCloud: () => void;
@@ -1633,6 +1746,24 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
   const t = useT();
   const lastLine = [...messages].reverse().find((message) => message.role === 'ASSISTANT' && message.content_text.trim())?.content_text
     || character.first_message || character.profile_summary || t.chat.characterProfile;
+
+  /**
+   * The one reply that can be re-answered or swiped, if there is one.
+   *
+   * Both actions are offered at the end of the conversation only. Cloud refuses a
+   * swipe anywhere else — choosing a variant further back would discard everything
+   * after it, which is an edit wearing the costume of a navigation. Regenerating an
+   * older reply is technically allowed but has the same effect, and a button that
+   * silently drops the rest of the conversation is not a button worth having. The
+   * opening line is excluded too: it answers nothing, so there is nothing to answer
+   * again.
+   */
+  const lastMessage = messages[messages.length - 1];
+  const answerable =
+    lastMessage?.role === 'ASSISTANT' &&
+    messages.some((message) => message.role === 'USER')
+      ? lastMessage
+      : undefined;
 
   const platformBlocked =
     cloudService.selected && cloudService.availability !== 'available';
@@ -1716,12 +1847,45 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
                 ) : (
                   <>
                     <div className="message-bubble">{message.content_text}</div>
+                    {message.variant &&
+                      message.variant.total > 1 &&
+                      message.message_id === answerable?.message_id && (
+                        <div className="message-swipe" role="group" aria-label={t.chat.swipeGroup}>
+                          <button
+                            type="button"
+                            disabled={sending || message.variant.index <= 0}
+                            onClick={() => onSwipe(message.message_id, -1)}
+                            title={t.chat.swipePrevious}
+                            aria-label={t.chat.swipePrevious}
+                          >
+                            <ChevronLeft size={16} />
+                          </button>
+                          <span aria-live="polite">
+                            {t.chat.swipePosition(
+                              message.variant.index + 1,
+                              message.variant.total
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={
+                              sending ||
+                              message.variant.index >= message.variant.total - 1
+                            }
+                            onClick={() => onSwipe(message.message_id, 1)}
+                            title={t.chat.swipeNext}
+                            aria-label={t.chat.swipeNext}
+                          >
+                            <ChevronRight size={16} />
+                          </button>
+                        </div>
+                      )}
                     {message.content_text && (
                       <MessageActions
                         text={message.content_text}
                         editable={message.role === 'USER' && !sending}
                         deletable={message.role === 'USER' && !sending}
-                        regeneratable={message.role === 'ASSISTANT' && !sending}
+                        regeneratable={message.message_id === answerable?.message_id && !sending}
                         {...(message.role === 'USER' ? { onEdit: () => setEditingId(message.message_id) } : {})}
                         {...(message.role === 'USER' ? { onDelete: () => onDeleteMessage(message.message_id) } : {})}
                         {...(message.role === 'ASSISTANT' ? { onRegenerate: () => onRegenerate(message.message_id) } : {})}

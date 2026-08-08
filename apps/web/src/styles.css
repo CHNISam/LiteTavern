@@ -536,6 +536,38 @@ button { color: inherit; }
   .message-actions:focus-within { opacity: 1; }
 }
 
+/* Swipe — moving between the replies given to the same message. Unlike the action
+   row this stays visible at all times: it is the only thing telling the reader that
+   the bubble they are looking at is one of several, and a control that appears on
+   hover would leave that fact invisible on a touch screen. */
+.message-swipe {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.message-swipe button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: color 140ms ease, background-color 140ms ease, transform 140ms var(--ease-out);
+}
+.message-swipe button:hover:not(:disabled) { background: rgba(20, 22, 28, 0.07); color: var(--ink-1); }
+.message-swipe button:active:not(:disabled) { transform: scale(0.94); }
+/* Dimmed rather than removed: the reader can see there is nothing further in that
+   direction, instead of the arrow silently vanishing at the ends. */
+.message-swipe button:disabled { opacity: 0.35; cursor: default; }
+
 /* Inline edit — the bubble becomes the input, so the message stays where it is. */
 .hsr-message.is-editing { max-width: 88%; }
 .message-editor { display: flex; flex-direction: column; gap: 8px; width: min(660px, 100%); }

@@ -13,6 +13,11 @@ export function isCloudPath(pathname) {
     pathname === '/v1/cloud/status' ||
     pathname === '/v1/conversations' ||
     /^\/v1\/conversations\/[^/]+\/messages$/.test(pathname) ||
+    // The swipe list and the swipe itself. Both read and write `chat_message`, which
+    // only Cloud has: answering either here would mean reporting variants of a
+    // transcript this deployment does not store.
+    /^\/v1\/conversations\/[^/]+\/messages\/[^/]+\/variants$/.test(pathname) ||
+    /^\/v1\/conversations\/[^/]+\/messages\/[^/]+\/activate$/.test(pathname) ||
     pathname === '/v1/providers' ||
     pathname === '/v1/provider-connections/validate' ||
     /^\/v1\/conversations\/[^/]+\/generations$/.test(pathname)

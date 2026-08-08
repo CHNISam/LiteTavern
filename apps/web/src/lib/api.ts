@@ -37,6 +37,52 @@ export interface Message {
   role: 'USER' | 'ASSISTANT' | 'EVENT';
   content_text: string;
   status: string;
+  /**
+   * Which of several replies to the same message this one is. Sent by Cloud only when
+   * there is more than one, so a swipe control drawn on truthy data never appears on
+   * a bubble that has nothing to swipe to. `index` is zero-based.
+   */
+  variant?: { index: number; total: number };
+  /** The message this one answers. Absent on USER messages and on the opening line. */
+  reply_to_message_id?: string;
+}
+
+/** One entry of the swipe list: every reply given to the same message. */
+export interface MessageVariant {
+  message_id: string;
+  content_text: string;
+  status: string;
+  variant_no: number;
+  is_active: boolean;
+}
+
+/**
+ * Every reply that has been given to the message this one answers, in the order they
+ * were produced. `messageId` may be either end of the edge — Cloud resolves it.
+ */
+export async function fetchMessageVariants(
+  conversationId: string,
+  messageId: string
+): Promise<MessageVariant[]> {
+  const response = await api<{ variants?: MessageVariant[] }>(
+    `/v1/conversations/${conversationId}/messages/${messageId}/variants`
+  );
+  return response.variants ?? [];
+}
+
+/**
+ * Show a reply that was given earlier. Cloud accepts this only at the end of the
+ * conversation: choosing a variant further back would discard everything after it,
+ * which is an edit rather than the navigation this looks like.
+ */
+export async function activateMessageVariant(
+  conversationId: string,
+  messageId: string
+): Promise<void> {
+  await api(
+    `/v1/conversations/${conversationId}/messages/${messageId}/activate`,
+    { method: 'POST' }
+  );
 }
 
 export interface Provider {

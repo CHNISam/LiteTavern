@@ -97,6 +97,11 @@ export const en: Dictionary = {
     deleteMessage: 'Delete this message and later replies',
     deleteMessageConfirm: 'Delete this message and every later reply in this conversation?',
     deleteMessageFailed: 'Could not delete the message. Please try again.',
+    swipeGroup: 'Other replies',
+    swipePrevious: 'Previous reply',
+    swipeNext: 'Next reply',
+    swipePosition: (index: number, total: number) => `${index} / ${total}`,
+    swipeFailed: 'Could not switch replies. Please try again.',
     sendFailed: 'Could not send. Please try again.',
     regexRemovedInput: 'Regex processing removed the whole input, so it was not sent.',
     regexInputTimeout:
