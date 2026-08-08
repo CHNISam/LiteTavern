@@ -396,10 +396,45 @@ Cloud 迁移 `0005_message_graph.sql`，全部为增量列/索引，边仍只有
   时才采用它；未登录（`GUEST`）不再让整个 bootstrap 掉进离线模式。
 - `apps/web/src/TranscriptRecovery.test.tsx`：3 个新用例。
 
+### 阶段 E 补完 —— Regenerate 与 Swipe 接线（已完成，v0.1.0 release blocker）
+
+纯前端 + 网关路由表，未改 schema、未改 Cloud。
+
+- **Regenerate 之前是假的**：旧实现把"重新生成"做成"用上一条 USER 消息触发一次
+  edit 重发"。那会写一条新的 USER 消息、把原来的一问一答挤出活动分支，
+  于是**没有任何东西指回被替换掉的回复**——一个悄悄销毁答案的按钮。
+  现在只发 `regenerate_of_message_id`，不带 `input`、不带 `client_message_id`：
+  USER 消息原地不动，新回复作为同一父消息下的另一个 variant 落库。
+  Retry 还是 Regenerate 由服务端按目标消息状态判定，客户端不指定。
+- **Regenerate 与 Swipe 是同一个功能**：regenerate 是唯一会产生第二条回复的动作，
+  swipe 是唯一能让第一条重新可达的动作。只接其中一个没有意义。
+- **两者都只出现在会话末尾的那条回复上。** `activateVariant` 本来就拒绝在中间切换
+  （等同于删除其后内容，属编辑而非导航）；regenerate 中间消息虽然服务端允许，
+  但效果同样是丢掉后续对话——一个会静默截断历史的按钮不值得提供。
+  开场白也排除：它不回答任何消息，服务端会以 `WRONG_STATE` 拒绝。
+- Swipe 点击时**实时读 variant 列表**而不是用 transcript 里缓存的计数：
+  另一台设备可能已经加了回复，用陈旧列表会激活错的那条。两端不循环。
+- 客户端上下文按"这条 USER 消息正要被发送"重建：历史截到该 USER 消息之前，
+  其文本充当 input 的位置。被替换的回复不参与世界书激活扫描——
+  否则条目会被模型即将重写的那段文字触发。USER_INPUT 的 Regex 不再跑第二遍
+  （那段文本发送时已处理过，服务端存的是处理后的结果）。
+- 失败路径：generation 失败时把被乐观移除的旧回复重新拉回来，
+  而不是留给读者一个缺了一块的会话。旧的 structured turn 端点不支持 variant，
+  regenerate 不走那条兼容回退。
+- `deploy/cloud-gateway.js`：`.../messages/:mid/variants` 与 `.../activate` 转发 Cloud。
+- 测试：`apps/web/src/RegenerateSwipe.test.tsx`（4 例）、
+  `scripts/internal-gate-routing.test.mjs` 新增断言。
+
 ### 未完成
 
-- **Swipe / Regenerate / Branch 的 UI 尚未接线。** 服务端与路由齐备、有测试覆盖，
-  客户端还没有触发它们的按钮。这是纯前端工作，不需要改 schema。
+- **Branch 的 UI 未接线，明确 defer（不属于 v0.1.0）。** 服务端
+  `POST /v1/conversations/:cid/branches` 齐备且有测试，缺的不是接线而是客户端的
+  会话模型：现在"一个角色 = 一个会话"，`conversationId` 由
+  `POST /v1/conversations` 按 `character_id` 取回，界面上没有会话列表也没有切换器。
+  分支会话被 `chat_conversation_account_character_uq` 排除在外，
+  所以创建之后再打开这个角色仍然回到原会话——**刷新一次分支就找不回来了**。
+  要让它可用得先有会话列表、活动会话的持久化与切换 UI，
+  那是新的状态模型和新的界面，不是接线。
 - **角色、头像、导出、model-configurations 仍在 internal-gate。**
   搬迁需要在 Cloud 建角色域（表 + 路由 + R2 头像 + 导出），
   且**取决于 Open Question 1 的答复**：生产站点是否现在切到 Cloud。
