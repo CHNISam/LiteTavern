@@ -84,14 +84,22 @@ function mockShell({
       return json(cloudStatus({ accountState, blockReason, dailyRemaining }));
     }
     if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+    if (path === '/v1/auth/me') {
+      return registered
+        ? json({ user: {
+            user_id: 'user-1', anonymous_id: 'user-1', identity_type: 'EMAIL',
+            email: 'user@example.com', registered: true
+          } })
+        : json({ error: { code: 'UNAUTHENTICATED', message: 'signed out' } }, 401);
+    }
     if (path === '/v1/identities/anonymous') {
       return json({
         user: {
           user_id: 'user-1',
           anonymous_id: 'anonymous-1',
-          identity_type: registered ? 'EMAIL' : 'ANONYMOUS',
-          email: registered ? 'user@example.com' : null,
-          registered
+          identity_type: 'ANONYMOUS',
+          email: null,
+          registered: false
         }
       });
     }

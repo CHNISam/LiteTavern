@@ -26,7 +26,7 @@ import { LoginSync } from './components/LoginSync';
 import { AboutPage } from './pages/AboutPage';
 import { SupportPage } from './pages/SupportPage';
 import {
-  ApiError, api, deleteCharacter, fetchCharacterDetail, fetchReplySuggestions, generateTurn, logout, saveTurnBubble,
+  ApiError, api, deleteCharacter, fetchCharacterDetail, fetchReplySuggestions, generateTurn, saveTurnBubble,
   streamGeneration,
   type AnonymousIdentity, type Character, type Message, type ModelConfiguration
 } from './lib/api';
@@ -49,6 +49,7 @@ import {
   type CloudModelServiceState,
   type CloudStatus
 } from './lib/cloud';
+import { useCloudAccount } from './lib/cloud-auth';
 import {
   cacheCharacters,
   cacheConversationId,
@@ -203,7 +204,13 @@ function ProductApp() {
   );
   const [error, setError] = useState<string | null>(null);
   const [, setErrorCode] = useState<string | null>(null);
-  const [account, setAccount] = useState<AnonymousIdentity | null>(null);
+  const {
+    state: accountState,
+    account,
+    acceptAuthenticated,
+    signOut
+  } = useCloudAccount();
+  const localIdentityRef = useRef<AnonymousIdentity | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [cloud, setCloud] = useState<CloudStatus | null>(() => readCachedStatus());
   const [cloudChecking, setCloudChecking] = useState(true);
@@ -541,8 +548,11 @@ function ProductApp() {
       '/v1/identities/anonymous',
       { method: 'POST' }
     );
-    if (identityResponse.user?.anonymous_id) {
-      setAccount(identityResponse.user);
+    if (
+      identityResponse.user?.identity_type === 'ANONYMOUS'
+      && identityResponse.user.anonymous_id
+    ) {
+      localIdentityRef.current = identityResponse.user;
       await analytics.initialize({
         userId: identityResponse.user.user_id,
         anonymousId: identityResponse.user.anonymous_id,
@@ -607,7 +617,7 @@ function ProductApp() {
   // account state and pull the (possibly merged) character list without disturbing the
   // conversation the user is currently reading.
   async function onAuthenticated(user: AnonymousIdentity) {
-    setAccount(user);
+    acceptAuthenticated(user);
     setLoginOpen(false);
     await refreshCloudStatus();
     const response = await api<{ characters: Character[] }>('/v1/characters');
@@ -615,27 +625,11 @@ function ProductApp() {
     cacheCharacters(response.characters);
   }
 
-  // Sign out: revoke this device's session, then start a brand-new anonymous identity
-  // rather than reusing the account just left.
+  // Sign out revokes only the Cloud account session. Browser-local characters,
+  // cached conversations and the analytics identity have independent lifecycles.
   async function onLogout() {
-    await logout();
-    playbackRef.current?.interrupt();
-    const identityResponse = await api<{ user?: AnonymousIdentity }>(
-      '/v1/identities/anonymous',
-      { method: 'POST' }
-    );
-    if (identityResponse.user) {
-      setAccount(identityResponse.user);
-    }
-    setActive(null);
-    setConversationId(null);
-    setMessages([]);
-    setView('chat');
+    await signOut();
     await refreshCloudStatus();
-    const response = await api<{ characters: Character[] }>('/v1/characters');
-    setCharacters(response.characters);
-    cacheCharacters(response.characters);
-    if (response.characters[0]) await openCharacter(response.characters[0]);
   }
 
   useEffect(() => {
@@ -1152,7 +1146,7 @@ function ProductApp() {
         muted={muted}
         onToggleMute={toggleMute}
         account={account}
-        syncError={cloudOffline}
+        syncError={cloudOffline || accountState === 'unavailable'}
         onAccount={() => setAccountOpen(true)}
         onProvider={() => openProviderSettings('overview')}
         onSettings={() => setAppSettingsOpen(true)}

@@ -2,7 +2,6 @@ import { CloudOff, LogOut, X } from 'lucide-react';
 import {
   alphaDisclaimer,
   describeQuotaWindows,
-  isSignedIn,
   quotaLabel,
   resolveCloudNotice,
   type CloudStatus
@@ -60,9 +59,7 @@ export function AccountSyncPanel({
   const notice = resolveCloudNotice(status);
   const quota = describeQuotaWindows(status);
   const registered =
-    isSignedIn(status) ||
-    account?.registered === true ||
-    account?.identity_type === 'EMAIL';
+    account?.registered === true || account?.identity_type === 'EMAIL';
   const accountState = status ? t.account.accountStates[status.account_state] : null;
 
   return (

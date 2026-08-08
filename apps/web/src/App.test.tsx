@@ -78,7 +78,7 @@ function cloudStatus(
 }
 
 /** The identity payload no longer carries any allowance; there is none to carry. */
-function identity(registered = true) {
+function identity(registered = false) {
   return {
     user: {
       user_id: 'user-1',
@@ -91,6 +91,76 @@ function identity(registered = true) {
 }
 
 describe('HSR message shell', () => {
+  it('keeps a restored Cloud account when anonymous bootstrap and cloud status both describe a guest', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      if (path === '/v1/auth/me') return json({ user: {
+        user_id: 'account-1', anonymous_id: 'account-1', identity_type: 'EMAIL',
+        email: 'reader@example.test', registered: true
+      } });
+      if (path === '/v1/identities/anonymous') return json({ user: {
+        user_id: 'local-1', anonymous_id: 'anonymous-1', identity_type: 'ANONYMOUS',
+        email: null, registered: false
+      } });
+      if (path === '/v1/cloud/status') return json(cloudStatus({
+        account_state: 'GUEST', email_verified: false, platform_models_available: false,
+        block_reason: 'GUEST', quota: null
+      }));
+      if (path === '/v1/characters') return json({ characters: [] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('reader@example.test')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '管理账号与同步' })).toBeInTheDocument();
+  });
+
+  it('signs out only after the server succeeds and does not rebuild identity or reload local data', async () => {
+    const requested: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      requested.push(path);
+      if (path === '/v1/auth/me') return json({ user: {
+        user_id: 'account-1', anonymous_id: 'account-1', identity_type: 'EMAIL',
+        email: 'reader@example.test', registered: true
+      } });
+      if (path === '/v1/identities/anonymous') return json({ user: {
+        user_id: 'local-1', anonymous_id: 'anonymous-1', identity_type: 'ANONYMOUS',
+        email: null, registered: false
+      } });
+      if (path === '/v1/cloud/status') return json(cloudStatus());
+      if (path === '/v1/characters') return json({ characters: [{
+        character_id: 'firefly-card', name: '流萤', profile_summary: '',
+        personality_summary: '', first_message: '还在这里。', avatar_seed: '流萤',
+        is_owned: true, last_message: null
+      }] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
+      if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
+      if (path === '/v1/auth/logout') return json({ status: 'SIGNED_OUT' });
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+    expect((await screen.findAllByText('流萤')).length).toBeGreaterThan(0);
+    fireEvent.click(await screen.findByRole('button', { name: '管理账号与同步' }));
+    fireEvent.click(await screen.findByRole('button', { name: '退出登录' }));
+
+    expect(await screen.findByRole('button', { name: '登录' })).toBeInTheDocument();
+    expect((await screen.findAllByText('流萤')).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
+    const signedOutPanel = await screen.findByRole('dialog', { name: '账号与同步' });
+    expect(within(signedOutPanel).getByText('未登录')).toBeInTheDocument();
+    expect(within(signedOutPanel).queryByRole('button', { name: '退出登录' })).not.toBeInTheDocument();
+    expect(requested.filter((path) => path === '/v1/identities/anonymous')).toHaveLength(1);
+    expect(requested.filter((path) => path === '/v1/characters')).toHaveLength(1);
+  });
   it('does not buy quick replies merely for opening an existing chat', async () => {
     const requested: string[] = [];
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
@@ -447,13 +517,9 @@ describe('HSR message shell', () => {
         });
       }
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/identities/anonymous') {
-        return json({
-          user: {
-            user_id: 'user-1', anonymous_id: 'anonymous-1', identity_type: 'EMAIL',
-            email: 'a@example.com', registered: true
-          }
-        });
+        return json(identity(false));
       }
       if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
       if (path === '/v1/characters') return json({ characters: [] });
@@ -507,13 +573,9 @@ describe('HSR message shell', () => {
         });
       }
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/identities/anonymous') {
-        return json({
-          user: {
-            user_id: 'user-1', anonymous_id: 'anonymous-1', identity_type: 'EMAIL',
-            email: 'a@example.com', registered: true
-          }
-        });
+        return json(identity(false));
       }
       if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
       if (path === '/v1/characters') return json({ characters: [] });
