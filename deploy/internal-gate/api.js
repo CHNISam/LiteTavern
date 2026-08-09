@@ -96,6 +96,45 @@ function strings(value) {
   return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
 }
 
+function modelConfigurationInput(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const provider = string(source.provider).trim();
+  const modelName = string(source.model_name).trim();
+  const displayName = string(source.display_name).trim();
+  const baseUrl = string(source.base_url).trim();
+  const credentialId = string(source.credential_id).trim();
+  if (!provider || !modelName || !displayName || !baseUrl || !credentialId) {
+    throw new ApiFault(
+      'MODEL_CONFIGURATION_INVALID',
+      '模型配置缺少服务商、模型、名称、地址或本地凭证标识。',
+      400
+    );
+  }
+  if (
+    provider.length > 50 || modelName.length > 200 || displayName.length > 100 ||
+    baseUrl.length > 500 || credentialId.length > 100
+  ) {
+    throw new ApiFault('MODEL_CONFIGURATION_INVALID', '模型配置字段过长。', 400);
+  }
+  let endpoint;
+  try {
+    endpoint = new URL(baseUrl);
+  } catch {
+    throw new ApiFault('MODEL_CONFIGURATION_INVALID', '模型服务地址无效。', 400);
+  }
+  if (!['http:', 'https:'].includes(endpoint.protocol)) {
+    throw new ApiFault('MODEL_CONFIGURATION_INVALID', '模型服务地址必须使用 HTTP 或 HTTPS。', 400);
+  }
+  return {
+    provider,
+    model_name: modelName,
+    display_name: displayName,
+    base_url: baseUrl.replace(/\/$/, ''),
+    credential_id: credentialId,
+    credential_configured: true
+  };
+}
+
 function normalizeCharacter(value) {
   const source = value && typeof value === 'object' ? value : {};
   const creator = source.creator && typeof source.creator === 'object'
@@ -312,7 +351,26 @@ export async function handleApiRequest(request, { repository, objects }) {
       return json({ accepted: count, duplicates: 0 }, 202);
     }
     if (request.method === 'GET' && path === '/v1/model-configurations') {
-      return json({ configurations: [] });
+      return json({
+        configurations: await repository.listModelConfigurations(user.user_id)
+      });
+    }
+    if (request.method === 'POST' && path === '/v1/model-configurations') {
+      const configuration = {
+        model_configuration_id: crypto.randomUUID(),
+        ...modelConfigurationInput(await request.json().catch(() => ({})))
+      };
+      await repository.createModelConfiguration(user.user_id, configuration);
+      return json(configuration, 201);
+    }
+    const modelConfigurationMatch = path.match(/^\/v1\/model-configurations\/([^/]+)$/);
+    if (request.method === 'DELETE' && modelConfigurationMatch) {
+      return json({
+        deleted: await repository.deleteModelConfiguration(
+          user.user_id,
+          modelConfigurationMatch[1]
+        )
+      });
     }
     // `/v1/providers` is not handled here: it is forwarded to Cloud by
     // `_worker.js`. Answering it locally is what produced an empty catalogue.
@@ -708,6 +766,44 @@ export class D1Repository {
     return this.database.prepare(
       'SELECT user_id, anonymous_id FROM app_identity WHERE session_token_hash = ?'
     ).bind(sessionTokenHash).first();
+  }
+
+  async listModelConfigurations(userId) {
+    const result = await this.database.prepare(`
+      SELECT model_configuration_id, provider, model_name, display_name,
+             base_url, credential_id
+      FROM model_configuration
+      WHERE user_id = ?
+      ORDER BY updated_at DESC
+    `).bind(userId).all();
+    return result.results.map((row) => ({ ...row, credential_configured: true }));
+  }
+
+  async createModelConfiguration(userId, configuration) {
+    const now = new Date().toISOString();
+    await this.database.prepare(`
+      INSERT INTO model_configuration (
+        model_configuration_id, user_id, provider, model_name, display_name,
+        base_url, credential_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      configuration.model_configuration_id,
+      userId,
+      configuration.provider,
+      configuration.model_name,
+      configuration.display_name,
+      configuration.base_url,
+      configuration.credential_id,
+      now,
+      now
+    ).run();
+  }
+
+  async deleteModelConfiguration(userId, configurationId) {
+    const result = await this.database.prepare(
+      'DELETE FROM model_configuration WHERE user_id = ? AND model_configuration_id = ?'
+    ).bind(userId, configurationId).run();
+    return result.meta.changes > 0;
   }
 
   async createRelationshipImport(userId, importId, payload) {

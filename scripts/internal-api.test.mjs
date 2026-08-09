@@ -13,6 +13,7 @@ class MemoryRepository {
   messages = new Map();
   relationshipImports = new Map();
   memories = new Map();
+  modelConfigurations = new Map();
 
   async createIdentity(tokenHash) {
     const user = {
@@ -25,6 +26,31 @@ class MemoryRepository {
 
   async findIdentity(tokenHash) {
     return this.identities.get(tokenHash) ?? null;
+  }
+
+  async listModelConfigurations(userId) {
+    return [...this.modelConfigurations.values()]
+      .filter((item) => item.user_id === userId)
+      .map((item) => ({
+        model_configuration_id: item.model_configuration_id,
+        provider: item.provider,
+        model_name: item.model_name,
+        display_name: item.display_name,
+        base_url: item.base_url,
+        credential_id: item.credential_id,
+        credential_configured: item.credential_configured
+      }));
+  }
+
+  async createModelConfiguration(userId, record) {
+    this.modelConfigurations.set(record.model_configuration_id, { ...record, user_id: userId });
+  }
+
+  async deleteModelConfiguration(userId, configurationId) {
+    const configuration = this.modelConfigurations.get(configurationId);
+    if (!configuration || configuration.user_id !== userId) return false;
+    this.modelConfigurations.delete(configurationId);
+    return true;
   }
 
   async listCharacters(userId) {
@@ -325,6 +351,55 @@ test('normalizes unknown API routes to JSON instead of an empty Pages response',
   assert.equal(response.status, 404);
   assert.match(response.headers.get('content-type'), /application\/json/);
   assert.equal((await response.json()).error.code, 'NOT_FOUND');
+});
+
+test('persists browser-local model configuration metadata after provider validation', async () => {
+  const repository = new MemoryRepository();
+  const objects = new MemoryObjects();
+  const cookie = await identity(repository, objects);
+  const created = await handleApiRequest(
+    new Request('https://internal.example/v1/model-configurations', {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        'Content-Type': 'application/json',
+        Origin: 'https://internal.example'
+      },
+      body: JSON.stringify({
+        provider: 'zhipu',
+        model_name: 'glm-4.7-flash',
+        display_name: 'GLM Flash',
+        base_url: 'https://open.bigmodel.cn/api/paas/v4',
+        credential_id: 'browser-credential-1'
+      })
+    }),
+    { repository, objects }
+  );
+
+  assert.equal(created.status, 201);
+  const configuration = await created.json();
+  assert.match(configuration.model_configuration_id, /^[0-9a-f-]{36}$/);
+  assert.equal(configuration.credential_configured, true);
+
+  const listed = await handleApiRequest(
+    new Request('https://internal.example/v1/model-configurations', {
+      headers: { Cookie: cookie }
+    }),
+    { repository, objects }
+  );
+  assert.deepEqual((await listed.json()).configurations, [configuration]);
+
+  const removed = await handleApiRequest(
+    new Request(
+      `https://internal.example/v1/model-configurations/${configuration.model_configuration_id}`,
+      {
+        method: 'DELETE',
+        headers: { Cookie: cookie, Origin: 'https://internal.example' }
+      }
+    ),
+    { repository, objects }
+  );
+  assert.deepEqual(await removed.json(), { deleted: true });
 });
 
 test('rejects malformed card data without persisting it', async () => {

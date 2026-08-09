@@ -65,6 +65,7 @@ import {
 } from './lib/local-cache';
 import { cloudUrl } from './lib/runtime-config';
 import { credentialStore } from './lib/credential-store';
+import { byokModelSelector } from './lib/byok-model';
 import { copyText } from './lib/clipboard';
 import { createId } from './lib/id';
 import { TurnPlaybackController } from './lib/turn-playback';
@@ -772,11 +773,7 @@ function ProductApp() {
     if (!configuration) throw new Error(t.chat.byokMissingConfiguration);
     const key = await credentialStore.readSecret(configuration.credential_id);
     if (!key) throw new Error(t.chat.byokMissingKey);
-    return {
-      usage_mode: 'BYOK',
-      model_configuration_id: configuration.model_configuration_id,
-      credential: { credential_id: configuration.credential_id, api_key: key }
-    };
+    return byokModelSelector(configuration, key);
   }
 
   function updateQuickReplies(next: QuickReplySettings) {
