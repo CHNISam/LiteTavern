@@ -116,3 +116,21 @@ versioned guards.
   can contain several messages.
 - A new user send must fast-forward already-persisted pending actions before appending,
   otherwise the visible transcript can temporarily disagree with the canonical head.
+
+### 2026-08-09 - Final integration verification
+
+**By:** Codex
+
+**Actions:**
+- Merged the verified feature branches with the latest `develop` changes in both
+  repositories and reran the combined suites.
+- Passed 59 Web test files / 268 tests, 40 deployment tests, lint, typecheck, and build.
+- Passed 60 Cloud test files / 570 tests, lint, typecheck, and build.
+- Pushed both feature branches and both `develop` branches; no deployment, migration,
+  `main` change, tag, or Release was created.
+
+**Learnings:**
+- Concurrent reply-suggestions work changed both repositories after the feature
+  worktrees were created, so the final merge required a second full verification.
+- Cloud's pre-existing untracked backup/operations/todo files remained outside every
+  semantic-actions commit.
