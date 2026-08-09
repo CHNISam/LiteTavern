@@ -3072,6 +3072,44 @@ button { color: inherit; }
   cursor: pointer;
   backdrop-filter: blur(12px);
 }
+
+.generation-diagnostics {
+  position: fixed;
+  left: calc(18px + var(--safe-left));
+  bottom: calc(18px + var(--safe-bottom));
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 36px);
+  padding: 7px 8px 7px 10px;
+  border: 1px solid rgba(216, 186, 120, .38);
+  border-radius: 12px;
+  background: rgba(25, 28, 35, .92);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 14%);
+  color: var(--ink-inv);
+  font-size: 12px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.generation-diagnostics > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--gold-hi);
+  color: var(--gold-deep);
+  font: inherit;
+  font-weight: 700;
+  transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.generation-diagnostics > button:active:not(:disabled) { transform: scale(0.97); }
+.generation-diagnostics > button:disabled { cursor: default; opacity: 0.45; }
 /* On phones this sat exactly on the composer's send button. The entry moves into
    Settings there. These live next to the base rule on purpose: the responsive
    sections above this point lose to it on source order at equal specificity. */

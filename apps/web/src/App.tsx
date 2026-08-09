@@ -18,6 +18,7 @@ import { AccountSyncPanel } from './components/CloudPanel';
 import { ProviderSettings } from './components/ProviderSettings';
 import { AppSettingsPanel } from './components/AppSettingsPanel';
 import { ProductFeedback } from './components/ProductFeedback';
+import { GenerationDiagnostics } from './components/GenerationDiagnostics';
 import { ConversationPersonaPanel, PersonaPanel } from './components/PersonaPanel';
 import { CharacterWorldbookPanel, WorldbookPanel } from './components/WorldbookPanel';
 import { CharacterImport } from './components/CharacterImport';
@@ -97,6 +98,11 @@ import {
   type ReplySuggestionsSettings,
   type ReplySuggestionsTrigger
 } from './lib/reply-suggestions';
+import {
+  generationDiagnosticsEnabled,
+  withRuntimeTraceLayers,
+  type GenerationDiagnosticTraceV1
+} from './lib/generation-diagnostics';
 
 // 'settings' is gone: the character settings page repeated the profile and hid
 // the editor at the bottom of it. Editing lives on the profile now.
@@ -180,6 +186,7 @@ function ProductApp() {
   const initialQuickReplies = useRef(readQuickReplySettings()).current;
   const initialReplySuggestions = useRef(readReplySuggestionsSettings()).current;
   const t = useT();
+  const diagnosticsEnabled = generationDiagnosticsEnabled();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [active, setActive] = useState<Character | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -192,6 +199,8 @@ function ProductApp() {
     useState<'overview' | 'platform' | 'byok'>('overview');
   const [appSettingsOpen, setAppSettingsOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [generationTrace, setGenerationTrace] =
+    useState<GenerationDiagnosticTraceV1 | null>(null);
   const [personaPanelOpen, setPersonaPanelOpen] = useState(false);
   const [worldbookPanelOpen, setWorldbookPanelOpen] = useState(false);
   const [conversationPersonaOpen, setConversationPersonaOpen] = useState(false);
@@ -1072,6 +1081,9 @@ function ProductApp() {
       // arrived is the message's state to decide, so only the target is named here.
       ...(regenerateOfMessageId
         ? { regenerate_of_message_id: regenerateOfMessageId }
+        : {}),
+      ...(diagnosticsEnabled
+        ? { diagnostics: { generation_trace: true } }
         : {})
     };
 
@@ -1090,6 +1102,7 @@ function ProductApp() {
       const result = await streamGeneration(targetConversationId, payload, {
         signal: abortController.signal,
         idempotencyKey: turnRequestId,
+        captureTrace: diagnosticsEnabled,
         onDelta: (delta) => {
           streamedText += delta;
           setTyping(false);
@@ -1112,6 +1125,11 @@ function ProductApp() {
         }
       });
       streamStarted = true;
+      if (result.diagnosticTrace) {
+        void withRuntimeTraceLayers(result.diagnosticTrace, streamedText)
+          .then(setGenerationTrace)
+          .catch(() => undefined);
+      }
       turnIdRef.current = result.generationRequestId ?? turnRequestId;
       // The stream reports the post-deduction allowance; whether that allowance
       // still permits another turn is the server's call, not this client's.
@@ -1167,6 +1185,11 @@ function ProductApp() {
         return;
       }
       const apiError = reason instanceof ApiError ? reason : null;
+      if (apiError?.diagnosticTrace) {
+        void withRuntimeTraceLayers(apiError.diagnosticTrace, streamedText)
+          .then(setGenerationTrace)
+          .catch(() => undefined);
+      }
 
       // The conversation moved while this tab was looking at an older version of it,
       // or this exact send already landed. Neither is a failure of the send, and
@@ -1687,6 +1710,7 @@ function ProductApp() {
         open={feedbackOpen}
         onOpenChange={setFeedbackOpen}
       />
+      <GenerationDiagnostics trace={generationTrace} />
     </main>
   );
 }

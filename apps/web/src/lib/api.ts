@@ -2,6 +2,10 @@ import { analytics } from './analytics';
 import { t } from './i18n';
 import { createId } from './id';
 import { cloudUrl } from './runtime-config';
+import {
+  createGenerationDiagnosticTrace,
+  type GenerationDiagnosticTraceV1
+} from './generation-diagnostics';
 
 export interface Character {
   character_id: string;
@@ -167,6 +171,7 @@ export async function logout(): Promise<void> {
 }
 
 export class ApiError extends Error {
+  diagnosticTrace?: GenerationDiagnosticTraceV1;
   constructor(
     message: string,
     readonly code = 'REQUEST_FAILED',
@@ -291,12 +296,14 @@ export async function streamGeneration(
     onDelta: (text: string) => void;
     signal?: AbortSignal;
     idempotencyKey?: string;
+    captureTrace?: boolean;
   }
 ): Promise<{
   generationRequestId?: string;
   messageId?: string;
   /** The allowance after this generation, when the platform paid for it. */
   quota?: CloudQuotaSnapshot | null;
+  diagnosticTrace?: GenerationDiagnosticTraceV1;
 }> {
   const response = await fetch(cloudUrl(`/v1/conversations/${conversationId}/generations`), {
     method: 'POST',
@@ -326,6 +333,12 @@ export async function streamGeneration(
   let generationRequestId: string | undefined;
   let messageId: string | undefined;
   let quota: CloudQuotaSnapshot | null | undefined;
+  let serverTrace: Record<string, unknown> | undefined;
+  let pendingStreamError: ApiError | undefined;
+  let lastDeltaSeq = 0;
+  const deltaBySeq = new Map<number, string>();
+  const diagnosticFrames: Array<{ event: string; data: string; seq?: number }> = [];
+  const diagnosticDeltas: string[] = [];
   const consumeFrame = (frame: string) => {
     const lines = frame.split(/\r?\n/);
     const event = lines.find((line) => line.startsWith('event:'))
@@ -344,9 +357,34 @@ export async function streamGeneration(
       retryable?: boolean;
       request_id?: string;
       quota?: CloudQuotaSnapshot | null;
+      seq?: number;
     };
+    if (options.captureTrace) {
+      diagnosticFrames.push({
+        event: event ?? 'message',
+        data,
+        ...(parsed.seq === undefined ? {} : { seq: parsed.seq })
+      });
+    }
     if (event === 'start') generationRequestId = parsed.generation_request_id;
-    if (event === 'delta' && parsed.text) options.onDelta(parsed.text);
+    if (event === 'delta' && parsed.text) {
+      if (parsed.seq !== undefined) {
+        if (!Number.isSafeInteger(parsed.seq) || parsed.seq < 1) {
+          throw streamProtocolError();
+        }
+        const previous = deltaBySeq.get(parsed.seq);
+        if (previous !== undefined) {
+          if (previous !== parsed.text) throw streamProtocolError();
+          return;
+        }
+        if (parsed.seq !== lastDeltaSeq + 1) throw streamProtocolError();
+        deltaBySeq.set(parsed.seq, parsed.text);
+        lastDeltaSeq = parsed.seq;
+      }
+      diagnosticDeltas.push(parsed.text);
+      options.onDelta(parsed.text);
+    }
+    if (event === 'trace') serverTrace = parsed as Record<string, unknown>;
     if (event === 'done') {
       generationRequestId = parsed.generation_request_id ?? generationRequestId;
       messageId = parsed.message_id;
@@ -354,7 +392,7 @@ export async function streamGeneration(
       if (parsed.quota !== undefined) quota = parsed.quota;
     }
     if (event === 'error') {
-      throw new ApiError(
+      pendingStreamError = new ApiError(
         parsed.message ?? t().cloud.modelUnavailable,
         parsed.code,
         parsed.retryable,
@@ -371,11 +409,32 @@ export async function streamGeneration(
     if (done) break;
   }
   if (buffer.trim()) consumeFrame(buffer);
+  const diagnosticTrace = options.captureTrace
+    ? await createGenerationDiagnosticTrace({
+        ...(generationRequestId ? { generationRequestId } : {}),
+        ...(serverTrace ? { server: serverTrace } : {}),
+        frames: diagnosticFrames,
+        deltas: diagnosticDeltas
+      })
+    : undefined;
+  if (pendingStreamError) {
+    if (diagnosticTrace) pendingStreamError.diagnosticTrace = diagnosticTrace;
+    throw pendingStreamError;
+  }
   return {
     ...(generationRequestId ? { generationRequestId } : {}),
     ...(messageId ? { messageId } : {}),
-    ...(quota === undefined ? {} : { quota })
+    ...(quota === undefined ? {} : { quota }),
+    ...(diagnosticTrace ? { diagnosticTrace } : {})
   };
+}
+
+function streamProtocolError(): ApiError {
+  return new ApiError(
+    t().cloud.modelUnavailable,
+    'STREAM_PROTOCOL_CORRUPTED',
+    false
+  );
 }
 
 export interface ReplySuggestions {

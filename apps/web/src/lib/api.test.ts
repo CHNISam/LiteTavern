@@ -107,4 +107,94 @@ describe('API response handling', () => {
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
+
+  it('deduplicates replayed sequence numbers without deduplicating repeated text', async () => {
+    const encoder = new TextEncoder();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(
+              'event: start\ndata: {"generation_request_id":"generation-1"}\n\n' +
+              'event: delta\ndata: {"seq":1,"text":"ha"}\n\n' +
+              'event: delta\ndata: {"seq":1,"text":"ha"}\n\n' +
+              'event: delta\ndata: {"seq":2,"text":"ha"}\n\n' +
+              'event: done\ndata: {"message_id":"message-1"}\n\n'
+            ));
+            controller.close();
+          }
+        }),
+        { status: 200 }
+      )
+    );
+    const deltas: string[] = [];
+
+    await streamGeneration('conversation-1', {}, {
+      onDelta: (text) => deltas.push(text)
+    });
+
+    expect(deltas).toEqual(['ha', 'ha']);
+  });
+
+  it('rejects a conflicting replay of an existing sequence number', async () => {
+    const encoder = new TextEncoder();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(
+              'event: delta\ndata: {"seq":1,"text":"first"}\n\n' +
+              'event: delta\ndata: {"seq":1,"text":"different"}\n\n'
+            ));
+            controller.close();
+          }
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      streamGeneration('conversation-1', {}, { onDelta: () => undefined })
+    ).rejects.toMatchObject({
+      name: 'ApiError',
+      code: 'STREAM_PROTOCOL_CORRUPTED',
+      retryable: false
+    });
+  });
+
+  it('returns a content-free diagnostic trace when capture is enabled', async () => {
+    const encoder = new TextEncoder();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(
+              'event: start\ndata: {"generation_request_id":"generation-1"}\n\n' +
+              'event: delta\ndata: {"seq":1,"text":"private reply"}\n\n' +
+              'event: trace\ndata: {"trace_version":1,"provider":"test","model":"model"}\n\n' +
+              'event: done\ndata: {"message_id":"message-1"}\n\n'
+            ));
+            controller.close();
+          }
+        }),
+        { status: 200 }
+      )
+    );
+
+    const result = await streamGeneration('conversation-1', {}, {
+      captureTrace: true,
+      onDelta: () => undefined
+    });
+
+    expect(result.diagnosticTrace).toMatchObject({
+      trace_version: 1,
+      generation_request_id: 'generation-1',
+      server: { provider: 'test', model: 'model' },
+      client: {
+        delta_count: 1,
+        assembled: { length: 13, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }
+      }
+    });
+    expect(JSON.stringify(result.diagnosticTrace)).not.toContain('private reply');
+  });
 });
