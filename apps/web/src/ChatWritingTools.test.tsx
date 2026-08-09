@@ -143,7 +143,7 @@ it('fills the composer from a configured local quick reply without sending it', 
   expect(requested.some((path) => path.endsWith('/generations'))).toBe(false);
 });
 
-it('offers user-side candidates on demand and fills the composer from one', async () => {
+it('offers user-side candidates on demand and sends the one the reader picks', async () => {
   const requested = installChatFetch([
     'I will go with you.',
     'Give me a moment.',
@@ -159,12 +159,13 @@ it('offers user-side candidates on demand and fills the composer from one', asyn
   expect(screen.getByRole('button', { name: 'Not tonight.' })).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: 'Give me a moment.' }));
-  await waitFor(() => expect(composer).toHaveValue('Give me a moment.'));
 
-  // Picking a candidate is not sending it, and nothing was written to the transcript.
-  expect(screen.queryByText('Give me a moment.', { selector: '.message-bubble' }))
-    .not.toBeInTheDocument();
-  expect(requested.some((path) => path.endsWith('/generations'))).toBe(false);
+  // Picking is the decision, so it goes. The candidate never waits in the
+  // composer for a send press the reader has effectively already made.
+  await waitFor(() =>
+    expect(requested.some((path) => path.endsWith('/generations'))).toBe(true)
+  );
+  expect(composer).toHaveValue('');
 });
 
 it('asks for suggestions once and reuses them while the story has not moved', async () => {

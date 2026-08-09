@@ -197,9 +197,40 @@ it('asks for suggestions after the reply lands, and shows them', async () => {
   expect(order.indexOf('/v1/conversations/conversation-1/generations'))
     .toBeLessThan(order.indexOf('/v1/conversations/conversation-1/reply-suggestions'));
 
-  fireEvent.click(screen.getByRole('button', { name: '要我过去吗？' }));
-  await waitFor(() => expect(screen.getByPlaceholderText(/Nova/)).toHaveValue('要我过去吗？'));
 });
+
+// Picking a candidate *is* the decision. Parking it in the composer asked the
+// reader to confirm a choice they had already made, putting the send button in
+// front of a message they had already chosen.
+it('sends the candidate the reader picks instead of parking it in the composer', async () => {
+  useAutomatic();
+  const requested = mockShell();
+
+  render(<App />);
+  await sendOnce();
+
+  await screen.findByRole('button', { name: '要我过去吗？' });
+  const before = requested.filter((entry) => entry.path.endsWith('/generations')).length;
+
+  fireEvent.click(screen.getByRole('button', { name: '要我过去吗？' }));
+
+  await waitFor(() => {
+    const sends = requested.filter((entry) => entry.path.endsWith('/generations'));
+    expect(sends).toHaveLength(before + 1);
+    expect(
+      (sends.at(-1)?.body as { input?: { text?: string } } | undefined)?.input?.text
+    ).toBe('要我过去吗？');
+  });
+  expect(screen.getByPlaceholderText(/Nova/)).toHaveValue('');
+  // The send this test just made has its own automatic follow-up. Letting it
+  // finish here keeps it from landing in the next test's recorded calls.
+  await settle();
+});
+
+// Typing removes the chips, so the "reader has their own draft" guard in the
+// handler is a belt-and-braces check rather than a reachable state. The rule it
+// protects — a candidate never overwrites the reader's own words — is covered by
+// the composer being empty above.
 
 it('does not request suggestions at all when the trigger is manual', async () => {
   const requested = mockShell();

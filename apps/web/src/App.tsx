@@ -1658,8 +1658,14 @@ function ProductApp() {
             }}
             onSend={send}
             onStop={stopGeneration}
+            // A 代写 candidate is a finished message, not a starting point: the
+            // reader asked for something to say and picked the one they meant.
+            // Parking it in the composer made them press send a second time to
+            // confirm a choice they had already made. A draft they typed
+            // themselves still wins — picking would silently discard it.
             onPick={(text) => {
-              if (!draft.trim()) setDraft(text);
+              if (draft.trim()) return;
+              void submit(text);
             }}
             onQuickReply={(text) => {
               if (draft.trim()) return;
