@@ -39,7 +39,11 @@ test('accounts, quota and the model gateway are forwarded to Cloud', () => {
     // Swipe. The variant list and the activation both live in Cloud's `chat_message`,
     // so answering them here would describe a transcript this deployment never wrote.
     '/v1/conversations/conversation-1/messages/message-1/variants',
-    '/v1/conversations/conversation-1/messages/message-1/activate'
+    '/v1/conversations/conversation-1/messages/message-1/activate',
+    // 代写. A model call over the transcript, so it belongs where both live. It was
+    // missing from this table and the gate's own 503 answered it instead, telling the
+    // reader the model service was not enabled.
+    '/v1/conversations/conversation-1/reply-suggestions'
   ]) {
     assert.equal(isCloudPath(path), true, path);
   }
@@ -63,6 +67,11 @@ test('the conversation patterns do not over-match', () => {
   assert.equal(isCloudPath('/v1/conversations/c1/generations'), true);
   assert.equal(isCloudPath('/v1/conversations/c1/messages'), true);
   assert.equal(isCloudPath('/v1/conversations/c1/generations/extra'), false);
+  assert.equal(isCloudPath('/v1/conversations/c1/reply-suggestions'), true);
+  assert.equal(isCloudPath('/v1/conversations/c1/reply-suggestions/extra'), false);
+  // The legacy structured turn endpoint is not Cloud's. It stays a 503 on the gate,
+  // which is the client's signal to stop using it.
+  assert.equal(isCloudPath('/v1/conversations/c1/turns'), false);
   // A single message is not the transcript; deleting one is still answered locally
   // until characters move too.
   assert.equal(isCloudPath('/v1/conversations/c1/messages/m1'), false);

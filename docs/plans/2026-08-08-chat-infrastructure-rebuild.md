@@ -452,6 +452,17 @@ Cloud 迁移 `0005_message_graph.sql`，全部为增量列/索引，边仍只有
   否则会删掉别的会话还在用的文本。清理它们属于"删除账号"这条流程，目前不存在。
   这里明确记下，而不是留给以后的人去发现。
 - 客户端 `deleteUserMessage`、编辑重发、重新生成三条路径仍走旧的整表重拉语义。
+- **代写（`reply-suggestions`）等待 Cloud 侧实现。** 这是重建时漏掉的尾巴：
+  `POST /v1/conversations/:cid/reply-suggestions` 不在网关路由表里，请求落进
+  internal-gate 被那条兜底 503 接住，于是"代写"按钮在模型服务完全正常的开发环境上
+  报"内测环境的模型服务尚未启用"——把一个缺路由说成了缺服务。
+  网关这侧已经补上（`deploy/cloud-gateway.js`，`scripts/internal-gate-routing.test.mjs`
+  有断言），**但 Cloud 仓库尚未实现这条路由**，在它落地之前点代写会从 503 变成 404。
+  另外 `App.tsx:1125` 那条"复用上一轮 suggestions"的快路径已经死了：suggestions 只由
+  旧的 structured turn 端点返回，而正常发消息走 SSE 的 `/generations`，
+  所以聊天框上方那条快捷回复建议条现在永远不显示，代写也每次都要真发一次请求。
+  Cloud 接好后要决定：是让 `/generations` 的 done 帧带回 suggestions（省一次调用），
+  还是把那条建议条一并下掉。
 
 ## Open Questions
 

@@ -613,7 +613,13 @@ export async function handleApiRequest(request, { repository, objects }) {
 
     // Generation used to 503 here. It now belongs to LiteTavern Cloud and never
     // reaches this file: `_worker.js` forwards it before the gate is consulted.
-    if (/^\/v1\/conversations\/[^/]+\/(turns|reply-suggestions)$/.test(path)) {
+    //
+    // `/turns` is the exception, and deliberately so. It is the legacy structured
+    // endpoint the client only falls back to when Cloud has no SSE route at all, and
+    // Cloud does not serve it — so it stays here, and stays a 503. `reply-suggestions`
+    // used to be caught by this same branch, which is how the 代写 button reported a
+    // missing model service on a deployment whose model service was fine.
+    if (/^\/v1\/conversations\/[^/]+\/turns$/.test(path)) {
       return error(
         'MODEL_SERVICE_UNAVAILABLE',
         '内测环境的模型服务尚未启用，请先配置自己的模型服务。',
