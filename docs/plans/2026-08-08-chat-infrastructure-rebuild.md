@@ -470,6 +470,13 @@ Cloud 迁移 `0005_message_graph.sql`，全部为增量列/索引，边仍只有
   `reply-suggestions.ts` 里那些丢弃角色台词的过滤器就是合并时代留下的伤疤。
 - 共享核心 `apps/api/src/modules/conversation/reply-suggestions.ts`（运行时无关，
   见 ADR-0001）：任务指令 + 候选解析 + 数量上限。Worker 与 Fastify 都调它。
+- **任务指令必须放在末尾的 user turn，不能放在 system 块里。** 建议请求永远是在角色
+  说完话之后发起的，历史结尾必然是 assistant 消息，而 chat template 被要求从
+  assistant 消息续写时会认为这一轮已经结束、直接吐 EOS。对 dev 实际路由的
+  `Qwen/Qwen2.5-7B-Instruct` 实测：任务放 system 时 0/6 可用（`completion_tokens: 0`，
+  `finish_reason: "stop"`），同样的文字移到末尾 user turn 后 8/8 可用。
+  任务文案还必须点明"你要替的是发出 user 消息的那一方"——只说"替用户想回复"时，
+  小模型约有一半候选会用角色的口吻回答，因为上下文里几乎每个字都属于角色。
 - Worker 新路由复用 `createGeneration`/`reserveQuota`/`settleGeneration`/
   `resolvePlatformModel`/`completeDetailed`/`normalizeProviderError`；
   计费抽到 `worker/routes/charging.ts`，与 `/generations` 同一份实现。
