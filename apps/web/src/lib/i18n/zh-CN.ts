@@ -659,6 +659,12 @@ export const zhCN = {
     failed: '反馈发送失败，请稍后重试。'
   },
 
+  diagnostics: {
+    traceWaiting: 'ç”Ÿæˆè¯Šæ–­å·²å¼€å¯',
+    traceReady: 'ç”Ÿæˆè¯Šæ–­å·²å°±ç»ª',
+    exportTrace: 'å¯¼å‡º trace'
+  },
+
   admin: {
     loading: '正在加载管理后台…'
   },

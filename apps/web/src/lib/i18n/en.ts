@@ -706,6 +706,12 @@ export const en: Dictionary = {
     failed: 'Could not send the feedback. Please try again.'
   },
 
+  diagnostics: {
+    traceWaiting: 'Generation trace enabled',
+    traceReady: 'Generation trace ready',
+    exportTrace: 'Export trace'
+  },
+
   admin: {
     loading: 'Loading the admin console…'
   },
