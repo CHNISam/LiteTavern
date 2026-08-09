@@ -9,6 +9,7 @@
  */
 export function isCloudPath(pathname) {
   return (
+    pathname.startsWith('/api/admin/') ||
     pathname.startsWith('/v1/auth/') ||
     pathname === '/v1/feedback' ||
     pathname === '/v1/cloud/status' ||

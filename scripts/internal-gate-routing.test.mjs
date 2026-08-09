@@ -20,6 +20,10 @@ test('accounts, quota and the model gateway are forwarded to Cloud', () => {
     '/v1/auth/email-code/send',
     '/v1/auth/email-code/verify',
     '/v1/auth/logout',
+    // The console shell is static, but every administrative datum and action is
+    // Cloud-owned. Otherwise Pages' SPA fallback turns missing APIs into fake 200s.
+    '/api/admin/overview',
+    '/api/admin/feedback',
     // Product feedback is persisted and reviewed in LiteTavern Cloud. Keeping it
     // on the client-side gate makes a successful Cloud deployment look like a 404.
     '/v1/feedback',
