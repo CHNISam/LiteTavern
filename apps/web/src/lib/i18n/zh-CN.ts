@@ -644,7 +644,7 @@ export const zhCN = {
     title: '提交反馈',
     closeAria: '关闭反馈',
     sent: '已经收到，谢谢。',
-    sentBody: '反馈会附带页面、版本和运行环境，但不会包含聊天正文或 API Key。',
+    sentBody: '感谢你帮助我们改进 LiteTavern。',
     done: '完成',
     kind: '类型',
     kindUx: '体验问题',
@@ -654,7 +654,6 @@ export const zhCN = {
     bodyPlaceholder: '发生了什么？你原本希望看到什么？',
     contact: '联系方式',
     contactPlaceholder: '邮箱或其他便于联系的方式',
-    attachedNote: '自动附带当前页面、应用版本、浏览器/设备、Provider/模型和可用 Trace。',
     sending: '发送中…',
     send: '发送反馈',
     failed: '反馈发送失败，请稍后重试。'

@@ -691,8 +691,7 @@ export const en: Dictionary = {
     title: 'Send feedback',
     closeAria: 'Close feedback',
     sent: 'Received — thank you.',
-    sentBody:
-      'Feedback carries the page, version and runtime environment. It never carries chat content or API keys.',
+    sentBody: 'Thanks for helping us improve LiteTavern.',
     done: 'Done',
     kind: 'Type',
     kindUx: 'Something felt wrong',
@@ -702,8 +701,6 @@ export const en: Dictionary = {
     bodyPlaceholder: 'What happened, and what did you expect instead?',
     contact: 'Contact',
     contactPlaceholder: 'Email, or another way to reach you',
-    attachedNote:
-      'The current page, app version, browser/device, provider/model and any trace id are attached automatically.',
     sending: 'Sending…',
     send: 'Send feedback',
     failed: 'Could not send the feedback. Please try again.'

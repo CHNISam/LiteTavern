@@ -140,9 +140,6 @@ export function ProductFeedback({
                     placeholder={t.feedback.contactPlaceholder}
                   />
                 </label>
-                <p className="feedback-privacy">
-                  {t.feedback.attachedNote}
-                </p>
                 {error && <p className="feedback-error">{error}</p>}
                 <div className="feedback-actions">
                   <button type="button" onClick={() => setOpen(false)}>

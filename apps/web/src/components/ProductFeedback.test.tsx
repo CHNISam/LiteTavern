@@ -21,6 +21,7 @@ describe('ProductFeedback', () => {
     render(<ProductFeedback provider="cloudflare" model="@cf/test" traceId="trace-1" />);
 
     fireEvent.click(screen.getByRole('button', { name: '提交反馈' }));
+    expect(document.querySelector('.feedback-privacy')).toBeNull();
     fireEvent.change(screen.getByLabelText('反馈内容'), {
       target: { value: '生成结束后页面没有显示回复。' }
     });

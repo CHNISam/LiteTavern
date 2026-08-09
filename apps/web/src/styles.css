@@ -3148,7 +3148,6 @@ button { color: inherit; }
   border-color: var(--gold);
   box-shadow: 0 0 0 3px rgba(198, 164, 92, .14);
 }
-.feedback-privacy { margin: 0; color: var(--ink-3); font-size: 11px; line-height: 1.6; }
 .feedback-error { margin: 0; color: #9b302c; font-size: 12px; }
 .feedback-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .feedback-actions button,
