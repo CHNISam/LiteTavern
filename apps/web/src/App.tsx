@@ -838,11 +838,9 @@ function ProductApp() {
     if (suggestionAttemptRef.current.head !== head.message_id) {
       suggestionAttemptRef.current = { head: head.message_id, attempt: 0 };
     }
-    const key = suggestionKeyFor(
-      targetConversationId,
-      head.message_id,
-      suggestionAttemptRef.current.attempt
-    );
+    const keyFor = (attempt: number) =>
+      suggestionKeyFor(targetConversationId, head.message_id, attempt);
+    const key = keyFor(suggestionAttemptRef.current.attempt);
     if (suggestionKeyRef.current === key && suggestions.length > 0) return;
 
     setImpersonating(true);
@@ -872,12 +870,42 @@ function ProductApp() {
         '',
         { activationSeed: key }
       );
-      const result = await fetchReplySuggestions(targetConversationId, selector, {
-        idempotencyKey: key,
-        ...('client_context' in localContext
+      const clientContext =
+        'client_context' in localContext
           ? { clientContext: localContext.client_context }
-          : {})
-      });
+          : {};
+      /**
+       * Ask, and step past a key Cloud has already closed.
+       *
+       * Cloud stores the outcome of a key — including a failure — and answers a
+       * replay of a failed one with 409. The key is derived from the conversation
+       * head so a repeat press replays a *success* for free, which means a stored
+       * failure would otherwise be permanent for this point in the story: the
+       * in-memory attempt counter resets on reload, so the next visit rebuilds the
+       * same rejected key. Spending an attempt and asking again makes it heal on its
+       * own. `GENERATION_IN_PROGRESS` is excluded — that one is genuinely still
+       * running, and a new key would race it rather than retry it.
+       */
+      const ask = async (): Promise<Awaited<ReturnType<typeof fetchReplySuggestions>>> => {
+        try {
+          return await fetchReplySuggestions(targetConversationId, selector, {
+            idempotencyKey: keyFor(suggestionAttemptRef.current.attempt),
+            ...clientContext
+          });
+        } catch (reason) {
+          const spent =
+            reason instanceof ApiError &&
+            reason.status === 409 &&
+            reason.code !== 'GENERATION_IN_PROGRESS';
+          if (!spent) throw reason;
+          suggestionAttemptRef.current.attempt += 1;
+          return fetchReplySuggestions(targetConversationId, selector, {
+            idempotencyKey: keyFor(suggestionAttemptRef.current.attempt),
+            ...clientContext
+          });
+        }
+      };
+      const result = await ask();
       // The conversation may have moved on while this was in flight; candidates for a
       // story that has already continued are worse than none.
       if (conversationIdRef.current !== targetConversationId) return;
@@ -885,7 +913,7 @@ function ProductApp() {
         const quota = result.quota;
         setCloud((current) => (current ? { ...current, quota } : current));
       }
-      suggestionKeyRef.current = key;
+      suggestionKeyRef.current = keyFor(suggestionAttemptRef.current.attempt);
       setSuggestions(result.suggestions);
       if (trigger === 'MANUAL' && result.suggestions.length === 0) {
         setError(t.chat.impersonateEmpty);

@@ -12,7 +12,7 @@ function json(body: unknown, status = 200) {
 
 function installChatFetch(
   suggestions: string[] = [],
-  options: { failFirstSuggestion?: boolean } = {}
+  options: { failFirstSuggestion?: boolean; conflictFirstSuggestion?: boolean } = {}
 ) {
   const requested: string[] = [];
   const suggestionKeys: string[] = [];
@@ -71,6 +71,20 @@ function installChatFetch(
       );
       // Cloud remembers a failed request under its key and answers a replay of it
       // with 409 — the shape that makes a naive retry permanently unserviceable.
+      // A key Cloud has already closed. This is what a reader meets after a
+      // reload, when the in-memory attempt counter is back at zero.
+      if (options.conflictFirstSuggestion && suggestionCalls === 1) {
+        return json(
+          {
+            error: {
+              code: 'EMPTY_RESPONSE',
+              message: '这次请求此前已失败，请重新发起。',
+              retryable: true
+            }
+          },
+          409
+        );
+      }
       if (options.failFirstSuggestion && suggestionCalls === 1) {
         return json(
           {
@@ -229,4 +243,23 @@ it('retries under a fresh key so one failure cannot disable 代写 for good', as
   // Still anchored to the same conversation state, so a later press replays the
   // successful set rather than buying a third.
   expect(keys[1]).toContain(String(keys[0]));
+});
+
+it('steps past a key Cloud has already closed, without the reader retrying', async () => {
+  // The attempt counter lives in memory, so a reload puts the reader back on the
+  // rejected key. If a stored failure could only be escaped by pressing again, the
+  // feature would look broken on exactly the visit where it mattered.
+  const requested = installChatFetch(['I will go with you.'], {
+    conflictFirstSuggestion: true
+  });
+
+  render(<App />);
+  await screen.findByPlaceholderText(/Nova/);
+  await pressWriteAsMe();
+
+  // One press, two requests, candidates on screen and no error shown.
+  await screen.findByRole('button', { name: 'I will go with you.' });
+  expect(requested.suggestionKeys).toHaveLength(2);
+  expect(requested.suggestionKeys[0]).not.toBe(requested.suggestionKeys[1]);
+  expect(screen.queryByText(/此前已失败/)).not.toBeInTheDocument();
 });
