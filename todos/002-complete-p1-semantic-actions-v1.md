@@ -134,3 +134,44 @@ versioned guards.
   worktrees were created, so the final merge required a second full verification.
 - Cloud's pre-existing untracked backup/operations/todo files remained outside every
   semantic-actions commit.
+
+### 2026-08-09 - Reasoning-model request shape and honest rejection reporting
+
+**By:** Claude
+
+**Actions:**
+- Reproduced a 100% failure on a personal `gpt-5-nano` endpoint: the request went out
+  as `max_tokens` + `temperature`, both of which OpenAI's reasoning models reject, so
+  the turn was refused before the model saw it. Captured the outgoing body against a
+  local server rather than inferring it.
+- Added `request-shape.ts`, the single place that decides how a sampling intent is
+  spelled for a given model, and routed all four provider call sites through it.
+  Reasoning models get `max_completion_tokens` and no temperature; every other model
+  keeps a byte-identical request, verified by capture.
+- Stopped labelling a rejected plain-text call a structured-output capability problem.
+  Only the structured adapter puts a capability on the wire; a text call carries no
+  schema and no format instruction at all.
+- Forwarded the upstream's own rejection sentence to the reader, length-capped and
+  only when it parses, so a personal endpoint's failure is diagnosable at all.
+- Bounded `/v1/cloud/status`'s in-flight count by the claim lease, the third and last
+  caller that was still counting abandoned rows. That endpoint is what kept showing
+  "已经有一条回复正在生成中" after a deploy.
+- Passed 61 Cloud test files / 639 tests, 19 contracts, 24 database, 60 Web files /
+  272 tests, lint, typecheck, build. Deployed to development, green.
+- Live regression on the platform text adapter: 3/3 delivered, exactly one action each,
+  request shape unchanged.
+
+**Learnings:**
+- "Structured output" was never the variable here. The adapter registry has no entry
+  for a personal endpoint, so BYOK always ran plain text — the error message named a
+  subsystem the request had never touched, which is worse than saying nothing.
+- A provider SDK has one spelling for a portable field. When an upstream changes the
+  accepted spelling per model family, that belongs beside the model policy, not at the
+  call sites.
+- The same missing time bound produced two different symptoms (a 429 on send, and a
+  permanent "generating" badge) because three call sites shared one unbounded query.
+
+**Pending:**
+- Not verified against the reader's own `gpt-5-nano` endpoint — no credential, and none
+  should be shared. Evidence is the captured wire body plus the OpenAI API contract.
+  If it still fails, the banner now quotes the upstream reason verbatim.
