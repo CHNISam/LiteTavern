@@ -1,4 +1,9 @@
 import { createId } from './id';
+import {
+  SEMANTIC_ACTION_POLICY_V1,
+  parseSemanticTurnV1,
+  type SemanticTurnV1
+} from './semantic-actions';
 
 // Fixed presentation-layer timing for an Agent turn. The model never supplies any
 // of these — pacing is deterministic, matching the sr-message-maker / star-rail-msg-maker
@@ -59,6 +64,9 @@ export type TurnPlaybackState =
 export interface BubbleContext {
   turnId: string;
   sequenceNo: number;
+  /** Canonical message id when Cloud already persisted this action. */
+  actionId?: string;
+  persisted?: boolean;
 }
 
 export interface TurnPlaybackHooks {
@@ -89,6 +97,12 @@ interface PendingStep {
   dueAt: number;
 }
 
+interface QueuedBubble {
+  content: string;
+  actionId?: string;
+  persisted: boolean;
+}
+
 /**
  * Drives one interruptible Agent turn: one model call yields 1–4 bubbles, which the
  * controller reveals on a fixed cadence (typing indicator → bubble → interval → …).
@@ -104,7 +118,7 @@ export class TurnPlaybackController {
 
   private activeVersion = 0;
   private state: TurnPlaybackState = 'IDLE';
-  private queue: string[] = [];
+  private queue: QueuedBubble[] = [];
   private index = 0;
   private turnId = '';
   private typing = false;
@@ -164,7 +178,7 @@ export class TurnPlaybackController {
       return;
     }
 
-    this.queue = messages;
+    this.queue = messages.map((content) => ({ content, persisted: false }));
     this.index = 0;
 
     // Roll the model latency into the first bubble's lead time so we never stack a
@@ -173,6 +187,63 @@ export class TurnPlaybackController {
     const firstFloor = this.config.turnStartDelayMs + calculateTypingDuration(messages[0]!, this.config);
     const firstWait = Math.max(firstFloor - apiElapsed, 0);
     this.leadIntoBubble(version, firstWait);
+  }
+
+  /**
+   * Play a complete, validated Cloud turn. Canonical actions are never merged or
+   * persisted again: their ids already name ordinary chat_message rows.
+   */
+  playSemanticTurn(
+    turn: SemanticTurnV1,
+    apiElapsedMs = 0,
+    maxActions = SEMANTIC_ACTION_POLICY_V1.maxActions
+  ): void {
+    const version = ++this.activeVersion;
+    this.reset();
+    let parsed: SemanticTurnV1;
+    try {
+      parsed = parseSemanticTurnV1(turn, maxActions);
+    } catch (reason) {
+      this.fail(reason);
+      return;
+    }
+    this.turnId = parsed.turn_id;
+    this.queue = parsed.actions.map((action) => ({
+      content: action.content,
+      actionId: action.action_id,
+      persisted: true
+    }));
+    this.index = 0;
+    this.setState('GENERATING');
+    const first = this.queue[0]!;
+    const firstFloor = this.config.turnStartDelayMs + calculateTypingDuration(first.content, this.config);
+    this.leadIntoBubble(version, Math.max(firstFloor - apiElapsedMs, 0));
+  }
+
+  /** Finish only an already-persisted queue before a newer user turn is appended. */
+  finishCanonicalPlayback(): void {
+    const remaining = this.queue.slice(this.index);
+    if (remaining.length === 0) return;
+    if (remaining.some((bubble) => !bubble.persisted)) {
+      this.interrupt();
+      return;
+    }
+    this.activeVersion += 1;
+    this.clearPending();
+    this.pausedStep = null;
+    this.setTyping(false);
+    while (this.index < this.queue.length) {
+      const bubble = this.queue[this.index]!;
+      this.hooks.onBubble(bubble.content, {
+        turnId: this.turnId,
+        sequenceNo: this.index + 1,
+        actionId: bubble.actionId!,
+        persisted: true
+      });
+      this.index += 1;
+    }
+    this.setState('IDLE');
+    this.hooks.onDone?.(this.turnId);
   }
 
   /** Abandon the current turn. Already-displayed bubbles are kept by the caller. */
@@ -219,9 +290,19 @@ export class TurnPlaybackController {
   private displayCurrent(version: number): void {
     if (version !== this.activeVersion) return;
     this.setTyping(false);
-    const text = this.queue[this.index]!;
+    const bubble = this.queue[this.index]!;
     this.setState('DISPLAYING');
-    this.hooks.onBubble(text, { turnId: this.turnId, sequenceNo: this.index + 1 });
+    this.hooks.onBubble(
+      bubble.content,
+      bubble.persisted
+        ? {
+            turnId: this.turnId,
+            sequenceNo: this.index + 1,
+            actionId: bubble.actionId!,
+            persisted: true
+          }
+        : { turnId: this.turnId, sequenceNo: this.index + 1 }
+    );
     this.index += 1;
 
     if (this.index >= this.queue.length) {
@@ -233,7 +314,7 @@ export class TurnPlaybackController {
     this.setState('WAITING_INTERVAL');
     this.schedule(this.config.messageIntervalMs, () => {
       if (version !== this.activeVersion) return;
-      const typingMs = calculateTypingDuration(this.queue[this.index]!, this.config);
+      const typingMs = calculateTypingDuration(this.queue[this.index]!.content, this.config);
       this.setTyping(true);
       this.setState('TYPING');
       this.schedule(typingMs, () => this.displayCurrent(version));

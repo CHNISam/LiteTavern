@@ -46,7 +46,13 @@ class FakeClock implements Clock {
 }
 
 interface Recorder {
-  bubbles: { text: string; turnId: string; sequenceNo: number }[];
+  bubbles: {
+    text: string;
+    turnId: string;
+    sequenceNo: number;
+    actionId?: string;
+    persisted?: boolean;
+  }[];
   typing: boolean[];
   errors: unknown[];
   done: string[];
@@ -102,6 +108,70 @@ describe('pure helpers', () => {
 });
 
 describe('TurnPlaybackController', () => {
+  it.each([1, 2, 4])('plays %s canonical actions with their ids and no persistence rewrite', (count) => {
+    const rec = recorder();
+    const clock = new FakeClock();
+    const controller = make(rec, clock);
+    controller.playSemanticTurn({
+      protocol_version: 1,
+      turn_id: 'canonical-turn',
+      actions: Array.from({ length: count }, (_, index) => ({
+        action_id: `canonical-${index + 1}`,
+        type: 'text' as const,
+        content: `bubble ${index + 1}`
+      }))
+    });
+    clock.advance(60_000);
+
+    expect(rec.bubbles).toEqual(Array.from({ length: count }, (_, index) => ({
+      text: `bubble ${index + 1}`,
+      turnId: 'canonical-turn',
+      sequenceNo: index + 1,
+      actionId: `canonical-${index + 1}`,
+      persisted: true
+    })));
+  });
+
+  it('rejects canonical overflow instead of merging it into a successful turn', () => {
+    const rec = recorder();
+    const clock = new FakeClock();
+    const controller = make(rec, clock);
+    controller.playSemanticTurn({
+      protocol_version: 1,
+      turn_id: 'overflow',
+      actions: Array.from({ length: 5 }, (_, index) => ({
+        action_id: `canonical-${index}`,
+        type: 'text' as const,
+        content: `bubble ${index}`
+      }))
+    });
+    clock.advance(60_000);
+
+    expect(rec.bubbles).toHaveLength(0);
+    expect(rec.errors).toHaveLength(1);
+  });
+
+  it('fast-forwards persisted actions before a new user turn without resaving them', () => {
+    const rec = recorder();
+    const clock = new FakeClock();
+    const controller = make(rec, clock);
+    controller.playSemanticTurn({
+      protocol_version: 1,
+      turn_id: 'canonical-turn',
+      actions: [
+        { action_id: 'a', type: 'text', content: 'A' },
+        { action_id: 'b', type: 'text', content: 'B' },
+        { action_id: 'c', type: 'text', content: 'C' }
+      ]
+    });
+    clock.advance(cfg.turnStartDelayMs + cfg.minTypingMs);
+    controller.finishCanonicalPlayback();
+
+    expect(rec.bubbles.map((bubble) => bubble.text)).toEqual(['A', 'B', 'C']);
+    expect(rec.bubbles.every((bubble) => bubble.persisted === true)).toBe(true);
+    expect(controller.getState()).toBe('IDLE');
+  });
+
   it('shows a single bubble when the model returns one message (acceptance 1)', async () => {
     const rec = recorder();
     const clock = new FakeClock();

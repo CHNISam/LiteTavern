@@ -6,6 +6,10 @@ import {
   createGenerationDiagnosticTrace,
   type GenerationDiagnosticTraceV1
 } from './generation-diagnostics';
+import {
+  parseSemanticTurnV1,
+  type SemanticTurnV1
+} from './semantic-actions';
 
 export interface Character {
   character_id: string;
@@ -41,6 +45,8 @@ export interface Message {
   role: 'USER' | 'ASSISTANT' | 'EVENT';
   content_text: string;
   status: string;
+  /** Shared by every bubble in one semantic turn when loaded from Cloud. */
+  turn_no?: number;
   /**
    * Which of several replies to the same message this one is. Sent by Cloud only when
    * there is more than one, so a swipe control drawn on truthy data never appears on
@@ -293,7 +299,7 @@ export async function streamGeneration(
   conversationId: string,
   payload: unknown,
   options: {
-    onDelta: (text: string) => void;
+    onDelta?: (text: string) => void;
     signal?: AbortSignal;
     idempotencyKey?: string;
     captureTrace?: boolean;
@@ -304,6 +310,7 @@ export async function streamGeneration(
   /** The allowance after this generation, when the platform paid for it. */
   quota?: CloudQuotaSnapshot | null;
   diagnosticTrace?: GenerationDiagnosticTraceV1;
+  turn?: SemanticTurnV1;
 }> {
   const response = await fetch(cloudUrl(`/v1/conversations/${conversationId}/generations`), {
     method: 'POST',
@@ -333,6 +340,7 @@ export async function streamGeneration(
   let generationRequestId: string | undefined;
   let messageId: string | undefined;
   let quota: CloudQuotaSnapshot | null | undefined;
+  let semanticTurn: SemanticTurnV1 | undefined;
   let serverTrace: Record<string, unknown> | undefined;
   let pendingStreamError: ApiError | undefined;
   let lastDeltaSeq = 0;
@@ -358,6 +366,9 @@ export async function streamGeneration(
       request_id?: string;
       quota?: CloudQuotaSnapshot | null;
       seq?: number;
+      protocol_version?: number;
+      turn_id?: string;
+      actions?: unknown;
     };
     if (options.captureTrace) {
       diagnosticFrames.push({
@@ -382,7 +393,16 @@ export async function streamGeneration(
         lastDeltaSeq = parsed.seq;
       }
       diagnosticDeltas.push(parsed.text);
-      options.onDelta(parsed.text);
+      options.onDelta?.(parsed.text);
+    }
+    if (event === 'turn') {
+      if (semanticTurn) throw streamProtocolError();
+      try {
+        semanticTurn = parseSemanticTurnV1(parsed);
+      } catch {
+        throw streamProtocolError();
+      }
+      diagnosticDeltas.push(...semanticTurn.actions.map((action) => action.content));
     }
     if (event === 'trace') serverTrace = parsed as Record<string, unknown>;
     if (event === 'done') {
@@ -425,6 +445,7 @@ export async function streamGeneration(
     ...(generationRequestId ? { generationRequestId } : {}),
     ...(messageId ? { messageId } : {}),
     ...(quota === undefined ? {} : { quota }),
+    ...(semanticTurn ? { turn: semanticTurn } : {}),
     ...(diagnosticTrace ? { diagnosticTrace } : {})
   };
 }

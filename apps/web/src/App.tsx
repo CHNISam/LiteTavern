@@ -155,6 +155,13 @@ function analyticsErrorCode(code: string): string {
   if (code === 'PROVIDER_UNAVAILABLE' || code === 'PROVIDER_RATE_LIMITED') {
     return 'provider_unavailable';
   }
+  if (code === 'TURN_FORMAT_INVALID') return 'turn_format_invalid';
+  if (code === 'TURN_DEGENERATED') return 'turn_degenerated';
+  if (code === 'STREAM_PROTOCOL_CORRUPTED') return 'stream_protocol_corrupted';
+  if (code === 'MODEL_CAPABILITY_MISCONFIGURED') {
+    return 'model_capability_misconfigured';
+  }
+  if (code === 'PROVIDER_TEMPORARY_FAILURE') return 'provider_temporary_failure';
   if (blockReasonFor(code)) return 'cloud_blocked';
   return 'generation_failed';
 }
@@ -283,6 +290,8 @@ function ProductApp() {
   // Multi-bubble turn playback. The controller is a stable singleton so a new turn
   // (or a tab-visibility change) can interrupt/pause the one in flight.
   const playbackRef = useRef<TurnPlaybackController | null>(null);
+  const semanticPlaybackDoneRef = useRef<(() => void) | null>(null);
+  const canonicalTurnFinalByActionRef = useRef(new Map<string, string>());
   const turnIdRef = useRef<string>('');
   const generationAbortRef = useRef<AbortController | null>(null);
   const streamingRef = useRef(false);
@@ -376,7 +385,7 @@ function ProductApp() {
   useEffect(() => {
     const controller = new TurnPlaybackController({
       onBubble: (text, ctx) => {
-        const messageId = createId();
+        const messageId = ctx.persisted && ctx.actionId ? ctx.actionId : createId();
         setMessages((current) => [
           ...current,
           { message_id: messageId, role: 'ASSISTANT', content_text: text, status: 'COMPLETED' }
@@ -385,14 +394,18 @@ function ProductApp() {
         const turn = turnIdRef.current;
         // "Show one, write one" — persist the bubble the moment it appears. A retry
         // is safe because the server dedupes on this client-supplied message_id.
-        if (conv && turn) {
+        if (!ctx.persisted && conv && turn) {
           void saveTurnBubble(conv, turn, { message_id: messageId, text, bubble_no: ctx.sequenceNo }).catch(() => {});
         }
         playClick();
       },
       onTypingChange: setTyping,
       onStateChange: (state) => setSending(state === 'GENERATING'),
-      onDone: () => {},
+      onDone: () => {
+        const done = semanticPlaybackDoneRef.current;
+        semanticPlaybackDoneRef.current = null;
+        done?.();
+      },
       onError: reportGenerationFailure
     });
     playbackRef.current = controller;
@@ -421,6 +434,7 @@ function ProductApp() {
     // of conversation-scoped state at the same boundary so the new character can
     // neither display nor accidentally submit into the previous conversation.
     conversationIdRef.current = null;
+    canonicalTurnFinalByActionRef.current.clear();
     setConversationId(null);
     setMessages([]);
     setActive(character);
@@ -1045,6 +1059,11 @@ function ProductApp() {
       reportGenerationFailure(reason);
       return;
     }
+    // Canonical actions already exist in Cloud. Once every send preflight passed,
+    // reveal a pending remainder before appending the new user message so the visible
+    // transcript agrees with the canonical head this request answers.
+    semanticPlaybackDoneRef.current = null;
+    controller.finishCanonicalPlayback();
     const userMessage: Message = { message_id: createId(), role: 'USER', content_text: text, status: 'COMPLETED' };
     setMessages((current) => {
       // A regenerate writes no user message. It replaces the reply in place: the old
@@ -1052,9 +1071,19 @@ function ProductApp() {
       // answers to one message stacked on top of each other would read as the
       // character having said both.
       if (regenerateOfMessageId) {
-        return current.filter(
-          (message) => message.message_id !== regenerateOfMessageId
+        const target = current.find(
+          (message) => message.message_id === regenerateOfMessageId
         );
+        const finalId = canonicalTurnFinalByActionRef.current.get(
+          regenerateOfMessageId
+        );
+        return current.filter((message) => {
+          if (message.role !== 'ASSISTANT') return true;
+          if (target?.turn_no !== undefined) return message.turn_no !== target.turn_no;
+          return finalId
+            ? canonicalTurnFinalByActionRef.current.get(message.message_id) !== finalId
+            : message.message_id !== regenerateOfMessageId;
+        });
       }
       const index = editOfMessageId ? current.findIndex((message) => message.message_id === editOfMessageId) : -1;
       const kept = index >= 0 ? current.slice(0, index) : current;
@@ -1062,6 +1091,7 @@ function ProductApp() {
     });
     const payload = {
       ...selector,
+      response_protocol: 'semantic_actions_v1' as const,
       // A regenerate carries no input: the message it answers is already in the
       // transcript, and sending the text again would invite the server to treat it as
       // a second send of something typed once.
@@ -1094,6 +1124,8 @@ function ProductApp() {
     const streamingMessageId = `stream-${turnRequestId}`;
     let streamedText = '';
     let streamStarted = false;
+    let semanticPlaybackStarted = false;
+    const generationStartedAt = performance.now();
     generationAbortRef.current = abortController;
     streamingRef.current = true;
     setSending(true);
@@ -1126,7 +1158,10 @@ function ProductApp() {
       });
       streamStarted = true;
       if (result.diagnosticTrace) {
-        void withRuntimeTraceLayers(result.diagnosticTrace, streamedText)
+        const traceText = result.turn
+          ? result.turn.actions.map((action) => action.content).join('\n')
+          : streamedText;
+        void withRuntimeTraceLayers(result.diagnosticTrace, traceText)
           .then(setGenerationTrace)
           .catch(() => undefined);
       }
@@ -1136,6 +1171,41 @@ function ProductApp() {
       if (result.quota !== undefined) {
         const quota = result.quota;
         setCloud((current) => (current ? { ...current, quota } : current));
+      }
+      if (result.turn) {
+        semanticPlaybackStarted = true;
+        turnIdRef.current = result.turn.turn_id;
+        const finalAction = result.turn.actions.at(-1)!;
+        for (const action of result.turn.actions) {
+          canonicalTurnFinalByActionRef.current.set(
+            action.action_id,
+            finalAction.action_id
+          );
+        }
+        headIdRef.current = finalAction.action_id;
+        // A compliant semantic response has no transient row. Removing it also
+        // handles an older intermediary that emitted legacy deltas before `turn`.
+        setMessages((current) => current.filter(
+          (message) => message.message_id !== streamingMessageId
+        ));
+        semanticPlaybackDoneRef.current = () => {
+          void fetchMessages(targetConversationId).then((loaded) => {
+            cacheMessages(targetConversationId, loaded);
+            if (conversationIdRef.current === targetConversationId) setMessages(loaded);
+            if (replySuggestionsSettings.trigger === 'AUTOMATIC') {
+              void requestReplySuggestions({
+                trigger: 'AUTOMATIC',
+                conversationId: targetConversationId,
+                transcript: loaded
+              });
+            }
+          }).catch(() => undefined);
+        };
+        controller.playSemanticTurn(
+          result.turn,
+          performance.now() - generationStartedAt
+        );
+        return;
       }
       // Replace optimistic ids and the transient STREAMING row with the canonical
       // persisted branch. If this read fails, keep the complete text visible and let
@@ -1242,7 +1312,7 @@ function ProductApp() {
       }
       streamingRef.current = false;
       setSending(false);
-      setTyping(false);
+      if (!semanticPlaybackStarted) setTyping(false);
 
       // The automatic trigger, and the only place it fires. It reads the transcript
       // captured above rather than state, which this closure still remembers from
@@ -1336,7 +1406,11 @@ function ProductApp() {
       .reverse()
       .find((message) => message.role === 'USER');
     if (!anchor) return;
-    void submit(anchor.content_text, undefined, assistantMessageId);
+    void submit(
+      anchor.content_text,
+      undefined,
+      canonicalTurnFinalByActionRef.current.get(assistantMessageId) ?? assistantMessageId
+    );
   }
 
   /**

@@ -198,3 +198,65 @@ describe('API response handling', () => {
     expect(JSON.stringify(result.diagnosticTrace)).not.toContain('private reply');
   });
 });
+
+describe('semantic generation SSE', () => {
+  it('buffers arbitrary chunks and returns one complete canonical turn', async () => {
+    const encoder = new TextEncoder();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const chunk of [
+            'event: start\ndata: {"generation_request_id":"turn-1"}\n\n',
+            'event: turn\ndata: {"protocol_version":1,"turn_id":"turn-1","actions":[',
+            '{"action_id":"message-1","type":"text","content":"Hey."},',
+            '{"action_id":"message-2","type":"text","content":"Still there?"}]}\n\n',
+            'event: done\ndata: {"generation_request_id":"turn-1","message_id":"message-2"}\n\n'
+          ]) controller.enqueue(encoder.encode(chunk));
+          controller.close();
+        }
+      }),
+      { status: 200 }
+    ));
+    const onDelta = vi.fn();
+
+    const result = await streamGeneration(
+      'conversation-1',
+      { response_protocol: 'semantic_actions_v1' },
+      { onDelta }
+    );
+
+    expect(onDelta).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      generationRequestId: 'turn-1',
+      messageId: 'message-2',
+      turn: {
+        protocol_version: 1,
+        turn_id: 'turn-1',
+        actions: [
+          { action_id: 'message-1', type: 'text', content: 'Hey.' },
+          { action_id: 'message-2', type: 'text', content: 'Still there?' }
+        ]
+      }
+    });
+  });
+
+  it('rejects an invalid semantic turn before runtime delivery', async () => {
+    const encoder = new TextEncoder();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            'event: turn\ndata: {"protocol_version":1,"turn_id":"turn-1","actions":[]}\n\n'
+          ));
+          controller.close();
+        }
+      }),
+      { status: 200 }
+    ));
+
+    await expect(streamGeneration('conversation-1', {}, {})).rejects.toMatchObject({
+      code: 'STREAM_PROTOCOL_CORRUPTED',
+      retryable: false
+    });
+  });
+});
