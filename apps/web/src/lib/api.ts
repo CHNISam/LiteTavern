@@ -1,5 +1,6 @@
 import { analytics } from './analytics';
 import { t } from './i18n';
+import type { Locale } from './i18n/locale';
 import { createId } from './id';
 import { cloudUrl } from './runtime-config';
 import {
@@ -476,11 +477,15 @@ export interface ReplySuggestions {
  * pressed after the automatic trigger already ran — from buying a second set. Derive it
  * from the conversation state (see `suggestionKeyFor`) and the same state returns the
  * same candidates, charged once.
+ *
+ * `locale` is the reader's interface language, and Cloud writes the candidates in it.
+ * The server cannot derive this: the transcript, the character card and the interface
+ * are three independent choices, and only the client knows the third one.
  */
 export async function fetchReplySuggestions(
   conversationId: string,
   modelSelector: Record<string, unknown>,
-  options: { idempotencyKey?: string; clientContext?: unknown } = {}
+  options: { idempotencyKey?: string; clientContext?: unknown; locale?: Locale } = {}
 ): Promise<ReplySuggestions> {
   const result = await api<{ suggestions?: unknown; quota?: CloudQuotaSnapshot | null }>(
     `/v1/conversations/${conversationId}/reply-suggestions`,
@@ -489,7 +494,8 @@ export async function fetchReplySuggestions(
       headers: { 'Idempotency-Key': options.idempotencyKey ?? createId() },
       body: JSON.stringify({
         ...modelSelector,
-        ...(options.clientContext ? { client_context: options.clientContext } : {})
+        ...(options.clientContext ? { client_context: options.clientContext } : {}),
+        ...(options.locale ? { locale: options.locale } : {})
       })
     }
   );

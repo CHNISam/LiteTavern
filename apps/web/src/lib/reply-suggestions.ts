@@ -11,6 +11,8 @@
  * only add a second, separate call after it has finished.
  */
 
+import { DEFAULT_LOCALE, type Locale } from './i18n/locale';
+
 export type ReplySuggestionsTrigger = 'MANUAL' | 'AUTOMATIC';
 
 export interface ReplySuggestionsSettings {
@@ -84,12 +86,23 @@ export function writeReplySuggestionsSettings(
  * forever — one transient upstream error would disable 代写 for that point in the
  * conversation until the reader happened to send another message. A failure has to
  * degrade the attempt that failed, never the conversation.
+ *
+ * `locale` is here because the candidates are written in it and the replay does not
+ * know that. Switching the interface to English and pressing 代写 again on the same
+ * message would otherwise replay the Chinese set bought before the switch, and the
+ * reader would change the setting and watch nothing happen. Only a non-default locale
+ * adds a segment: every key already settled in Cloud was written without one, and
+ * appending it unconditionally would invalidate all of them and re-charge readers for
+ * candidates they had already bought.
  */
 export function suggestionKeyFor(
   conversationId: string,
   headMessageId: string,
-  attempt = 0
+  attempt = 0,
+  locale: Locale = DEFAULT_LOCALE
 ): string {
-  const base = `suggest:${conversationId}:${headMessageId}`;
+  const base = locale === DEFAULT_LOCALE
+    ? `suggest:${conversationId}:${headMessageId}`
+    : `suggest:${conversationId}:${headMessageId}:${locale}`;
   return attempt > 0 ? `${base}:${attempt}` : base;
 }

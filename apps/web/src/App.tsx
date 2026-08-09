@@ -39,7 +39,7 @@ import {
   patchCharacterCard,
   type CharacterModel
 } from './lib/character-card';
-import { t as translate, useT } from './lib/i18n';
+import { t as translate, useLocale, useT } from './lib/i18n';
 import { trackKeyboardInset } from './lib/keyboard-inset';
 import { analytics, type AnalyticsPageName } from './lib/analytics';
 import {
@@ -198,6 +198,9 @@ function ProductApp() {
   const initialQuickReplies = useRef(readQuickReplySettings()).current;
   const initialReplySuggestions = useRef(readReplySuggestionsSettings()).current;
   const t = useT();
+  // Reply suggestions are written in the interface language, so this is a request
+  // input, not only a rendering concern.
+  const { locale } = useLocale();
   const diagnosticsEnabled = generationDiagnosticsEnabled();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [active, setActive] = useState<Character | null>(null);
@@ -805,6 +808,14 @@ function ProductApp() {
   }
 
   /**
+   * Candidates are written in the interface language, so a language change makes the
+   * ones on screen wrong — chips the reader can no longer send in one tap. Dropped
+   * rather than re-requested: this costs an allowance unit, and switching a setting
+   * is not the reader asking for one.
+   */
+  useEffect(() => { clearSuggestions(); }, [locale]);
+
+  /**
    * Ask Cloud what the *user* could say next, and show the candidates.
    *
    * One implementation behind both triggers. The manual button and the automatic
@@ -843,7 +854,7 @@ function ProductApp() {
       suggestionAttemptRef.current = { head: head.message_id, attempt: 0 };
     }
     const keyFor = (attempt: number) =>
-      suggestionKeyFor(targetConversationId, head.message_id, attempt);
+      suggestionKeyFor(targetConversationId, head.message_id, attempt, locale);
     const key = keyFor(suggestionAttemptRef.current.attempt);
     if (suggestionKeyRef.current === key && suggestions.length > 0) return;
 
@@ -894,6 +905,7 @@ function ProductApp() {
         try {
           return await fetchReplySuggestions(targetConversationId, selector, {
             idempotencyKey: keyFor(suggestionAttemptRef.current.attempt),
+            locale,
             ...clientContext
           });
         } catch (reason) {
@@ -905,6 +917,7 @@ function ProductApp() {
           suggestionAttemptRef.current.attempt += 1;
           return fetchReplySuggestions(targetConversationId, selector, {
             idempotencyKey: keyFor(suggestionAttemptRef.current.attempt),
+            locale,
             ...clientContext
           });
         }

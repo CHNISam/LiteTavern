@@ -1,7 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { setActiveLocale } from './lib/i18n';
 import { resetLoreDatabaseForTests } from './lib/lore-store';
+import { suggestionKeyFor } from './lib/reply-suggestions';
 
 function json(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), {
@@ -16,6 +18,7 @@ function installChatFetch(
 ) {
   const requested: string[] = [];
   const suggestionKeys: string[] = [];
+  const suggestionBodies: Record<string, unknown>[] = [];
   let suggestionCalls = 0;
   vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
     const path = String(input);
@@ -69,6 +72,9 @@ function installChatFetch(
       suggestionKeys.push(
         String(new Headers(init?.headers).get('Idempotency-Key') ?? '')
       );
+      suggestionBodies.push(
+        JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+      );
       // Cloud remembers a failed request under its key and answers a replay of it
       // with 409 — the shape that makes a naive retry permanently unserviceable.
       // A key Cloud has already closed. This is what a reader meets after a
@@ -101,7 +107,7 @@ function installChatFetch(
     }
     return json({ error: { message: `unexpected ${path}` } }, 404);
   });
-  return Object.assign(requested, { suggestionKeys });
+  return Object.assign(requested, { suggestionKeys, suggestionBodies });
 }
 
 /**
@@ -121,6 +127,9 @@ afterEach(async () => {
   cleanup();
   vi.restoreAllMocks();
   localStorage.clear();
+  // Restored for the same reason the setup file pins it: a locale left switched
+  // would silently rewrite the dictionary every later test reads.
+  setActiveLocale('zh-CN');
   await resetLoreDatabaseForTests();
 });
 
@@ -244,6 +253,29 @@ it('retries under a fresh key so one failure cannot disable 代写 for good', as
   // Still anchored to the same conversation state, so a later press replays the
   // successful set rather than buying a third.
   expect(keys[1]).toContain(String(keys[0]));
+});
+
+it('asks for candidates in the language the interface is showing', async () => {
+  // The prompt is built by Cloud, which sees the transcript and the card but not the
+  // reader's interface. Left unsaid, an English reader gets Chinese candidates from a
+  // Chinese task instruction — and a length filter tuned for Chinese then discards
+  // most of what an English model would have written anyway.
+  setActiveLocale('en');
+  const requested = installChatFetch(['I will go with you.']);
+
+  render(<App />);
+  await screen.findByPlaceholderText(/Nova/);
+  await pressWriteAsMe();
+  await screen.findByRole('button', { name: 'I will go with you.' });
+
+  expect(requested.suggestionBodies[0]).toMatchObject({ locale: 'en' });
+  // Cloud replays a settled key from storage without calling the model, so the key
+  // has to move with the language. Otherwise switching to English and pressing again
+  // replays the Chinese set and the setting appears to do nothing.
+  expect(requested.suggestionKeys[0]).toContain(':en');
+  expect(requested.suggestionKeys[0]).not.toBe(
+    suggestionKeyFor('conversation-1', 'message-1', 0, 'zh-CN')
+  );
 });
 
 it('steps past a key Cloud has already closed, without the reader retrying', async () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError, readApiJson, streamGeneration } from './api';
+import { api, ApiError, fetchReplySuggestions, readApiJson, streamGeneration } from './api';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -258,5 +258,40 @@ describe('semantic generation SSE', () => {
       code: 'STREAM_PROTOCOL_CORRUPTED',
       retryable: false
     });
+  });
+});
+
+describe('reply suggestions request', () => {
+  function captureBody(): { body: () => Record<string, unknown> } {
+    let sent = '';
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      sent = String(init?.body ?? '');
+      return Promise.resolve(new Response(JSON.stringify({ suggestions: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+    });
+    return { body: () => JSON.parse(sent) as Record<string, unknown> };
+  }
+
+  it('tells Cloud which language the interface is in', async () => {
+    // Cloud builds the prompt and cannot work this out for itself: the transcript,
+    // the character card and the reader's interface are three independent choices.
+    // Without this field an English reader gets Chinese candidates.
+    const captured = captureBody();
+
+    await fetchReplySuggestions('conversation-1', { usage_mode: 'PLATFORM' }, {
+      locale: 'en'
+    });
+
+    expect(captured.body()).toMatchObject({ usage_mode: 'PLATFORM', locale: 'en' });
+  });
+
+  it('omits the field rather than guessing when the caller did not say', async () => {
+    const captured = captureBody();
+
+    await fetchReplySuggestions('conversation-1', {}, {});
+
+    expect(captured.body()).not.toHaveProperty('locale');
   });
 });
