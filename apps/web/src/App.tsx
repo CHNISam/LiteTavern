@@ -363,7 +363,10 @@ function ProductApp() {
           }
         : null;
     if (blockedStatus) {
-      setCloud(blockedStatus);
+      // Concurrency is scoped to the request that raced. Publishing it as the
+      // account's Cloud status would disable every later input until a manual
+      // refresh, even after the request that owned the slot had already ended.
+      if (blockReason !== 'CONCURRENT_GENERATION') setCloud(blockedStatus);
       // Both service-level refusals outlive the response that carried them: the
       // status endpoint may still say the models are available, and the reader
       // would otherwise be handed back a working-looking Cloud.

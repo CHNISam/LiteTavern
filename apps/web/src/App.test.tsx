@@ -369,6 +369,57 @@ describe('HSR message shell', () => {
     expect(within(panel).getByText('模型服务商暂时不可用')).toBeInTheDocument();
   });
 
+  it('does not let one concurrent-generation refusal disable the next input', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      if (path === '/v1/cloud/status') return json(cloudStatus());
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/identities/anonymous') return json(identity());
+      if (path === '/v1/analytics/events') {
+        return json({ accepted: 1, duplicates: 0 }, 202);
+      }
+      if (path === '/v1/characters') {
+        return json({ characters: [{
+          character_id: 'firefly-card', name: '流萤', profile_summary: '',
+          personality_summary: '', first_message: '', avatar_seed: '流萤',
+          is_owned: true, last_message: null
+        }] });
+      }
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') {
+        return json({ conversation_id: 'conversation-1' }, 201);
+      }
+      if (path === '/v1/conversations/conversation-1/messages') {
+        return json({ messages: [] });
+      }
+      if (path === '/v1/conversations/conversation-1/generations') {
+        return json({
+          error: {
+            code: 'CONCURRENT_GENERATION',
+            message: '上一条回复还在生成中。',
+            retryable: true,
+            request_id: 'request-concurrent'
+          }
+        }, 429);
+      }
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+    const composer = await screen.findByPlaceholderText('给流萤发送短信…');
+    fireEvent.change(composer, { target: { value: '第一条' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    expect(
+      await screen.findByText('等这条回复结束后再发送下一条。')
+    ).toBeInTheDocument();
+
+    // The refusal belongs to the request that raced. It may explain that failure,
+    // but it must not become a global Cloud block that disables every later input.
+    fireEvent.change(composer, { target: { value: '再试一次' } });
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeEnabled();
+  });
+
   it('blocks a selected unavailable Cloud service without silently switching to BYOK', async () => {
     let statusRequest = 0;
     let finishRetry: ((response: Response) => void) | undefined;
