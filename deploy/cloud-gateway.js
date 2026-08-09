@@ -10,6 +10,7 @@
 export function isCloudPath(pathname) {
   return (
     pathname.startsWith('/v1/auth/') ||
+    pathname === '/v1/feedback' ||
     pathname === '/v1/cloud/status' ||
     pathname === '/v1/conversations' ||
     /^\/v1\/conversations\/[^/]+\/messages$/.test(pathname) ||
