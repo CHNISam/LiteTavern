@@ -90,6 +90,13 @@ import {
   writeQuickReplySettings,
   type QuickReplySettings
 } from './lib/quick-replies';
+import {
+  readReplySuggestionsSettings,
+  suggestionKeyFor,
+  writeReplySuggestionsSettings,
+  type ReplySuggestionsSettings,
+  type ReplySuggestionsTrigger
+} from './lib/reply-suggestions';
 
 // 'settings' is gone: the character settings page repeated the profile and hid
 // the editor at the bottom of it. Editing lives on the profile now.
@@ -171,6 +178,7 @@ export function App() {
 function ProductApp() {
   const initialModelPreference = useRef(readModelPreference()).current;
   const initialQuickReplies = useRef(readQuickReplySettings()).current;
+  const initialReplySuggestions = useRef(readReplySuggestionsSettings()).current;
   const t = useT();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [active, setActive] = useState<Character | null>(null);
@@ -228,6 +236,8 @@ function ProductApp() {
   const [analyticsReady, setAnalyticsReady] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [quickReplies, setQuickReplies] = useState<QuickReplySettings>(initialQuickReplies);
+  const [replySuggestionsSettings, setReplySuggestionsSettings] =
+    useState<ReplySuggestionsSettings>(initialReplySuggestions);
   const [impersonating, setImpersonating] = useState(false);
   const [typing, setTyping] = useState(false);
   const [muted, setMutedState] = useState(isMuted());
@@ -247,6 +257,16 @@ function ProductApp() {
   /** The last message the server said this conversation ends at. */
   const headIdRef = useRef<string | null>(null);
   const activeRef = useRef<Character | null>(null);
+  /**
+   * Which conversation state the candidates on screen describe.
+   *
+   * Holding the key rather than a boolean is what lets the manual button reuse what the
+   * automatic trigger already fetched, and what makes candidates for a superseded head
+   * fall out of reuse on their own.
+   */
+  const suggestionKeyRef = useRef<string | null>(null);
+  /** The transcript a just-settled turn produced, when the reader wants suggestions. */
+  const autoSuggestRef = useRef<Message[] | null>(null);
   const usageModeRef = useRef<'PLATFORM' | 'BYOK'>(usageMode);
   // Monotonic token for character opens: only the newest open may write state, so a
   // slow earlier request can never resurrect a contact the reader has left.
@@ -398,7 +418,7 @@ function ProductApp() {
     setView(nextView);
     setError(null);
     setErrorCode(null);
-    setSuggestions([]);
+    clearSuggestions();
     // The card travels with the open. LiteTavern Cloud holds no character store —
     // characters are a local asset — so without this it would have to prompt from a
     // name alone, and `scenario`, `example_messages`, `system_prompt` and
@@ -484,7 +504,7 @@ function ProductApp() {
     setTyping(false);
     setActive(character);
     setView('chat');
-    setSuggestions([]);
+    clearSuggestions();
     setConversationPersonaId(null);
     const cachedId = cachedConversationId(character.character_id);
     conversationIdRef.current = cachedId;
@@ -729,28 +749,121 @@ function ProductApp() {
     writeQuickReplySettings(next);
   }
 
-  async function impersonate() {
-    if (!conversationId || !active || draft.trim() || sending || impersonating) return;
+  /**
+   * Drop the candidates and the state they described.
+   *
+   * The key has to go with them. Left behind, it would let the reuse check match a
+   * head id from another conversation and skip a request that should have happened.
+   */
+  function clearSuggestions() {
+    suggestionKeyRef.current = null;
+    setSuggestions([]);
+  }
+
+  function updateReplySuggestions(next: ReplySuggestionsSettings) {
+    setReplySuggestionsSettings(next);
+    writeReplySuggestionsSettings(next);
+  }
+
+  /**
+   * Ask Cloud what the *user* could say next, and show the candidates.
+   *
+   * One implementation behind both triggers. The manual button and the automatic
+   * post-reply request differ only in who decided to call it and in how a failure is
+   * reported — the request, the prompt and the candidates are identical.
+   *
+   * `AUTOMATIC` swallows every failure on purpose. It runs after a reply the reader has
+   * already been given, and an optional helper must never be able to turn a delivered
+   * turn into a visible error.
+   *
+   * The transcript is passed in rather than read from state: the automatic trigger runs
+   * immediately after a turn lands, when the closure's `messages` is still the array
+   * from before that turn.
+   */
+  async function requestReplySuggestions(options: {
+    trigger: ReplySuggestionsTrigger;
+    conversationId: string;
+    transcript: Message[];
+  }): Promise<void> {
+    const { trigger, conversationId: targetConversationId, transcript } = options;
+    const character = activeRef.current;
+    if (!character || impersonating) return;
+    const head = transcript.at(-1);
+    if (!head) return;
+
     if (usageMode === 'PLATFORM' && cloudService.availability !== 'available') {
-      setError(cloudNotice?.body ?? t.chat.cloudUnavailable);
+      if (trigger === 'MANUAL') setError(cloudNotice?.body ?? t.chat.cloudUnavailable);
       return;
     }
+
+    // Cloud replays a settled key without charging again, so this is also what makes
+    // pressing 代写 after the automatic trigger already ran cost nothing. Skipping the
+    // round trip when the answer is already on screen is the local half of the same
+    // idea.
+    const key = suggestionKeyFor(targetConversationId, head.message_id);
+    if (suggestionKeyRef.current === key && suggestions.length > 0) return;
+
     setImpersonating(true);
-    setError(null);
+    if (trigger === 'MANUAL') setError(null);
     try {
       const selector = await resolveModelSelector();
-      const candidates = suggestions.length
-        ? suggestions
-        : await fetchReplySuggestions(conversationId, selector);
-      const candidate = candidates.find((text) => text.trim())?.trim();
-      if (!candidate) throw new Error(t.chat.impersonateEmpty);
-      setDraft(candidate);
-      setSuggestions([]);
+      const scanMessages = transcript.flatMap((message) =>
+        message.role === 'USER' || message.role === 'ASSISTANT'
+          ? [
+              {
+                role:
+                  message.role === 'USER'
+                    ? ('USER' as const)
+                    : ('ASSISTANT' as const),
+                content_text: message.content_text
+              }
+            ]
+          : []
+      );
+      // The reader's persona and their worldbook entries, assembled exactly as a turn
+      // assembles them. Suggestions that ignored the persona would be suggestions for
+      // somebody else. There is no pending text: nothing is being sent.
+      const localContext = await clientContextField(
+        character.character_id,
+        targetConversationId,
+        scanMessages,
+        '',
+        { activationSeed: key }
+      );
+      const result = await fetchReplySuggestions(targetConversationId, selector, {
+        idempotencyKey: key,
+        ...('client_context' in localContext
+          ? { clientContext: localContext.client_context }
+          : {})
+      });
+      // The conversation may have moved on while this was in flight; candidates for a
+      // story that has already continued are worse than none.
+      if (conversationIdRef.current !== targetConversationId) return;
+      if (result.quota !== undefined) {
+        const quota = result.quota;
+        setCloud((current) => (current ? { ...current, quota } : current));
+      }
+      suggestionKeyRef.current = key;
+      setSuggestions(result.suggestions);
+      if (trigger === 'MANUAL' && result.suggestions.length === 0) {
+        setError(t.chat.impersonateEmpty);
+      }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t.chat.impersonateFailed);
+      if (trigger === 'MANUAL') {
+        setError(reason instanceof Error ? reason.message : t.chat.impersonateFailed);
+      }
     } finally {
       setImpersonating(false);
     }
+  }
+
+  function impersonate() {
+    if (!conversationId || sending) return;
+    void requestReplySuggestions({
+      trigger: 'MANUAL',
+      conversationId,
+      transcript: messages
+    });
   }
 
   /**
@@ -895,7 +1008,7 @@ function ProductApp() {
     playClick();
     const targetConversationId = conversationId;
     if (!editOfMessageId && !regenerateOfMessageId) setDraft('');
-    setSuggestions([]);
+    clearSuggestions();
     setError(runtimeWarning);
     setErrorCode(null);
     if (
@@ -1021,6 +1134,11 @@ function ProductApp() {
         if (conversationIdRef.current === targetConversationId && persisted) {
           cacheMessages(targetConversationId, loaded);
           setMessages(loaded);
+          // The reply has landed and been persisted. Only now — and only if the reader
+          // asked for it — is a second, separate call made for what they could say
+          // back. Deferred to the `finally` below so it starts after this turn has
+          // finished unwinding rather than inside it.
+          autoSuggestRef.current = loaded;
         } else {
           throw new Error('turn missing from server branch');
         }
@@ -1102,6 +1220,20 @@ function ProductApp() {
       streamingRef.current = false;
       setSending(false);
       setTyping(false);
+
+      // The automatic trigger, and the only place it fires. It reads the transcript
+      // captured above rather than state, which this closure still remembers from
+      // before the turn. Never awaited: the reply is already on screen, and how long
+      // suggestions take is not the reader's problem.
+      const settled = autoSuggestRef.current;
+      autoSuggestRef.current = null;
+      if (settled && replySuggestionsSettings.trigger === 'AUTOMATIC') {
+        void requestReplySuggestions({
+          trigger: 'AUTOMATIC',
+          conversationId: targetConversationId,
+          transcript: settled
+        });
+      }
     }
 
     if (streamStarted) return;
@@ -1122,7 +1254,12 @@ function ProductApp() {
         const quota = plan.quota;
         setCloud((current) => (current ? { ...current, quota } : current));
       }
-      setSuggestions(plan.suggestions?.slice(0, 3) ?? []);
+      // No suggestions here. A turn used to return user-reply candidates alongside the
+      // character's bubbles, and this line was the only thing that ever populated the
+      // strip — which meant it stopped appearing the moment normal chat moved to the
+      // streaming route, because a stream carries no such field. Both triggers go
+      // through `requestReplySuggestions` now, so the strip works on every deployment
+      // and a turn's prompt is only ever about the character.
       const scripts = await regexScriptsForCharacter(active.character_id);
       const processedMessages: string[] = [];
       for (const [index, assistantText] of plan.messages.entries()) {
@@ -1292,7 +1429,7 @@ function ProductApp() {
     setView('chat');
     setError(null);
     setErrorCode(null);
-    setSuggestions([]);
+    clearSuggestions();
     setConversationId(result.conversation_id);
     setMessages(await fetchMessages(result.conversation_id));
   }
@@ -1367,7 +1504,7 @@ function ProductApp() {
             onProfile={() => setView('profile')}
             onDraft={(value) => {
               setDraft(value);
-              if (value.trim()) setSuggestions([]);
+              if (value.trim()) clearSuggestions();
             }}
             onSend={send}
             onStop={stopGeneration}
@@ -1492,6 +1629,8 @@ function ProductApp() {
         }}
         quickReplies={quickReplies}
         onQuickRepliesChange={updateQuickReplies}
+        replySuggestions={replySuggestionsSettings}
+        onReplySuggestionsChange={updateReplySuggestions}
       />
       <PersonaPanel open={personaPanelOpen} onClose={() => setPersonaPanelOpen(false)} />
       <WorldbookPanel open={worldbookPanelOpen} onClose={() => setWorldbookPanelOpen(false)} />

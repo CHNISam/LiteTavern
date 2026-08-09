@@ -7,6 +7,12 @@ import {
   writeQuickReplySettings,
   type QuickReplySettings
 } from '../lib/quick-replies';
+import {
+  DEFAULT_REPLY_SUGGESTIONS_SETTINGS,
+  readReplySuggestionsSettings,
+  writeReplySuggestionsSettings,
+  type ReplySuggestionsSettings
+} from '../lib/reply-suggestions';
 
 afterEach(() => {
   cleanup();
@@ -19,6 +25,9 @@ function SettingsHarness() {
     behavior: 'FILL',
     replies: []
   });
+  const [suggestions, setSuggestions] = useState<ReplySuggestionsSettings>(
+    DEFAULT_REPLY_SUGGESTIONS_SETTINGS
+  );
   return (
     <AppSettingsPanel
       open
@@ -32,6 +41,11 @@ function SettingsHarness() {
       onQuickRepliesChange={(next) => {
         setSettings(next);
         writeQuickReplySettings(next);
+      }}
+      replySuggestions={suggestions}
+      onReplySuggestionsChange={(next) => {
+        setSuggestions(next);
+        writeReplySuggestionsSettings(next);
       }}
     />
   );
@@ -48,13 +62,31 @@ it('creates and persists a direct-send quick reply from settings', () => {
   fireEvent.change(screen.getByLabelText(/快捷回复 1 消息|Quick reply 1 message/), {
     target: { value: 'I agree.' }
   });
-  fireEvent.change(screen.getByRole('combobox'), {
-    target: { value: 'SEND' }
-  });
+  // Named explicitly: the panel has a second select since reply suggestions gained a
+  // trigger, and an unnamed lookup would now match both.
+  fireEvent.change(
+    screen.getByRole('combobox', { name: /点击按钮时|When clicked/ }),
+    { target: { value: 'SEND' } }
+  );
 
   expect(readQuickReplySettings()).toMatchObject({
     enabled: true,
     behavior: 'SEND',
     replies: [{ label: 'Agree', message: 'I agree.', enabled: true }]
   });
+});
+
+it('persists the reply-suggestions trigger, and defaults to manual', () => {
+  // Manual is the default because automatic spends an extra allowance unit per reply.
+  // A reader who never opens this panel must never be opted into that.
+  expect(readReplySuggestionsSettings().trigger).toBe('MANUAL');
+
+  render(<SettingsHarness />);
+  fireEvent.click(screen.getByRole('button', { name: /快捷回复|Quick replies/ }));
+  fireEvent.change(
+    screen.getByRole('combobox', { name: /AI 回复建议|AI reply suggestions/ }),
+    { target: { value: 'AUTOMATIC' } }
+  );
+
+  expect(readReplySuggestionsSettings().trigger).toBe('AUTOMATIC');
 });

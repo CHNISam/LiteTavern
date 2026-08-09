@@ -243,7 +243,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 export interface TurnPlan {
   turn_id: string;
   messages: string[];
-  suggestions?: string[];
+  // No `suggestions` here on purpose. A turn used to return user-reply candidates
+  // alongside the character's bubbles, from one model call carrying both jobs. They
+  // come from `fetchReplySuggestions` now — see the note there.
   /**
    * The post-deduction allowance for a platform-paid turn, so the badge stays
    * honest without an extra round trip. Null for a BYOK turn: the client's own
@@ -376,22 +378,50 @@ export async function streamGeneration(
   };
 }
 
+export interface ReplySuggestions {
+  suggestions: string[];
+  /** The allowance after a platform-paid set. Null when the reader's own key paid. */
+  quota?: CloudQuotaSnapshot | null;
+}
+
 /**
- * Return USER-perspective candidates without writing a chat message. The Cloud
- * reuses candidates from the latest platform turn; BYOK may make a dedicated call.
+ * A few things the *user* could send next, given the conversation so far.
+ *
+ * Its own model call, never part of a turn. Folding it into the generation request
+ * would mean one prompt telling the model both to stay in character and to step out of
+ * it, so switching this feature on would change what the character says.
+ *
+ * Nothing is written to the transcript: the reader picks a candidate, edits it, or
+ * ignores it. The idempotency key is what keeps a repeat press — or the manual button
+ * pressed after the automatic trigger already ran — from buying a second set. Derive it
+ * from the conversation state (see `suggestionKeyFor`) and the same state returns the
+ * same candidates, charged once.
  */
 export async function fetchReplySuggestions(
   conversationId: string,
-  modelSelector: Record<string, unknown>
-): Promise<string[]> {
-  const result = await api<{ suggestions?: unknown }>(
+  modelSelector: Record<string, unknown>,
+  options: { idempotencyKey?: string; clientContext?: unknown } = {}
+): Promise<ReplySuggestions> {
+  const result = await api<{ suggestions?: unknown; quota?: CloudQuotaSnapshot | null }>(
     `/v1/conversations/${conversationId}/reply-suggestions`,
-    { method: 'POST', body: JSON.stringify(modelSelector) }
+    {
+      method: 'POST',
+      headers: { 'Idempotency-Key': options.idempotencyKey ?? createId() },
+      body: JSON.stringify({
+        ...modelSelector,
+        ...(options.clientContext ? { client_context: options.clientContext } : {})
+      })
+    }
   );
-  if (!Array.isArray(result.suggestions)) return [];
-  return result.suggestions
-    .filter((value): value is string => typeof value === 'string')
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .slice(0, 3);
+  const suggestions = Array.isArray(result.suggestions)
+    ? result.suggestions
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
+  return {
+    suggestions,
+    ...(result.quota === undefined ? {} : { quota: result.quota })
+  };
 }

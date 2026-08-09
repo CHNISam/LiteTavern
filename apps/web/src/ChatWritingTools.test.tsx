@@ -67,6 +67,19 @@ function installChatFetch(suggestions: string[] = []) {
   return requested;
 }
 
+/**
+ * Press 代写 once it is actually pressable.
+ *
+ * The button is disabled until the transcript has loaded — there is nothing to suggest
+ * a reply to before then — so clicking the moment the composer appears is a no-op that
+ * looks like a broken feature.
+ */
+async function pressWriteAsMe() {
+  const button = await screen.findByRole('button', { name: /Write as me|代写/ });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+}
+
 afterEach(async () => {
   cleanup();
   vi.restoreAllMocks();
@@ -93,17 +106,57 @@ it('fills the composer from a configured local quick reply without sending it', 
   expect(requested.some((path) => path.endsWith('/generations'))).toBe(false);
 });
 
-it('impersonates the user into the composer without persisting or sending', async () => {
-  const requested = installChatFetch(['I will go with you.']);
+it('offers user-side candidates on demand and fills the composer from one', async () => {
+  const requested = installChatFetch([
+    'I will go with you.',
+    'Give me a moment.',
+    'Not tonight.'
+  ]);
 
   render(<App />);
   const composer = await screen.findByPlaceholderText(/Nova/);
-  fireEvent.click(screen.getByRole('button', { name: /Write as me|代写/ }));
+  await pressWriteAsMe();
 
-  await waitFor(() => expect(composer).toHaveValue('I will go with you.'));
-  expect(screen.queryByText('I will go with you.', { selector: '.message-bubble' }))
+  // All three are offered. The reader chooses; the button does not choose for them.
+  await screen.findByRole('button', { name: 'Give me a moment.' });
+  expect(screen.getByRole('button', { name: 'Not tonight.' })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Give me a moment.' }));
+  await waitFor(() => expect(composer).toHaveValue('Give me a moment.'));
+
+  // Picking a candidate is not sending it, and nothing was written to the transcript.
+  expect(screen.queryByText('Give me a moment.', { selector: '.message-bubble' }))
     .not.toBeInTheDocument();
   expect(requested.some((path) => path.endsWith('/generations'))).toBe(false);
+});
+
+it('asks for suggestions once and reuses them while the story has not moved', async () => {
+  // Cloud replays a settled idempotency key without charging, and this skips even
+  // that round trip: pressing 代写 twice on the same head must not cost twice.
+  const requested = installChatFetch(['I will go with you.']);
+
+  render(<App />);
+  await screen.findByPlaceholderText(/Nova/);
+  await pressWriteAsMe();
+  await screen.findByRole('button', { name: 'I will go with you.' });
+  await pressWriteAsMe();
+
+  await waitFor(() => expect(
+    requested.filter((path) => path.endsWith('/reply-suggestions'))
+  ).toHaveLength(1));
+});
+
+it('reports an empty result rather than leaving the button looking stuck', async () => {
+  const requested = installChatFetch([]);
+
+  render(<App />);
+  await screen.findByPlaceholderText(/Nova/);
+  await pressWriteAsMe();
+
+  await waitFor(() => expect(
+    requested.some((path) => path.endsWith('/reply-suggestions'))
+  ).toBe(true));
+  await screen.findByText(/暂时没有可用的用户视角回复|No user-perspective reply/);
 });
 
 it('sends a configured quick reply only when direct-send behavior is enabled', async () => {

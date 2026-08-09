@@ -251,6 +251,11 @@ export const en: Dictionary = {
     personasBody: 'Manage who you play in a story — unrelated to your account details',
     worldbooksTitle: 'Worldbooks',
     worldbooksBody: 'Manage lore entries; they enter the conversation only when matched',
+    replySuggestionsTrigger: 'AI reply suggestions',
+    replySuggestionsTriggerBody:
+      'Automatic spends one extra AI allowance unit after every character reply',
+    replySuggestionsManual: 'Only when I press "Write as me"',
+    replySuggestionsAutomatic: 'Automatically after each character reply',
     quickRepliesTitle: 'Quick replies',
     quickRepliesBody: 'Create browser-local buttons for phrases you use often',
     quickRepliesLead: 'These buttons stay in this browser. They are separate from AI-suggested replies.',

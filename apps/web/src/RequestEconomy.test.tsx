@@ -8,8 +8,12 @@ import {
 } from './lib/regex-engine';
 
 /**
- * Suggestions are part of the same structured model response as the assistant
- * bubbles. The new client never calls the legacy reply-suggestions route.
+ * What a turn is allowed to cost.
+ *
+ * Reply suggestions used to ride along inside the turn's structured response, which
+ * meant one model call was asked to both play the character and step outside it. They
+ * are their own request now, and in the default MANUAL trigger a normal turn must not
+ * make one — an unrequested inference is an unrequested charge.
  */
 
 function json(body: unknown, status = 200) {
@@ -181,15 +185,17 @@ describe('request economy', () => {
     await settle();
   }
 
-  it('spends one model call per turn when the turn already returned suggestions', async () => {
+  it('spends one model call per turn, and never one for suggestions', async () => {
+    // Even when the server volunteers suggestions in the turn response, the client
+    // ignores them: a suggestion the reader did not ask for is one they did not agree
+    // to pay for, and the strip must reflect what MANUAL means.
     const requested = mockShell({ turnSuggestions: ['那就出发吧', '再等等'] });
     render(<App />);
 
     await sendAndPlayOut();
 
-    // The turn carried its own suggestions, so nothing may ask the model again.
     expect(suggestionCalls(requested)).toHaveLength(0);
-    expect(screen.getByRole('button', { name: '那就出发吧' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '那就出发吧' })).not.toBeInTheDocument();
     const turn = requested.find((entry) => entry.path.endsWith('/turns'));
     expect(turn?.body).toMatchObject({
       input: { type: 'text', text: '你好' },
@@ -199,15 +205,6 @@ describe('request economy', () => {
         worldbook_entries: []
       }
     });
-    const suggestion = screen.getByRole('button', { name: '那就出发吧' });
-    fireEvent.click(suggestion);
-    const composer = screen.getByPlaceholderText('给流萤发送短信…');
-    await waitFor(() => expect(composer).toHaveValue('那就出发吧'));
-    await waitFor(() => expect(document.activeElement).toBe(composer));
-    fireEvent.change(composer, { target: { value: '那就出发吧！' } });
-    expect(
-      screen.queryByRole('button', { name: '再等等' })
-    ).not.toBeInTheDocument();
   }, 15000);
 
   it('does not make a supplemental call when the turn returns no suggestions', async () => {

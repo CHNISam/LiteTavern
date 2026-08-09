@@ -30,6 +30,7 @@ import {
   moveQuickReply,
   type QuickReplySettings
 } from '../lib/quick-replies';
+import type { ReplySuggestionsSettings } from '../lib/reply-suggestions';
 
 interface AppSettingsPanelProps {
   open: boolean;
@@ -41,6 +42,8 @@ interface AppSettingsPanelProps {
   onFeedback: () => void;
   quickReplies: QuickReplySettings;
   onQuickRepliesChange: (settings: QuickReplySettings) => void;
+  replySuggestions: ReplySuggestionsSettings;
+  onReplySuggestionsChange: (settings: ReplySuggestionsSettings) => void;
 }
 
 type SettingsView = 'root' | 'data' | 'quickReplies' | 'about';
@@ -54,7 +57,9 @@ export function AppSettingsPanel({
   onWorldbooks,
   onFeedback,
   quickReplies,
-  onQuickRepliesChange
+  onQuickRepliesChange,
+  replySuggestions,
+  onReplySuggestionsChange
 }: AppSettingsPanelProps) {
   const { locale, dictionary: t, setLocale } = useLocale();
   const [view, setView] = useState<SettingsView>('root');
@@ -231,6 +236,28 @@ export function AppSettingsPanel({
             <div className="quick-reply-settings">
               <p className="app-settings-lead">{t.settings.quickRepliesLead}</p>
               <div className="quick-reply-preferences">
+                <label>
+                  <span>
+                    <strong>{t.settings.replySuggestionsTrigger}</strong>
+                    {/* The cost is stated here rather than discovered from a
+                        shrinking allowance: automatic is one extra model call per
+                        reply, and opting in to that has to be a knowing choice. */}
+                    <small>{t.settings.replySuggestionsTriggerBody}</small>
+                  </span>
+                  <select
+                    value={replySuggestions.trigger}
+                    onChange={(event) => onReplySuggestionsChange({
+                      ...replySuggestions,
+                      trigger:
+                        event.target.value === 'AUTOMATIC' ? 'AUTOMATIC' : 'MANUAL'
+                    })}
+                  >
+                    <option value="MANUAL">{t.settings.replySuggestionsManual}</option>
+                    <option value="AUTOMATIC">
+                      {t.settings.replySuggestionsAutomatic}
+                    </option>
+                  </select>
+                </label>
                 <label>
                   <span>
                     <strong>{t.settings.quickRepliesEnabled}</strong>

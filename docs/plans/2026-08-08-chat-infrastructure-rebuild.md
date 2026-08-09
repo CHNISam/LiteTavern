@@ -452,17 +452,39 @@ Cloud 迁移 `0005_message_graph.sql`，全部为增量列/索引，边仍只有
   否则会删掉别的会话还在用的文本。清理它们属于"删除账号"这条流程，目前不存在。
   这里明确记下，而不是留给以后的人去发现。
 - 客户端 `deleteUserMessage`、编辑重发、重新生成三条路径仍走旧的整表重拉语义。
-- **代写（`reply-suggestions`）等待 Cloud 侧实现。** 这是重建时漏掉的尾巴：
-  `POST /v1/conversations/:cid/reply-suggestions` 不在网关路由表里，请求落进
-  internal-gate 被那条兜底 503 接住，于是"代写"按钮在模型服务完全正常的开发环境上
-  报"内测环境的模型服务尚未启用"——把一个缺路由说成了缺服务。
-  网关这侧已经补上（`deploy/cloud-gateway.js`，`scripts/internal-gate-routing.test.mjs`
-  有断言），**但 Cloud 仓库尚未实现这条路由**，在它落地之前点代写会从 503 变成 404。
-  另外 `App.tsx:1125` 那条"复用上一轮 suggestions"的快路径已经死了：suggestions 只由
-  旧的 structured turn 端点返回，而正常发消息走 SSE 的 `/generations`，
-  所以聊天框上方那条快捷回复建议条现在永远不显示，代写也每次都要真发一次请求。
-  Cloud 接好后要决定：是让 `/generations` 的 done 帧带回 suggestions（省一次调用），
-  还是把那条建议条一并下掉。
+### Reply suggestions（代写 / 自动回复建议）—— 已完成
+
+重建时漏掉的尾巴，现已收敛成一个独立能力。两处根因：
+
+1. `POST /v1/conversations/:cid/reply-suggestions` 不在网关路由表里，请求落进
+   internal-gate 被兜底 503 接住，于是"代写"在模型服务完全正常的开发环境上报
+   "内测环境的模型服务尚未启用"——把缺路由说成了缺服务。
+2. 就算路由通了也没用：Cloud 只有 Fastify 侧有这条路由，且它**从不调模型**，
+   只读 `response_plan_json.suggestions`。那个列只存在于 Desktop schema，
+   而且只有已停用的 `/turns` 会写，所以平台用户永远拿到空数组。
+
+现在的形态：
+
+- **独立 inference，绝不与角色生成合并。** 合并需要同一个 prompt 既要求模型保持角色、
+  又要求它跳出角色，等于"打开一个可选功能会改变角色说什么"。
+  `reply-suggestions.ts` 里那些丢弃角色台词的过滤器就是合并时代留下的伤疤。
+- 共享核心 `apps/api/src/modules/conversation/reply-suggestions.ts`（运行时无关，
+  见 ADR-0001）：任务指令 + 候选解析 + 数量上限。Worker 与 Fastify 都调它。
+- Worker 新路由复用 `createGeneration`/`reserveQuota`/`settleGeneration`/
+  `resolvePlatformModel`/`completeDetailed`/`normalizeProviderError`；
+  计费抽到 `worker/routes/charging.ts`，与 `/generations` 同一份实现。
+- 计费：一次真实推理 = 一个额度单位，ledger 记 `purpose = 'SUGGESTION'`
+  （migration `0008_reply_suggestions.sql` 给 `generation` 和 `quota_ledger` 加了这一列）。
+  没发生推理就不扣：空会话、空输出、provider 失败都会回滚。
+- 触发策略在客户端：`MANUAL`（默认，正常聊天不产生任何建议请求）与 `AUTOMATIC`
+  （角色回复完全落库后再独立发一次）。开关只决定"要不要发第二个请求"，
+  不改 `/generations` 的 payload——`ReplySuggestions.test.tsx` 对此有断言。
+- 幂等键由会话 + 当前 head 消息推导，所以自动跑过之后再点代写是重放、不重复计费。
+- 旧的第二来源已清除：`/turns` 不再索取 `user_replies`，`response_plan_json` 只存
+  `messages`，`TurnPlan.suggestions` 与 `App.tsx` 里那条永远命中不了的 fast-path 都已删除。
+
+仍未接线：`/turns` 兼容回退路径上不会触发自动建议。那条路径只在"Cloud 老到没有 SSE"
+时才走，而那样的 Cloud 也没有 reply-suggestions，所以不补。
 
 ## Open Questions
 
