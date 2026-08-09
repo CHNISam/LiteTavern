@@ -281,6 +281,18 @@ function ProductApp() {
    * fall out of reuse on their own.
    */
   const suggestionKeyRef = useRef<string | null>(null);
+  /**
+   * How many attempts at the current head have already failed.
+   *
+   * Cloud remembers a failed request under its idempotency key and answers a replay
+   * with a 409. Retrying therefore has to ask under a *new* key, or one transient
+   * upstream error would disable 代写 at this point in the conversation until the
+   * reader sent another message.
+   */
+  const suggestionAttemptRef = useRef<{ head: string; attempt: number }>({
+    head: '',
+    attempt: 0
+  });
   /** The transcript a just-settled turn produced, when the reader wants suggestions. */
   const autoSuggestRef = useRef<Message[] | null>(null);
   const usageModeRef = useRef<'PLATFORM' | 'BYOK'>(usageMode);
@@ -823,7 +835,14 @@ function ProductApp() {
     // pressing 代写 after the automatic trigger already ran cost nothing. Skipping the
     // round trip when the answer is already on screen is the local half of the same
     // idea.
-    const key = suggestionKeyFor(targetConversationId, head.message_id);
+    if (suggestionAttemptRef.current.head !== head.message_id) {
+      suggestionAttemptRef.current = { head: head.message_id, attempt: 0 };
+    }
+    const key = suggestionKeyFor(
+      targetConversationId,
+      head.message_id,
+      suggestionAttemptRef.current.attempt
+    );
     if (suggestionKeyRef.current === key && suggestions.length > 0) return;
 
     setImpersonating(true);
@@ -872,6 +891,12 @@ function ProductApp() {
         setError(t.chat.impersonateEmpty);
       }
     } catch (reason) {
+      // Spend this attempt so the next press asks under a fresh key. The one
+      // exception is a request that is genuinely still running: a new key there
+      // would race the account's own in-flight generation rather than retry it.
+      if (!(reason instanceof ApiError) || reason.code !== 'GENERATION_IN_PROGRESS') {
+        suggestionAttemptRef.current.attempt += 1;
+      }
       if (trigger === 'MANUAL') {
         setError(reason instanceof Error ? reason.message : t.chat.impersonateFailed);
       }

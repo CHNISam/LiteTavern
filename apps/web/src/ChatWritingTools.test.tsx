@@ -10,9 +10,14 @@ function json(body: unknown, status = 200) {
   }));
 }
 
-function installChatFetch(suggestions: string[] = []) {
+function installChatFetch(
+  suggestions: string[] = [],
+  options: { failFirstSuggestion?: boolean } = {}
+) {
   const requested: string[] = [];
-  vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+  const suggestionKeys: string[] = [];
+  let suggestionCalls = 0;
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
     const path = String(input);
     requested.push(path);
     if (path === '/v1/cloud/status') return json({ cloud: {
@@ -60,11 +65,29 @@ function installChatFetch(suggestions: string[] = []) {
       content_text: 'Ready when you are.', status: 'COMPLETED'
     }] });
     if (path === '/v1/conversations/conversation-1/reply-suggestions') {
+      suggestionCalls += 1;
+      suggestionKeys.push(
+        String(new Headers(init?.headers).get('Idempotency-Key') ?? '')
+      );
+      // Cloud remembers a failed request under its key and answers a replay of it
+      // with 409 — the shape that makes a naive retry permanently unserviceable.
+      if (options.failFirstSuggestion && suggestionCalls === 1) {
+        return json(
+          {
+            error: {
+              code: 'PROVIDER_UNAVAILABLE',
+              message: '模型调用失败，未消耗额度。',
+              retryable: true
+            }
+          },
+          502
+        );
+      }
       return json({ suggestions });
     }
     return json({ error: { message: `unexpected ${path}` } }, 404);
   });
-  return requested;
+  return Object.assign(requested, { suggestionKeys });
 }
 
 /**
@@ -178,4 +201,32 @@ it('sends a configured quick reply only when direct-send behavior is enabled', a
   ).toBe(true));
   expect(screen.getByText('Let us go.', { selector: '.message-bubble' }))
     .toBeInTheDocument();
+});
+
+it('retries under a fresh key so one failure cannot disable 代写 for good', async () => {
+  // The key is derived from the conversation head so that a repeat press replays
+  // instead of paying twice. That same determinism is what would make a stored
+  // failure permanent: without a per-attempt component, "try again" rebuilds the
+  // rejected key and Cloud answers 409 forever — until the reader happens to send
+  // another message. A transient upstream error must degrade the attempt, not the
+  // conversation.
+  const requested = installChatFetch(['I will go with you.'], {
+    failFirstSuggestion: true
+  });
+
+  render(<App />);
+  await screen.findByPlaceholderText(/Nova/);
+
+  await pressWriteAsMe();
+  await screen.findByText(/模型调用失败/);
+
+  await pressWriteAsMe();
+  await screen.findByRole('button', { name: 'I will go with you.' });
+
+  const keys = requested.suggestionKeys;
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).not.toBe(keys[1]);
+  // Still anchored to the same conversation state, so a later press replays the
+  // successful set rather than buying a third.
+  expect(keys[1]).toContain(String(keys[0]));
 });

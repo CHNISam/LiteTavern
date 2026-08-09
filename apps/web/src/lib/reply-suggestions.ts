@@ -70,14 +70,26 @@ export function writeReplySuggestionsSettings(
 }
 
 /**
- * The idempotency key for one conversation state.
+ * The idempotency key for one conversation state, plus which attempt at it this is.
  *
- * Cloud replays a settled request under the same key without calling the model and
- * without charging again, so this is what makes "manual after automatic already ran"
- * free, and what stops a double press from buying two sets. A new message produces a
- * new head id and therefore a new key, which is exactly when stale candidates should
- * stop being reused.
+ * Cloud replays a *settled* request under the same key without calling the model and
+ * without charging again, so the stable part is what makes "manual after automatic
+ * already ran" free, and what stops a double press from buying two sets. A new message
+ * produces a new head id and therefore a new key, which is exactly when stale
+ * candidates should stop being reused.
+ *
+ * `attempt` exists because Cloud also remembers *failures* under that key, and answers
+ * a replay of one with a 409 telling the reader to try again. Without this, trying
+ * again would rebuild the identical key and be refused by the same stored failure
+ * forever — one transient upstream error would disable 代写 for that point in the
+ * conversation until the reader happened to send another message. A failure has to
+ * degrade the attempt that failed, never the conversation.
  */
-export function suggestionKeyFor(conversationId: string, headMessageId: string): string {
-  return `suggest:${conversationId}:${headMessageId}`;
+export function suggestionKeyFor(
+  conversationId: string,
+  headMessageId: string,
+  attempt = 0
+): string {
+  const base = `suggest:${conversationId}:${headMessageId}`;
+  return attempt > 0 ? `${base}:${attempt}` : base;
 }
