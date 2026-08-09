@@ -162,6 +162,10 @@ function analyticsErrorCode(code: string): string {
   if (code === 'MODEL_CAPABILITY_MISCONFIGURED') {
     return 'model_capability_misconfigured';
   }
+  // The upstream rejected the request itself. Retrying it unchanged can only be
+  // rejected again, so it must not sink into the generic failure bucket where a
+  // permanent break would read as ordinary noise.
+  if (code === 'PROVIDER_REQUEST_INVALID') return 'provider_request_invalid';
   if (code === 'PROVIDER_TEMPORARY_FAILURE') return 'provider_temporary_failure';
   if (blockReasonFor(code)) return 'cloud_blocked';
   return 'generation_failed';
