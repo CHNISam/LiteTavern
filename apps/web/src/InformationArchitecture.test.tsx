@@ -28,6 +28,8 @@ function cloudStatus({
   return {
     cloud: {
       stage: 'ALPHA',
+      contract_version: 2,
+      capabilities: { auth: true, asset_sync: true, platform_generation: true, client_turn_sync: true, reply_suggestions: true },
       account_state: accountState,
       email_verified: accountState !== 'GUEST' && accountState !== 'UNVERIFIED',
       platform_models_available: blockReason === null,

@@ -52,32 +52,15 @@ jobs:
           # 客户端的构建时公开变量。未设置时客户端同源访问 Cloud，
           # 并保持严格的 CSP connect-src。绝不能在这里放任何密钥。
           VITE_CLOUD_BASE_URL: ''
+          VITE_BYOK_CONNECT_ORIGINS: ${{ vars.VITE_BYOK_CONNECT_ORIGINS }}
           VITE_SUPPORT_AFDIAN_URL: ${{ vars.VITE_SUPPORT_AFDIAN_URL }}
 
       # 两个环境都使用同源 Pages Worker，但绑定到不同的 Cloud Worker。
       # 网关只转发 Cloud-owned 路径；它不读取 cookie，也不承载认证业务。
-      - name: Add internal worker
+      - name: Add same-origin Cloud gateway
         run: |
-          cp deploy/internal-worker.js apps/web/dist/_worker.js
+          cp deploy/production-worker.js apps/web/dist/_worker.js
           cp deploy/cloud-gateway.js apps/web/dist/cloud-gateway.js
-          mkdir -p apps/web/dist/internal-gate
-          cp deploy/internal-gate/api.js apps/web/dist/internal-gate/api.js
-          cp deploy/internal-gate/relationship-import.js apps/web/dist/internal-gate/relationship-import.js
-
-      - name: Apply internal D1 migrations
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # 必须固定版本。wrangler-action@v3 默认装 3.90.0，而 3.90.0 的 Pages
-          # 命令不接受 JSONC 配置，会直接报
-          #   Pages doesn't currently support JSON formatted config ... use wrangler.toml
-          # 并在读到 wrangler.jsonc 的瞬间失败，看起来很像认证问题。
-          wranglerVersion: '4.115.0'
-          command: >-
-            d1 migrations apply litetavern-internal
-            --remote
-            --config deploy/internal-gate/wrangler.jsonc
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
@@ -88,4 +71,4 @@ jobs:
           wranglerVersion: '4.115.0'
           # --branch 必须与目标项目的 production_branch 一致，
           # 否则部署会落到 preview 环境，项目根地址不会更新。
-          command: pages deploy --branch develop --cwd deploy/internal-gate
+          command: pages deploy --branch develop --cwd deploy/development

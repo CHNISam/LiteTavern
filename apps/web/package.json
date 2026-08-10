@@ -11,6 +11,10 @@
     "test:coverage": "vitest run src --coverage"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.36",
+    "@ai-sdk/google": "^4.0.39",
+    "@ai-sdk/openai-compatible": "^3.0.27",
+    "ai": "^7.0.58",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",

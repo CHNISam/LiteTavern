@@ -17,6 +17,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { resetChatRepositoryForTests } from './lib/chat-repository';
 import { resetLoreDatabaseForTests } from './lib/lore-store';
 
 function json(body: unknown, status = 200) {
@@ -30,6 +31,14 @@ function json(body: unknown, status = 200) {
 
 const CLOUD_STATUS = {
   cloud: {
+    contract_version: 2,
+    capabilities: {
+      auth: true,
+      asset_sync: true,
+      platform_generation: true,
+      client_turn_sync: true,
+      reply_suggestions: true
+    },
     stage: 'ALPHA',
     account_state: 'ALPHA',
     email_verified: true,
@@ -179,6 +188,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   localStorage.clear();
   await resetLoreDatabaseForTests();
+  await resetChatRepositoryForTests();
 });
 
 it('adopts the server branch once it contains the turn that just happened', async () => {

@@ -50,6 +50,8 @@ function mockShell(options: { suggestions?: string[]; suggestionStatus?: number 
     if (path === '/v1/cloud/status') {
       return json({ cloud: {
         stage: 'ALPHA',
+        contract_version: 2,
+        capabilities: { auth: true, asset_sync: true, platform_generation: true, client_turn_sync: true, reply_suggestions: true },
         account_state: 'ALPHA',
         email_verified: true,
         platform_models_available: true,
@@ -139,6 +141,9 @@ function useAutomatic() {
 async function sendOnce() {
   const composer = await screen.findByPlaceholderText(/Nova/);
   fireEvent.change(composer, { target: { value: '你还在医院吗？' } });
+  await waitFor(() => expect(
+    screen.getByRole('button', { name: /发送消息|Send message/ })
+  ).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: /发送消息|Send message/ }));
   await screen.findByText(REPLY, { selector: '.message-bubble' });
 }

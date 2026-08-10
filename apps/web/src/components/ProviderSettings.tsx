@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Check, ChevronLeft, ExternalLink, KeyRound, LoaderCircle, Plus, Search, Trash2, X } from 'lucide-react';
-import { api, type ModelConfiguration, type Provider } from '../lib/api';
+import type { ModelConfiguration, Provider } from '../lib/api';
 import {
   cloudProviderName,
   describeQuotaWindows,
@@ -11,7 +11,9 @@ import {
 } from '../lib/cloud';
 import { useLocale } from '../lib/i18n';
 import { credentialStore, type CredentialSummary } from '../lib/credential-store';
-import { createId } from '../lib/id';
+import { modelConfigurationStore } from '../lib/model-configuration-store';
+import { BYOK_PROVIDERS } from '../lib/provider-catalog';
+import { publicByokOrigins, validateByokBaseUrl } from '../lib/byok-policy';
 
 interface ProviderSettingsProps {
   open: boolean;
@@ -64,18 +66,14 @@ export function ProviderSettings({
     setLoading(true);
     setLoadError(null);
     try {
-      const [providerResponse, configurationResponse, localCredentials] = await Promise.all([
-        api<{ providers: Provider[] }>('/v1/providers'),
-        api<{ configurations: ModelConfiguration[] }>('/v1/model-configurations'),
+      const [configurationResponse, localCredentials] = await Promise.all([
+        modelConfigurationStore.list(),
         credentialStore.list()
       ]);
-      if (providerResponse.providers.length === 0) {
-        throw new Error(t.models.emptyCatalogue);
-      }
-      setProviders(providerResponse.providers);
-      setConfigurations(configurationResponse.configurations);
+      setProviders([...BYOK_PROVIDERS]);
+      setConfigurations(configurationResponse);
       setCredentials(localCredentials);
-      onConfigurationsChanged(configurationResponse.configurations);
+      onConfigurationsChanged(configurationResponse);
     } catch (error) {
       setLoadError(
         error instanceof Error
@@ -128,35 +126,22 @@ export function ProviderSettings({
     setBusy(true);
     setStatus(t.models.validating);
     try {
-      const credentialId = createId();
-      const validation = await api<{ ok: boolean; models: string[] }>(
-        '/v1/provider-connections/validate',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            provider: selected.id,
-            base_url: baseUrl,
-            model,
-            credential: { credential_id: credentialId, api_key: apiKey || 'local-no-key' }
-          })
-        }
-      );
-      if (!validation.ok) throw new Error(t.models.validationFailed);
+      validateByokBaseUrl(baseUrl, {
+        pageProtocol: window.location.protocol,
+        ...(publicByokOrigins() ? { extraOrigins: publicByokOrigins() } : {})
+      });
       const local = await credentialStore.save({
         provider: selected.id,
         label: label || selected.shortName,
         apiKey: apiKey || 'local-no-key'
       });
       try {
-        await api('/v1/model-configurations', {
-          method: 'POST',
-          body: JSON.stringify({
-            provider: selected.id,
-            display_name: label || selected.shortName,
-            model_name: model,
-            base_url: baseUrl,
-            credential_id: local.credentialId
-          })
+        await modelConfigurationStore.save({
+          provider: selected.id,
+          display_name: label || selected.shortName,
+          model_name: model,
+          base_url: baseUrl,
+          credential_id: local.credentialId
         });
       } catch (error) {
         await credentialStore.remove(local.credentialId);
@@ -176,7 +161,7 @@ export function ProviderSettings({
   async function remove(configuration: ModelConfiguration) {
     await Promise.all([
       credentialStore.remove(configuration.credential_id),
-      api(`/v1/model-configurations/${configuration.model_configuration_id}`, { method: 'DELETE' })
+      modelConfigurationStore.remove(configuration.model_configuration_id)
     ]);
     await refresh();
   }

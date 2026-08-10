@@ -11,6 +11,7 @@ import {
   parseSemanticTurnV1,
   type SemanticTurnV1
 } from './semantic-actions';
+import type { CardDetail } from './character-card';
 
 export interface Character {
   character_id: string;
@@ -23,6 +24,8 @@ export interface Character {
   is_owned?: boolean;
   conversation_id?: string | null;
   last_message?: string | null;
+  /** Browser-local authoring document. It is never sent to Cloud by character CRUD. */
+  local_card?: CardDetail;
 }
 
 /**
@@ -250,46 +253,6 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     );
   }
   return payload;
-}
-
-export interface TurnPlan {
-  turn_id: string;
-  messages: string[];
-  // No `suggestions` here on purpose. A turn used to return user-reply candidates
-  // alongside the character's bubbles, from one model call carrying both jobs. They
-  // come from `fetchReplySuggestions` now — see the note there.
-  /**
-   * The post-deduction allowance for a platform-paid turn, so the badge stays
-   * honest without an extra round trip. Null for a BYOK turn: the client's own
-   * key has no server-side allowance to report.
-   */
-  quota?: CloudQuotaSnapshot | null;
-}
-
-// Generate a whole Agent turn (1–4 bubbles) in one model call. The bubbles are not
-// persisted server-side here — the client reveals and saves them one by one.
-export async function generateTurn(
-  conversationId: string,
-  payload: unknown,
-  idempotencyKey = createId()
-): Promise<TurnPlan> {
-  return api<TurnPlan>(`/v1/conversations/${conversationId}/turns`, {
-    method: 'POST',
-    headers: { 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify(payload)
-  });
-}
-
-// Persist one bubble at the instant it is displayed ("show one, write one").
-export async function saveTurnBubble(
-  conversationId: string,
-  turnId: string,
-  bubble: { message_id: string; text: string; bubble_no: number }
-): Promise<void> {
-  await api(`/v1/conversations/${conversationId}/turns/${turnId}/bubbles`, {
-    method: 'POST',
-    body: JSON.stringify(bubble)
-  });
 }
 
 export async function deleteCharacter(characterId: string): Promise<void> {

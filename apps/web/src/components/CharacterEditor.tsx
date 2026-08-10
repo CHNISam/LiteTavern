@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, LoaderCircle, X } from 'lucide-react';
-import { api, readApiJson } from '../lib/api';
 import {
   EMPTY_CHARACTER,
   fetchCharacterCard,
+  saveLocalCharacter,
   type CardDetail,
   type CharacterModel
 } from '../lib/character-card';
 import { useT } from '../lib/i18n';
-import { cloudUrl } from '../lib/runtime-config';
 import { AvatarCropper, type AvatarSelection } from './AvatarCropper';
 
-export function CharacterEditor({ open, characterId, onClose, onSaved }: {
+export function CharacterEditor({ open, characterId, partition, onClose, onSaved }: {
   open: boolean;
   characterId?: string;
+  partition: string;
   onClose: () => void;
   onSaved: (characterId: string) => Promise<void>;
 }) {
@@ -40,39 +40,29 @@ export function CharacterEditor({ open, characterId, onClose, onSaved }: {
       return;
     }
     setLoading(true);
-    void fetchCharacterCard(characterId)
+    void fetchCharacterCard(partition, characterId)
       .then((result) => {
         setModel(result.normalized_data);
         setDetail(result);
       })
       .catch((reason: Error) => setError(reason.message))
       .finally(() => setLoading(false));
-  }, [open, characterId]);
+  }, [open, characterId, partition]);
 
   function field<K extends keyof CharacterModel>(key: K, value: CharacterModel[K]) {
     setModel((current) => ({ ...current, [key]: value }));
   }
 
-  async function uploadAvatar(targetId: string): Promise<void> {
-    if (avatar) {
-      // Encoded here, once, from the crop as it stands at save time.
-      const body = new FormData();
-      body.append('file', await avatar.encode(), 'avatar.webp');
-      const response = await fetch(cloudUrl(`/v1/characters/${targetId}/avatar`), {
-        method: 'POST',
-        credentials: 'include',
-        body
-      });
-      const payload = await readApiJson<{ error?: { message?: string } }>(response);
-      if (!response.ok) throw new Error(payload.error?.message ?? t.avatar.uploadFailed);
-    } else if (avatarRemoved) {
-      const response = await fetch(cloudUrl(`/v1/characters/${targetId}/avatar`), {
-        method: 'DELETE',
-        credentials: 'include'
-      });
-      const payload = await readApiJson<{ error?: { message?: string } }>(response);
-      if (!response.ok) throw new Error(payload.error?.message ?? t.avatar.deleteFailed);
-    }
+  async function avatarDataUrl(): Promise<string | null | undefined> {
+    if (avatarRemoved) return null;
+    if (!avatar) return undefined;
+    const blob = await avatar.encode();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
   }
 
   async function save() {
@@ -86,29 +76,12 @@ export function CharacterEditor({ open, characterId, onClose, onSaved }: {
     setError(null);
     let targetId = characterId ?? createdId;
     try {
-      if (targetId) {
-        await api(`/v1/characters/${targetId}/card`, {
-          method: 'PUT',
-          body: JSON.stringify(model)
-        });
-      } else {
-        const created = await api<{ character_id: string }>('/v1/characters', {
-          method: 'POST',
-          body: JSON.stringify(model)
-        });
-        targetId = created.character_id;
-        setCreatedId(targetId);
-      }
-      try {
-        await uploadAvatar(targetId);
-      } catch (reason) {
-        setError(
-          t.editor.avatarUploadFailed(
-            reason instanceof Error ? reason.message : t.editor.avatarUploadRetry
-          )
-        );
-        return;
-      }
+      const nextAvatar = await avatarDataUrl();
+      targetId = await saveLocalCharacter({
+        partition, model, ...(targetId ? { characterId: targetId } : {}),
+        ...(nextAvatar === undefined ? {} : { avatarDataUrl: nextAvatar }), detail
+      });
+      setCreatedId(targetId);
       await onSaved(targetId);
       onClose();
     } catch (reason) {
@@ -159,9 +132,6 @@ export function CharacterEditor({ open, characterId, onClose, onSaved }: {
                 stops being a loose block floating between two text fields. */}
             <div className="editor-identity">
               <AvatarCropper
-                {...(characterId
-                  ? { existingUrl: cloudUrl(`/v1/characters/${characterId}/avatar`) }
-                  : {})}
                 onChange={(next, removed) => {
                   setAvatar(next);
                   setAvatarRemoved(removed);

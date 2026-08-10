@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  isCompatibleCloudStatus,
+  reportSyncCheckpoint,
   resolveCloudModelServiceState,
   resolveCloudNotice,
   type CloudBlockReason,
@@ -17,6 +19,14 @@ import { en } from './i18n/en';
 
 function status(overrides: Partial<CloudStatus> = {}): CloudStatus {
   return {
+    contract_version: 2,
+    capabilities: {
+      auth: true,
+      asset_sync: true,
+      platform_generation: true,
+      client_turn_sync: true,
+      reply_suggestions: true
+    },
     stage: 'ALPHA',
     account_state: 'REGISTERED',
     email_verified: true,
@@ -52,8 +62,45 @@ const BLOCK_REASONS: CloudBlockReason[] = [
   'PERIOD_QUOTA_EXHAUSTED',
   'CONCURRENT_GENERATION',
   'PROVIDER_UNAVAILABLE',
-  'PLATFORM_MODELS_NOT_CONFIGURED'
+  'PLATFORM_MODELS_NOT_CONFIGURED',
+  'CLOUD_CONTRACT_BLOCKED'
 ];
+
+describe('cloud deployment contract', () => {
+  it('requires version 2 and every browser capability', () => {
+    const compatible = status();
+    expect(isCompatibleCloudStatus(compatible)).toBe(true);
+    expect(isCompatibleCloudStatus({ ...compatible, contract_version: 1 })).toBe(false);
+    expect(isCompatibleCloudStatus({
+      ...compatible,
+      capabilities: { ...compatible.capabilities, client_turn_sync: false }
+    })).toBe(false);
+  });
+});
+
+describe('sync checkpoint wire contract', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('maps the client SYNCED state to the Worker SUCCESS state', async () => {
+    const request = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ sync: {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+
+    await reportSyncCheckpoint({ status: 'SYNCED', pendingCount: 0 });
+
+    const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body)) as {
+      device_key: string;
+      status: string;
+      pending_count: number;
+    };
+    expect(body.device_key).toBeTruthy();
+    expect(body.status).toBe('SUCCESS');
+    expect(body.pending_count).toBe(0);
+  });
+});
 
 describe('cloud notice copy', () => {
   it('gives every block reason its own wording', () => {

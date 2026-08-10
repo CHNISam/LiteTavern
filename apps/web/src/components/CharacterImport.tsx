@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, FileJson, LoaderCircle, Upload, X } from 'lucide-react';
-import { readApiJson } from '../lib/api';
 import { processAvatarImage } from '../lib/avatar-image';
 import {
   embeddedRegexScripts,
@@ -9,16 +8,17 @@ import {
   type LocalCardPreview
 } from '../lib/card-file';
 import { useT } from '../lib/i18n';
+import { characterModelFromCard, saveLocalCharacter } from '../lib/character-card';
+import { cloneJson } from '../lib/json-clone';
 import { storeImportedCardExtensions } from '../lib/local-card-assets';
 import {
   normalizeRegexScript,
   RegexPlacement
 } from '../lib/regex-engine';
-import { cloudUrl } from '../lib/runtime-config';
 
 type Preview = LocalCardPreview;
 
-export function CharacterImport({ open, replaceCharacterId, onClose, onImported }: { open: boolean; replaceCharacterId?: string; onClose: () => void; onImported: (characterId: string) => Promise<void> }) {
+export function CharacterImport({ open, replaceCharacterId, partition, onClose, onImported }: { open: boolean; replaceCharacterId?: string; partition: string; onClose: () => void; onImported: (characterId: string) => Promise<void> }) {
   const t = useT();
   const [file, setFile] = useState<File | null>(null);
   const [cardData, setCardData] = useState<Record<string, unknown> | null>(null);
@@ -35,23 +35,14 @@ export function CharacterImport({ open, replaceCharacterId, onClose, onImported 
     if (avatarPreviewRef.current) URL.revokeObjectURL(avatarPreviewRef.current);
   }, []);
 
-  async function upload(path: string) {
-    if (!file) return;
-    const body = new FormData();
-    body.append('file', file);
-    body.append('asset_mode', 'LOCAL_EXTENSIONS_V1');
-    if (replaceCharacterId) body.append('replace_character_id', replaceCharacterId);
-    const response = await fetch(cloudUrl(path), {
-      method: 'POST',
-      credentials: 'include',
-      body
+  async function avatarDataUrl(blob: Blob | null): Promise<string | undefined> {
+    if (!blob) return undefined;
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
     });
-    const payload = await readApiJson<{
-      character_id?: string;
-      error?: { message?: string };
-    }>(response);
-    if (!response.ok) throw new Error(payload.error?.message ?? t.importer.processFailed);
-    return payload;
   }
 
   async function inspect(next: File | null) {
@@ -88,27 +79,34 @@ export function CharacterImport({ open, replaceCharacterId, onClose, onImported 
   async function confirm() {
     setBusy(true); setError(null);
     try {
-      const imported = await upload('/v1/characters/import');
-      if (!imported?.character_id || !cardData || !preview) {
+      if (!cardData || !preview) {
         throw new Error(t.importer.importFailed);
       }
+      const nextAvatar = await avatarDataUrl(avatar);
+      const characterId = await saveLocalCharacter({
+        partition,
+        ...(replaceCharacterId ? { characterId: replaceCharacterId } : {}),
+        model: characterModelFromCard(cardData),
+        ...(nextAvatar === undefined ? {} : { avatarDataUrl: nextAvatar }),
+        detail: {
+          normalized_data: characterModelFromCard(cardData),
+          raw_data: cloneJson(cardData),
+          source_metadata: {
+            compatibility_level: preview.compatibility.level,
+            format: preview.format,
+            container: file?.name.toLowerCase().endsWith('.png') ? 'PNG' : 'JSON',
+            unapplied_fields: preview.compatibility.unapplied_fields
+          },
+          warnings: preview.warnings
+        }
+      });
       await storeImportedCardExtensions(
         cardData,
-        imported.character_id,
+        characterId,
         preview.character.name,
         authorizeRegex
       );
-      if (avatar && imported?.character_id) {
-        const body = new FormData();
-        body.append('file', avatar, 'avatar.webp');
-        // Avatar failure is intentionally non-fatal: card data has already committed.
-        await fetch(cloudUrl(`/v1/characters/${imported.character_id}/avatar`), {
-          method: 'POST',
-          credentials: 'include',
-          body
-        }).catch(() => undefined);
-      }
-      await onImported(imported.character_id);
+      await onImported(characterId);
       onClose();
       setFile(null);
       setCardData(null);

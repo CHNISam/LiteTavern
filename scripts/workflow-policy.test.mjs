@@ -47,20 +47,14 @@ test("staging refuses deployment until Access is explicitly enabled", () => {
   assert.doesNotMatch(source, /CLOUDFLARE_PRODUCTION_PROJECT/);
 });
 
-test("internal Pages deployment copies every static Worker dependency", () => {
+test("development Pages deployment packages only the static gateway dependencies", () => {
   const source = workflow("deploy");
+  assert.match(source, /cp deploy\/production-worker\.js apps\/web\/dist\/_worker\.js/);
   assert.match(
     source,
     /cp deploy\/cloud-gateway\.js apps\/web\/dist\/cloud-gateway\.js/,
   );
-  assert.match(
-    source,
-    /cp deploy\/internal-gate\/api\.js apps\/web\/dist\/internal-gate\/api\.js/,
-  );
-  assert.match(
-    source,
-    /cp deploy\/internal-gate\/relationship-import\.js apps\/web\/dist\/internal-gate\/relationship-import\.js/,
-  );
+  assert.doesNotMatch(source, /internal-gate|d1 migrations|ASSETS_BUCKET/);
 });
 
 test("the development workflow cannot deploy production", () => {
@@ -68,12 +62,12 @@ test("the development workflow cannot deploy production", () => {
   assert.match(source, /push:\n {4}branches: \[develop\]/);
   assert.doesNotMatch(source, /branches: \[[^\]]*main/);
   assert.doesNotMatch(source, /name:.*production/);
-  assert.doesNotMatch(source, /deploy\/production-worker\.js/);
+  assert.doesNotMatch(source, /--cwd deploy\/production|litetavern-cloud-production/);
 });
 
 test("development and production bind to isolated Cloud Workers", () => {
   const development = readFileSync(
-    "deploy/internal-gate/wrangler.jsonc",
+    "deploy/development/wrangler.jsonc",
     "utf8",
   );
   const production = readFileSync(
@@ -84,6 +78,12 @@ test("development and production bind to isolated Cloud Workers", () => {
   assert.match(development, /"service": "litetavern-cloud-development"/);
   assert.match(production, /"service": "litetavern-cloud-production"/);
   assert.doesNotMatch(production, /litetavern-cloud-dev(?:elopment)?"/);
+});
+
+test("protected staging binds only to the staging Cloud Worker", () => {
+  const staging = readFileSync("deploy/staging/wrangler.jsonc", "utf8");
+  assert.match(staging, /"service": "litetavern-cloud-staging"/);
+  assert.doesNotMatch(staging, /litetavern-cloud-(?:development|production)/);
 });
 
 test("every production path packages the same-origin Cloud gateway", () => {

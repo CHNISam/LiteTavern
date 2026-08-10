@@ -1,4 +1,5 @@
 import { t } from './i18n';
+import { cloneJson } from './json-clone';
 
 /**
  * Read a character card in the browser.
@@ -216,7 +217,7 @@ export function embeddedRegexScripts(
 }
 
 function cloneCard(cardData: Record<string, unknown>): Record<string, unknown> {
-  return structuredClone(cardData);
+  return cloneJson(cardData);
 }
 
 export function overlayLocalCardExtensions(

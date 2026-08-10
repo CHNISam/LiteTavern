@@ -103,6 +103,7 @@ export const en: Dictionary = {
     swipePosition: (index: number, total: number) => `${index} / ${total}`,
     swipeFailed: 'Could not switch replies. Please try again.',
     sendFailed: 'Could not send. Please try again.',
+    conversationRebound: 'This cached conversation no longer exists in Cloud. A new conversation is ready; review and send your restored draft.',
     regexRemovedInput: 'Regex processing removed the whole input, so it was not sent.',
     regexInputTimeout:
       'A Regex script timed out. The original input was used.',
@@ -770,6 +771,10 @@ export const en: Dictionary = {
     platformNotConfigured: {
       title: 'Cloud models are not enabled here',
       body: 'LiteTavern Cloud models are not enabled in this environment, so cloud replies do not work here. Nothing was deducted from your allowance. Tell us through the feedback form if you need them.'
+    },
+    contractBlocked: {
+      title: 'LiteTavern Cloud version mismatch',
+      body: 'This deployment is missing Cloud capabilities required by this client. A deployment administrator must update the service; retrying cannot fix it.'
     },
     disclaimer:
       'LiteTavern Cloud Alpha is still a test. Allowances, models and cloud rules may change based on real costs, stability and what the test shows.'

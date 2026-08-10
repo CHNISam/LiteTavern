@@ -1,179 +1,67 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { processAvatarImage } from '../lib/avatar-image';
+import { chatRepository, resetChatRepositoryForTests } from '../lib/chat-repository';
 import { storeImportedCardExtensions } from '../lib/local-card-assets';
 import { CharacterImport } from './CharacterImport';
 
-vi.mock('../lib/avatar-image', () => ({
-  processAvatarImage: vi.fn()
-}));
-vi.mock('../lib/local-card-assets', () => ({
-  storeImportedCardExtensions: vi.fn()
-}));
+vi.mock('../lib/avatar-image', () => ({ processAvatarImage: vi.fn() }));
+vi.mock('../lib/local-card-assets', () => ({ storeImportedCardExtensions: vi.fn() }));
+const PARTITION = 'test';
+const card = JSON.stringify({ spec: 'chara_card_v3', spec_version: '3.0', data: {
+  name: '卡片角色', description: '描述', personality: '人格', first_mes: '你好', extensions: {} } });
 
-const card = JSON.stringify({
-  spec: 'chara_card_v3',
-  spec_version: '3.0',
-  data: {
-    name: '卡片角色',
-    description: '描述',
-    personality: '人格',
-    first_mes: '你好',
-    extensions: {}
-  }
-});
+beforeEach(() => resetChatRepositoryForTests());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.mocked(processAvatarImage).mockReset();
+  vi.mocked(storeImportedCardExtensions).mockReset(); });
 
-function json(body: unknown, status = 200) {
-  return Promise.resolve(
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { 'Content-Type': 'application/json' }
-    })
-  );
+function renderImport(onImported = vi.fn().mockResolvedValue(undefined)) {
+  render(<CharacterImport partition={PARTITION} open onClose={() => undefined} onImported={onImported} />);
+  return onImported;
 }
 
-afterEach(() => {
-  cleanup();
-  vi.restoreAllMocks();
-  vi.mocked(processAvatarImage).mockReset();
-  vi.mocked(storeImportedCardExtensions).mockReset();
-  delete window.__LITETAVERN__;
-});
-
 describe('CharacterImport local extension flow', () => {
-  it('previews locally and uploads the card only once on confirmation', async () => {
-    window.__LITETAVERN__ = { cloudBaseUrl: 'https://api-internal.example' };
-    const requests: Array<{ url: string; body: FormData }> = [];
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
-      requests.push({
-        url: String(input),
-        body: init?.body as FormData
-      });
-      return json({ character_id: 'card-1' }, 201);
-    });
-    const onImported = vi.fn().mockResolvedValue(undefined);
-    render(
-      <CharacterImport
-        open
-        onClose={() => undefined}
-        onImported={onImported}
-      />
-    );
-
-    fireEvent.change(screen.getByLabelText('选择角色卡文件'), {
-      target: {
-        files: [new File([card], 'card.json', { type: 'application/json' })]
-      }
-    });
-
-    await screen.findByText('卡片角色');
-    expect(requests).toHaveLength(0);
-    fireEvent.click(screen.getByRole('button', { name: '确认导入' }));
-    await waitFor(() => expect(onImported).toHaveBeenCalledWith('card-1'));
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.url).toBe(
-      'https://api-internal.example/v1/characters/import'
-    );
-    expect(requests[0]?.body.get('asset_mode')).toBe(
-      'LOCAL_EXTENSIONS_V1'
-    );
-    expect(storeImportedCardExtensions).toHaveBeenCalledWith(
-      expect.any(Object),
-      'card-1',
-      '卡片角色',
-      false
-    );
-  });
-
-  it('shows a readable Cloud error only when confirmation cannot upload', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(null, { status: 404 })
-    );
-    render(
-      <CharacterImport
-        open
-        onClose={() => undefined}
-        onImported={vi.fn().mockResolvedValue(undefined)}
-      />
-    );
-
-    fireEvent.change(screen.getByLabelText('选择角色卡文件'), {
-      target: {
-        files: [new File([card], 'card.json', { type: 'application/json' })]
-      }
-    });
+  it('previews and imports locally without any HTTP request', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const onImported = renderImport();
+    fireEvent.change(screen.getByLabelText('选择角色卡文件'), { target: {
+      files: [new File([card], 'card.json', { type: 'application/json' })] } });
     await screen.findByText('卡片角色');
     fireEvent.click(screen.getByRole('button', { name: '确认导入' }));
-
-    expect(
-      await screen.findByText('LiteTavern Cloud 暂不可用，请稍后重试。')
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText(/Unexpected end of JSON input/)
-    ).not.toBeInTheDocument();
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith(expect.any(String)));
+    expect(fetchSpy).not.toHaveBeenCalled();
+    await expect(chatRepository.listCharacters(PARTITION))
+      .resolves.toEqual([expect.objectContaining({ name: '卡片角色' })]);
   });
 
-  it('uploads a processed PNG avatar after the card data commits', async () => {
-    vi.mocked(processAvatarImage).mockResolvedValue(
-      new Blob(['square-avatar'], { type: 'image/webp' })
-    );
-    const paths: string[] = [];
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      const path = String(input);
-      paths.push(path);
-      if (path === '/v1/characters/import') {
-        return json({ character_id: 'card-1' }, 201);
-      }
-      if (path === '/v1/characters/card-1/avatar') {
-        return json({ avatar_updated: true });
-      }
-      return json({ error: { message: `unexpected ${path}` } }, 404);
-    });
-    const onImported = vi.fn().mockResolvedValue(undefined);
-    render(
-      <CharacterImport
-        open
-        onClose={() => undefined}
-        onImported={onImported}
-      />
-    );
-
-    fireEvent.change(screen.getByLabelText('选择角色卡文件'), {
-      target: { files: [new File([card], 'card.png', { type: 'image/png' })] }
-    });
-    expect(
-      await screen.findByAltText('角色卡头像预览')
-    ).toBeInTheDocument();
+  it('does not turn Cloud unavailability into an import error', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
+    const onImported = renderImport();
+    fireEvent.change(screen.getByLabelText('选择角色卡文件'), { target: {
+      files: [new File([card], 'card.json', { type: 'application/json' })] } });
+    await screen.findByText('卡片角色');
     fireEvent.click(screen.getByRole('button', { name: '确认导入' }));
     await waitFor(() => expect(onImported).toHaveBeenCalled());
-    expect(paths).toEqual([
-      '/v1/characters/import',
-      '/v1/characters/card-1/avatar'
-    ]);
+    expect(screen.queryByText(/Cloud 暂不可用/)).not.toBeInTheDocument();
+  });
+
+  it('stores a processed PNG avatar in IndexedDB', async () => {
+    vi.mocked(processAvatarImage).mockResolvedValue(new Blob(['square-avatar'], { type: 'image/webp' }));
+    const onImported = renderImport();
+    fireEvent.change(screen.getByLabelText('选择角色卡文件'), { target: {
+      files: [new File([card], 'card.png', { type: 'image/png' })] } });
+    await screen.findByAltText('角色卡头像预览');
+    fireEvent.click(screen.getByRole('button', { name: '确认导入' }));
+    await waitFor(() => expect(onImported).toHaveBeenCalled());
+    expect((await chatRepository.listCharacters(PARTITION))[0]?.avatar_seed)
+      .toMatch(/^data:image\/webp;base64,/);
   });
 
   it('continues importing card data when avatar decoding fails', async () => {
-    vi.mocked(processAvatarImage).mockRejectedValue(
-      new Error('damaged pixels')
-    );
-    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-      if (String(input) === '/v1/characters/import') {
-        return json({ character_id: 'card-2' }, 201);
-      }
-      return json({ error: { message: 'unexpected' } }, 404);
-    });
-    const onImported = vi.fn().mockResolvedValue(undefined);
-    render(
-      <CharacterImport
-        open
-        onClose={() => undefined}
-        onImported={onImported}
-      />
-    );
-
-    fireEvent.change(screen.getByLabelText('选择角色卡文件'), {
-      target: { files: [new File([card], 'card.png', { type: 'image/png' })] }
-    });
+    vi.mocked(processAvatarImage).mockRejectedValue(new Error('damaged pixels'));
+    const onImported = renderImport();
+    fireEvent.change(screen.getByLabelText('选择角色卡文件'), { target: {
+      files: [new File([card], 'card.png', { type: 'image/png' })] } });
     expect(await screen.findByText(/头像无法读取/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '确认导入' }));
     await waitFor(() => expect(onImported).toHaveBeenCalled());

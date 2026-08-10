@@ -8,28 +8,7 @@
  * repositories.
  */
 export function isCloudPath(pathname) {
-  return (
-    pathname.startsWith('/api/admin/') ||
-    pathname.startsWith('/v1/auth/') ||
-    pathname === '/v1/feedback' ||
-    pathname === '/v1/cloud/status' ||
-    pathname === '/v1/conversations' ||
-    /^\/v1\/conversations\/[^/]+\/messages$/.test(pathname) ||
-    // The swipe list and the swipe itself. Both read and write `chat_message`, which
-    // only Cloud has: answering either here would mean reporting variants of a
-    // transcript this deployment does not store.
-    /^\/v1\/conversations\/[^/]+\/messages\/[^/]+\/variants$/.test(pathname) ||
-    /^\/v1\/conversations\/[^/]+\/messages\/[^/]+\/activate$/.test(pathname) ||
-    pathname === '/v1/providers' ||
-    pathname === '/v1/provider-connections/validate' ||
-    /^\/v1\/conversations\/[^/]+\/generations$/.test(pathname) ||
-    // "代写": USER-perspective drafts. It is a model call over the transcript, so it
-    // needs both the model gateway and `chat_message` — neither of which this
-    // deployment has. Leaving it off this table is what made the button report
-    // "内测环境的模型服务尚未启用" on every click: the request never left for Cloud
-    // and was answered by the gate's own 503.
-    /^\/v1\/conversations\/[^/]+\/reply-suggestions$/.test(pathname)
-  );
+  return pathname.startsWith('/v1/') || pathname.startsWith('/api/admin/');
 }
 
 export function forwardCloudRequest(request, env) {

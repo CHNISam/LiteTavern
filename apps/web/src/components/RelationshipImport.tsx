@@ -3,6 +3,7 @@ import {
   Check, CircleAlert, Copy, FileJson, Info, LoaderCircle, Trash2, TriangleAlert, Upload, X
 } from 'lucide-react';
 import { ApiError, api, type Character } from '../lib/api';
+import { EMPTY_CHARACTER, type CharacterModel } from '../lib/character-card';
 import { analytics } from '../lib/analytics';
 import { copyText } from '../lib/clipboard';
 import { t } from '../lib/i18n';
@@ -138,7 +139,7 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
   characters: Character[];
   defaultCharacterId?: string;
   onClose: () => void;
-  onImported: (result: CommitResponse) => Promise<void>;
+  onImported: (result: CommitResponse, localCharacter?: CharacterModel) => Promise<void>;
 }) {
   const [step, setStep] = useState<Step>('intro');
   const [rawText, setRawText] = useState('');
@@ -278,7 +279,21 @@ export function RelationshipImport({ open, characters, defaultCharacterId, onClo
         import_target: response.created_character ? 'new_character' : 'existing_character',
         memory_count_bucket: memoryCountBucket(response.memories_written)
       });
-      await onImported(response);
+      const shouldSaveLocalCharacter = mode === 'CREATE' || updateExisting;
+      const localCharacter: CharacterModel | undefined = shouldSaveLocalCharacter
+        ? {
+            ...EMPTY_CHARACTER,
+            name: draft.character.name,
+            description: draft.character.description,
+            personality: [
+              draft.character.personality_traits.length
+                ? `Personality: ${draft.character.personality_traits.join(', ')}` : '',
+              draft.character.speaking_style.length
+                ? `Speaking style: ${draft.character.speaking_style.join(', ')}` : ''
+            ].filter(Boolean).join('\n')
+          }
+        : undefined;
+      await onImported(response, localCharacter);
       onClose();
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : t().migration.importFailed);
