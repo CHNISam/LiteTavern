@@ -25,6 +25,8 @@ function installChatFetch(
     requested.push(path);
     if (path === '/v1/cloud/status') return json({ cloud: {
       stage: 'ALPHA',
+      contract_version: 2,
+      capabilities: { auth: true, asset_sync: true, platform_generation: true, client_turn_sync: true, reply_suggestions: true },
       account_state: 'ALPHA',
       email_verified: true,
       platform_models_available: true,
@@ -118,9 +120,11 @@ function installChatFetch(
  * looks like a broken feature.
  */
 async function pressWriteAsMe() {
-  const button = await screen.findByRole('button', { name: /Write as me|代写/ });
-  await waitFor(() => expect(button).toBeEnabled());
-  fireEvent.click(button);
+  await screen.findByRole('button', { name: /Write as me|代写/ });
+  await waitFor(() => expect(
+    screen.getByRole('button', { name: /Write as me|代写/ })
+  ).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: /Write as me|代写/ }));
 }
 
 afterEach(async () => {
@@ -218,6 +222,7 @@ it('sends a configured quick reply only when direct-send behavior is enabled', a
 
   render(<App />);
   await screen.findByPlaceholderText(/Nova/);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Depart now' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Depart now' }));
 
   await waitFor(() => expect(

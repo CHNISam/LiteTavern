@@ -14,6 +14,11 @@ export type AnalyticsEventName =
   | 'byok_selected'
   | 'support_entry_viewed'
   | 'support_entry_clicked'
+  | 'cloud_transient_unreachable'
+  | 'cloud_contract_blocked'
+  | 'conversation_rebound'
+  | 'sync_conflict'
+  | 'byok_direct_cors_blocked'
   // Founding Supporter claim funnel. These never carry contact details, amount
   // or message text — only where the claim was started from.
   | 'supporter_claim_opened'

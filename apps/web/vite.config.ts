@@ -2,6 +2,16 @@ import { defineConfig, type Plugin } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { copyFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { parsePublicOrigins } from './src/lib/connect-origins';
+import { BUILTIN_BYOK_ORIGIN_LIST } from './src/lib/byok-origins';
+
+function allowedConnectOrigins(): string[] {
+  return parsePublicOrigins(
+    process.env.VITE_CLOUD_BASE_URL,
+    process.env.VITE_BYOK_CONNECT_ORIGINS,
+    BUILTIN_BYOK_ORIGIN_LIST.join(' ')
+  );
+}
 
 // The production index.html ships a strict Content-Security-Policy. Vite's dev
 // server injects CSS (and HMR runtime) through inline <style>/<script>, which a
@@ -19,7 +29,10 @@ function devCspRelax(): Plugin {
           const relaxed = policy
             .replace(/script-src 'self'/, "script-src 'self' 'unsafe-inline'")
             .replace(/style-src 'self'/, "style-src 'self' 'unsafe-inline'")
-            .replace(/connect-src 'self'/, "connect-src 'self' ws:");
+            .replace(
+              /connect-src 'self'/,
+              `connect-src 'self' ws: ${allowedConnectOrigins().join(' ')}`.trimEnd()
+            );
           return open + relaxed + close;
         }
       );
@@ -35,17 +48,11 @@ function cloudConnectSrc(): Plugin {
     name: 'cloud-connect-src',
     apply: 'build',
     transformIndexHtml(html) {
-      const configured = process.env.VITE_CLOUD_BASE_URL;
-      if (!configured) return html;
-      let origin: string;
-      try {
-        origin = new URL(configured).origin;
-      } catch {
-        return html;
-      }
+      const origins = allowedConnectOrigins();
+      if (!origins.length) return html;
       return html.replace(
         /(content="[^"]*)connect-src 'self'/,
-        (_all, prefix: string) => `${prefix}connect-src 'self' ${origin}`
+        (_all, prefix: string) => `${prefix}connect-src 'self' ${origins.join(' ')}`
       );
     }
   };

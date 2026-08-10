@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProviderSettings } from './ProviderSettings';
+import { modelConfigurationStore } from '../lib/model-configuration-store';
 
 function json(body: unknown, status = 200) {
   return Promise.resolve(
@@ -11,9 +12,10 @@ function json(body: unknown, status = 200) {
   );
 }
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   vi.restoreAllMocks();
+  await modelConfigurationStore.reset();
 });
 
 describe('OpenAI provider settings', () => {
@@ -224,7 +226,7 @@ describe('OpenAI provider settings', () => {
     // The catalogue is searchable, and a query that matches nothing says so
     // rather than leaving a blank panel.
     const search = await screen.findByRole('searchbox', { name: '搜索服务商' });
-    fireEvent.change(search, { target: { value: 'anthropic' } });
+    fireEvent.change(search, { target: { value: 'provider-that-does-not-exist' } });
     expect(screen.getByText(/没有匹配/)).toBeInTheDocument();
     fireEvent.change(search, { target: { value: 'openai.com' } });
 
@@ -234,8 +236,8 @@ describe('OpenAI provider settings', () => {
     expect(screen.queryByText('使用 ChatGPT 账号连接')).not.toBeInTheDocument();
   });
 
-  it('shows an actionable error instead of an empty provider panel', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
+  it('loads the provider catalogue without a Cloud request', async () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
 
     render(
       <ProviderSettings
@@ -245,7 +247,8 @@ describe('OpenAI provider settings', () => {
       />
     );
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('无法加载服务商');
-    expect(screen.getByRole('button', { name: '重新加载' })).toBeInTheDocument();
+    expect(await screen.findByRole('searchbox', { name: '搜索服务商' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /OpenAI/ }).length).toBeGreaterThan(0);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { resetLoreDatabaseForTests } from './lib/lore-store';
+import { resetChatRepositoryForTests } from './lib/chat-repository';
 import {
   RegexPlacement,
   saveCharacterRegexBundle
@@ -25,6 +26,15 @@ function json(body: unknown, status = 200) {
   );
 }
 
+function sse(frames: Array<{ event: string; data: unknown }>) {
+  return Promise.resolve(new Response(
+    frames.map(({ event, data }) =>
+      `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+    ).join(''),
+    { headers: { 'Content-Type': 'text/event-stream' } }
+  ));
+}
+
 function character(id: string, name: string) {
   return {
     character_id: id,
@@ -40,8 +50,6 @@ function character(id: string, name: string) {
 
 interface ShellOptions {
   characters?: ReturnType<typeof character>[];
-  /** Suggestions returned inline by the turn endpoint. */
-  turnSuggestions?: string[];
   turnMessages?: string[];
   messages?: Record<string, unknown>[];
   messagesByConversation?: Record<string, Record<string, unknown>[]>;
@@ -50,7 +58,6 @@ interface ShellOptions {
 
 function mockShell({
   characters = [character('firefly-card', '流萤')],
-  turnSuggestions,
   turnMessages = ['收到。'],
   messages = [],
   messagesByConversation,
@@ -79,6 +86,8 @@ function mockShell({
     if (path === '/v1/cloud/status') {
       return json({ cloud: {
       stage: 'ALPHA',
+      contract_version: 2,
+      capabilities: { auth: true, asset_sync: true, platform_generation: true, client_turn_sync: true, reply_suggestions: true },
       account_state: 'ALPHA',
       email_verified: true,
       platform_models_available: true,
@@ -138,17 +147,21 @@ function mockShell({
         : json({ messages: selected });
     }
     if (path.endsWith('/reply-suggestions')) return json({ suggestions: ['稍后再说'] });
-    if (path.endsWith('/turns')) {
-      return json(
-        {
-          turn_id: 'turn-1',
-          messages: turnMessages,
-          ...(turnSuggestions ? { suggestions: turnSuggestions } : {})
-        },
-        201
-      );
+    if (path.endsWith('/generations')) {
+      const actions = turnMessages.map((content, index) => ({
+        action_id: `reply-${index + 1}`,
+        type: 'text',
+        content
+      }));
+      return sse([
+        { event: 'start', data: { generation_request_id: 'turn-1' } },
+        { event: 'turn', data: { protocol_version: 1, turn_id: 'turn-1', actions } },
+        { event: 'done', data: {
+          generation_request_id: 'turn-1',
+          message_id: actions.at(-1)?.action_id
+        } }
+      ]);
     }
-    if (path.endsWith('/bubbles')) return json({ saved: true }, 201);
     return json({ error: { message: `unexpected ${path}` } }, 404);
   });
   return requested;
@@ -169,6 +182,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   localStorage.clear();
   await resetLoreDatabaseForTests();
+  await resetChatRepositoryForTests();
 });
 
 describe('request economy', () => {
@@ -180,23 +194,21 @@ describe('request economy', () => {
   async function sendAndPlayOut() {
     const composer = await screen.findByPlaceholderText('给流萤发送短信…');
     fireEvent.change(composer, { target: { value: '你好' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: '发送消息' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
     await screen.findByText('收到。', { selector: '.message-bubble' }, { timeout: 8000 });
     await settle();
   }
 
   it('spends one model call per turn, and never one for suggestions', async () => {
-    // Even when the server volunteers suggestions in the turn response, the client
-    // ignores them: a suggestion the reader did not ask for is one they did not agree
-    // to pay for, and the strip must reflect what MANUAL means.
-    const requested = mockShell({ turnSuggestions: ['那就出发吧', '再等等'] });
+    const requested = mockShell();
     render(<App />);
 
     await sendAndPlayOut();
 
     expect(suggestionCalls(requested)).toHaveLength(0);
     expect(screen.queryByRole('button', { name: '那就出发吧' })).not.toBeInTheDocument();
-    const turn = requested.find((entry) => entry.path.endsWith('/turns'));
+    const turn = requested.find((entry) => entry.path.endsWith('/generations'));
     expect(turn?.body).toMatchObject({
       input: { type: 'text', text: '你好' },
       client_context: {
@@ -243,12 +255,13 @@ describe('request economy', () => {
 
     const composer = await screen.findByPlaceholderText('给流萤发送短信…');
     fireEvent.change(composer, { target: { value: 'a' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: '发送消息' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
 
     await screen.findByText('xx', { selector: '.message-bubble' }, {
       timeout: 8000
     });
-    const turn = requested.find((entry) => entry.path.endsWith('/turns'));
+    const turn = requested.find((entry) => entry.path.endsWith('/generations'));
     expect(turn?.body).toMatchObject({
       input: { type: 'text', text: 'aa' }
     });
@@ -322,8 +335,8 @@ describe('request economy', () => {
     expect(await screen.findByText('alpha-private', { selector: '.message-bubble' })).toBeInTheDocument();
     const rail = await screen.findByRole('complementary');
     fireEvent.click(within(rail).getByRole('button', { name: /Beta/ }));
-    expect(screen.getByPlaceholderText(/Beta/)).toBeInTheDocument();
     expect(screen.queryByText('alpha-private', { selector: '.message-bubble' })).not.toBeInTheDocument();
+    expect(screen.getByText(/等待第一条短信/)).toBeInTheDocument();
     expect(await screen.findByText('beta-private', { selector: '.message-bubble' })).toBeInTheDocument();
   });
 
@@ -344,6 +357,6 @@ describe('request economy', () => {
 
     // No stale open may reinstate the previous character's composer.
     expect(screen.getByPlaceholderText('给三月七发送短信…')).toBeInTheDocument();
-    expect(requested.some((entry) => entry.path.endsWith('/turns'))).toBe(false);
+    expect(requested.some((entry) => entry.path.endsWith('/generations'))).toBe(false);
   });
 });

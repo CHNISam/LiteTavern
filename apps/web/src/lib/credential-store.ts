@@ -204,6 +204,16 @@ export class BrowserCredentialStore {
     }
   }
 
+  async reset(): Promise<void> {
+    this.migration = null;
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(this.databaseName);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => resolve();
+    });
+  }
+
   private toSummary(credential: StoredCredential): CredentialSummary {
     return {
       credentialId: credential.credentialId,

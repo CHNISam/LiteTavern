@@ -43,6 +43,8 @@ function mockShell(handler: (path: string, init?: RequestInit) => Promise<Respon
       return json({
         cloud: {
           stage: 'ALPHA',
+          contract_version: 2,
+          capabilities: { auth: true, asset_sync: true, platform_generation: true, client_turn_sync: true, reply_suggestions: true },
           account_state: 'ALPHA',
           email_verified: true,
           platform_models_available: true,

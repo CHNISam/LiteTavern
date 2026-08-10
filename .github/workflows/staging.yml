@@ -62,7 +62,15 @@ jobs:
 
       - run: npm ci --no-audit
       - run: npm run check
+        env:
+          VITE_CLOUD_BASE_URL: ''
+          VITE_BYOK_CONNECT_ORIGINS: ${{ vars.VITE_BYOK_CONNECT_ORIGINS }}
       - run: npm audit --omit=dev --audit-level=high
+
+      - name: Add same-origin Cloud gateway
+        run: |
+          cp deploy/production-worker.js apps/web/dist/_worker.js
+          cp deploy/cloud-gateway.js apps/web/dist/cloud-gateway.js
 
       - name: Deploy fixed protected preview alias
         uses: cloudflare/wrangler-action@v3
@@ -70,9 +78,9 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: >-
-            pages deploy apps/web/dist
-            --project-name=${{ vars.CLOUDFLARE_STAGING_PROJECT }}
+            pages deploy --project-name=${{ vars.CLOUDFLARE_STAGING_PROJECT }}
             --branch=staging
+            --cwd deploy/staging
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify Access and staging routes

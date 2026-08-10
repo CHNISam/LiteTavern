@@ -24,6 +24,19 @@ test('production forwards Cloud-owned paths through the service binding', async 
   assert.equal(forwarded, request);
 });
 
+test('the Pages gateway forwards the complete versioned API without a path whitelist', async () => {
+  let forwarded;
+  const request = new Request('https://litetavern.pages.dev/v1/cloud/sync/push', {
+    method: 'POST',
+    body: JSON.stringify({ mutations: [] })
+  });
+  await productionWorker.fetch(request, {
+    CLOUD: { fetch: async (candidate) => { forwarded = candidate; return new Response('cloud'); } },
+    ASSETS: { fetch: async () => new Response('asset') }
+  });
+  assert.equal(forwarded, request);
+});
+
 test('production keeps non-Cloud paths on the Pages asset binding', async () => {
   let cloudCalls = 0;
   const response = await productionWorker.fetch(

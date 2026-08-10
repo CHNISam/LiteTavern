@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import type { Character } from '../lib/api';
 import { useT } from '../lib/i18n';
-import { cloudUrl } from '../lib/runtime-config';
 
 export function avatarUrl(character: Character) {
-  const version = character.version ? `?v=${character.version}` : '';
-  // Avatars are served by LiteTavern Cloud, which may live on another origin.
-  return cloudUrl(`/v1/characters/${character.character_id}/avatar${version}`);
+  if (character.avatar_seed.startsWith('data:image/')) return character.avatar_seed;
+  // Cloud-era cached characters may still carry only an id; they gracefully render
+  // the initial until their asset has been migrated into the local repository.
+  return null;
 }
 
 /**
@@ -35,7 +35,7 @@ export function Avatar({
   return (
     <span className={`hsr-avatar ${className}`} aria-hidden="false">
       <span className="avatar-fallback">{character.name.slice(0, 1)}</span>
-      {failedSrc !== src && (
+      {src && failedSrc !== src && (
         <img src={src} alt={t.chat.avatarAlt(character.name)} onError={() => setFailedSrc(src)} />
       )}
     </span>

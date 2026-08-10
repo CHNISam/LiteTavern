@@ -3,11 +3,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { analytics } from './lib/analytics';
 import { resetLoreDatabaseForTests } from './lib/lore-store';
+import { cacheCharacters } from './lib/local-cache';
+import { resetChatRepositoryForTests } from './lib/chat-repository';
 
 function json(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' }
+  }));
+}
+
+function sse(frames: Array<{ event: string; data: unknown }>) {
+  const body = frames.map(({ event, data }) =>
+    `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+  ).join('');
+  return Promise.resolve(new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' }
   }));
 }
 
@@ -18,6 +30,7 @@ afterEach(async () => {
   // can degrade gracefully; clear it so one test's cache never leaks into the next.
   localStorage.clear();
   await resetLoreDatabaseForTests();
+  await resetChatRepositoryForTests();
 });
 
 type CloudQuotaOverrides = {
@@ -42,6 +55,15 @@ function cloudStatus(
 ) {
   return {
     cloud: {
+      contract_version: 2,
+      capabilities: {
+        auth: true,
+        asset_sync: true,
+        platform_generation: true,
+        client_turn_sync: true,
+        reply_suggestions: true,
+        legacy_http_migration: true
+      },
       stage: 'ALPHA',
       account_state: 'ALPHA',
       email_verified: true,
@@ -90,7 +112,72 @@ function identity(registered = false) {
   };
 }
 
+const testCharacter = {
+  character_id: 'character-1',
+  name: '流萤',
+  profile_summary: '星核猎手成员',
+  personality_summary: '温柔而坚定',
+  first_message: '又见面了。',
+  avatar_seed: '流萤',
+  is_owned: true,
+  last_message: null
+};
+
+const localFireflyCharacter = {
+  character_id: 'firefly-card',
+  name: '\u6d41\u8424',
+  profile_summary: '\u661f\u6838\u730e\u624b\u6210\u5458',
+  personality_summary: '\u6e29\u67d4\u800c\u575a\u5b9a',
+  first_message: '\u53c8\u89c1\u9762\u4e86\u3002',
+  avatar_seed: 'data:image/png;base64,iVBORw0KGgo=',
+  is_owned: true,
+  last_message: null,
+  local_card: {
+    normalized_data: {
+      name: '\u6d41\u8424', description: '\u661f\u6838\u730e\u624b\u6210\u5458',
+      personality: '\u6e29\u67d4\u800c\u575a\u5b9a', scenario: '',
+      first_message: '\u53c8\u89c1\u9762\u4e86\u3002', alternate_greetings: [], example_messages: '',
+      system_prompt: '\u5b88\u4f4f\u8bbe\u5b9a', post_history_instructions: '', tags: [],
+      creator: { name: '', notes: '', character_version: '' }
+    },
+    source_metadata: {
+      compatibility_level: 'FORMAL' as const,
+      format: 'CHARACTER_CARD_V3', container: 'PNG', unapplied_fields: []
+    },
+    warnings: []
+  }
+};
+
 describe('HSR message shell', () => {
+  it('opens cached local characters without requesting the retired anonymous identity', async () => {
+    const requested: string[] = [];
+    cacheCharacters([{
+      character_id: 'local-card',
+      name: '本地角色',
+      profile_summary: '只保存在浏览器',
+      personality_summary: '',
+      first_message: '欢迎回来。',
+      avatar_seed: '本地角色'
+    }]);
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      requested.push(path);
+      if (path === '/v1/auth/me') {
+        return json({ error: { code: 'UNAUTHORIZED', message: 'signed out' } }, 401);
+      }
+      if (path === '/v1/cloud/status') {
+        return json({ error: { code: 'UNAVAILABLE', message: 'offline' } }, 503);
+      }
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+
+    expect((await screen.findAllByText('本地角色')).length).toBeGreaterThan(0);
+    expect(await screen.findByText('欢迎回来。', { selector: '.message-bubble' })).toBeInTheDocument();
+    expect(requested).not.toContain('/v1/identities/anonymous');
+  });
+
   it('keeps a restored Cloud account when anonymous bootstrap and cloud status both describe a guest', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
@@ -158,7 +245,7 @@ describe('HSR message shell', () => {
     const signedOutPanel = await screen.findByRole('dialog', { name: '账号与同步' });
     expect(within(signedOutPanel).getByText('未登录')).toBeInTheDocument();
     expect(within(signedOutPanel).queryByRole('button', { name: '退出登录' })).not.toBeInTheDocument();
-    expect(requested.filter((path) => path === '/v1/identities/anonymous')).toHaveLength(1);
+    expect(requested.filter((path) => path === '/v1/identities/anonymous')).toHaveLength(0);
     expect(requested.filter((path) => path === '/v1/characters')).toHaveLength(1);
   });
   it('does not buy quick replies merely for opening an existing chat', async () => {
@@ -166,6 +253,7 @@ describe('HSR message shell', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
       requested.push(path);
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/cloud/status') return json(cloudStatus());
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') {
@@ -220,9 +308,122 @@ describe('HSR message shell', () => {
     ).toBe(false);
   });
 
+  it('does not probe retired local-asset HTTP routes on the version 2 Cloud Worker', async () => {
+    const requested: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      requested.push(path);
+      if (path === '/v1/auth/me') return json({ user: {
+        user_id: 'account-v2', anonymous_id: 'account-v2', identity_type: 'EMAIL',
+        email: 'v2@example.test', registered: true
+      } });
+      if (path === '/v1/cloud/status') return json(cloudStatus({ capabilities: {
+        auth: true, asset_sync: true, platform_generation: true,
+        client_turn_sync: true, reply_suggestions: true,
+        legacy_http_migration: false
+      } }));
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('v2@example.test')).toBeInTheDocument();
+    await waitFor(() => expect(requested).toContain('/v1/cloud/sync/checkpoint'));
+    expect(requested).not.toContain('/v1/characters');
+    expect(requested).not.toContain('/v1/personas');
+    expect(requested).not.toContain('/v1/worldbooks');
+    expect(requested).not.toContain('/v1/model-configurations');
+  });
+
+  it('does not retry a missing generation route through the retired turns endpoint', async () => {
+    const requested: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      requested.push(path);
+      if (path === '/v1/auth/me') return json(identity(true));
+      if (path === '/v1/cloud/status') return json(cloudStatus());
+      if (path === '/v1/identities/anonymous') return json(identity());
+      if (path === '/v1/characters') return json({ characters: [{
+        character_id: 'firefly-card', name: '流萤', profile_summary: '',
+        personality_summary: '', first_message: '', avatar_seed: '流萤'
+      }] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
+      if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
+      if (path === '/v1/conversations/conversation-1/generations') {
+        return json({ error: { code: 'NOT_FOUND', message: 'missing', retryable: false } }, 404);
+      }
+      if (path.endsWith('/turns')) {
+        return json({ turn_id: 'legacy', messages: ['must not happen'] }, 201);
+      }
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+    const composer = await screen.findByPlaceholderText('给流萤发送短信…');
+    fireEvent.change(composer, { target: { value: 'hello' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    await waitFor(() => expect(
+      requested.some((path) => path.endsWith('/generations'))
+    ).toBe(true));
+    expect(requested.some((path) => path.endsWith('/turns'))).toBe(false);
+  });
+
+  it('rebinds a stale Cloud conversation without replaying the turn through a legacy route', async () => {
+    const requested: string[] = [];
+    let conversationCreates = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const path = String(input);
+      requested.push(path);
+      if (path === '/v1/auth/me') return json(identity(true));
+      if (path === '/v1/cloud/status') return json(cloudStatus());
+      if (path === '/v1/characters') return json({ characters: [{
+        character_id: 'firefly-card', name: '流萤', profile_summary: '',
+        personality_summary: '', first_message: '', avatar_seed: '流萤'
+      }] });
+      if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') {
+        conversationCreates += 1;
+        return json({ conversation_id: `conversation-${conversationCreates}` }, 201);
+      }
+      if (/\/v1\/conversations\/conversation-[12]\/messages$/.test(path)) {
+        return json({ messages: [] });
+      }
+      if (path === '/v1/conversations/conversation-1/generations') {
+        return json({
+          error: {
+            code: 'CONVERSATION_NOT_FOUND',
+            message: '会话不存在。',
+            retryable: false
+          }
+        }, 404);
+      }
+      if (path.endsWith('/turns')) return json({ turn_id: 'must-not-happen' }, 201);
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
+      if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
+      return json({ error: { message: `unexpected ${path}` } }, 404);
+    });
+
+    render(<App />);
+    const composer = await screen.findByPlaceholderText(/流萤/);
+    fireEvent.change(composer, { target: { value: 'hello' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
+
+    await waitFor(() => expect(conversationCreates).toBe(2));
+    expect(await screen.findByDisplayValue('hello')).toBeInTheDocument();
+    expect(requested.filter((path) => path.endsWith('/generations'))).toHaveLength(1);
+    expect(requested.some((path) => path.endsWith('/turns'))).toBe(false);
+  });
+
   it('shows the LiteTavern Cloud allowance and updates it after a reply', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/cloud/status') return json(cloudStatus());
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') {
@@ -237,11 +438,14 @@ describe('HSR message shell', () => {
       if (path === '/v1/model-configurations') return json({ configurations: [] });
       if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
       if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
-      if (path === '/v1/conversations/conversation-1/turns') {
-        return json({
-          turn_id: 'turn-1',
-          messages: ['收到。'],
-          quota: {
+      if (path === '/v1/conversations/conversation-1/generations') {
+        return sse([
+          { event: 'start', data: { generation_request_id: 'generation-1' } },
+          { event: 'delta', data: { text: '收到。' } },
+          { event: 'done', data: {
+            generation_request_id: 'generation-1',
+            message_id: 'assistant-1',
+            quota: {
             period_limit: 1500,
             period_used: 42,
             period_reserved: 0,
@@ -253,8 +457,9 @@ describe('HSR message shell', () => {
             daily_reserved: 0,
             daily_remaining: 190,
             day_utc: '2026-08-06'
-          }
-        }, 201);
+            }
+          } }
+        ]);
       }
       return json({ error: { message: `unexpected ${path}` } }, 404);
     });
@@ -282,6 +487,7 @@ describe('HSR message shell', () => {
   it('points at BYOK and the reset time when the day is spent', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/cloud/status') {
         return json(
           cloudStatus(
@@ -324,6 +530,7 @@ describe('HSR message shell', () => {
   it('keeps the balance unchanged when the platform model service is busy', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/cloud/status') return json(cloudStatus());
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') {
@@ -338,7 +545,7 @@ describe('HSR message shell', () => {
       if (path === '/v1/model-configurations') return json({ configurations: [] });
       if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
       if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
-      if (path === '/v1/conversations/conversation-1/turns') {
+      if (path === '/v1/conversations/conversation-1/generations') {
         return json({
           error: {
             code: 'PROVIDER_UNAVAILABLE',
@@ -372,6 +579,7 @@ describe('HSR message shell', () => {
   it('does not let one concurrent-generation refusal disable the next input', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/cloud/status') return json(cloudStatus());
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') return json(identity());
@@ -428,6 +636,7 @@ describe('HSR message shell', () => {
     });
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/cloud/status') {
         statusRequest += 1;
         if (statusRequest > 1) return retryResponse;
@@ -498,6 +707,7 @@ describe('HSR message shell', () => {
     const blockingError = vi.spyOn(analytics, 'blockingError');
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/cloud/status') {
         return json(cloudStatus({
           platform_models_available: false,
@@ -547,6 +757,7 @@ describe('HSR message shell', () => {
   it('keeps a mid-generation "not configured" refusal from reading as a passing outage', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
+      if (path === '/v1/auth/me') return json(identity(true));
       // The status endpoint still claims the models work; only the generation
       // reveals that this deployment was never wired up.
       if (path === '/v1/cloud/status') return json(cloudStatus());
@@ -561,7 +772,7 @@ describe('HSR message shell', () => {
       if (path === '/v1/model-configurations') return json({ configurations: [] });
       if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
       if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
-      if (path === '/v1/conversations/conversation-1/turns') {
+      if (path === '/v1/conversations/conversation-1/generations') {
         return json({
           error: {
             code: 'PLATFORM_MODELS_NOT_CONFIGURED',
@@ -601,6 +812,7 @@ describe('HSR message shell', () => {
   it('shows the exact Alpha balance and its UTC reset without upstream units', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/cloud/status') {
         return json(
           cloudStatus({}, { daily_limit: 20, daily_used: 6, daily_remaining: 14 })
@@ -620,13 +832,18 @@ describe('HSR message shell', () => {
         return json(identity());
       }
       if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
-      if (path === '/v1/characters') return json({ characters: [] });
+      if (path === '/v1/characters') return json({ characters: [testCharacter] });
       if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
+      if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
       return json({ error: { message: `unexpected ${path}` } }, 404);
     });
 
     render(<App />);
 
+    await screen.findByTitle(
+      'LiteTavern Cloud：今日剩余 14 / 20 次，本周期剩余 1459 / 1500 次'
+    );
     fireEvent.click(await screen.findByRole('button', { name: '模型服务' }));
     const panel = await screen.findByRole('dialog', { name: '模型服务' });
     const daily = within(panel).getByRole('meter', { name: '今日额度剩余量' });
@@ -736,8 +953,10 @@ describe('HSR message shell', () => {
         return json(identity(false));
       }
       if (path === '/v1/analytics/events') return json({ accepted: 1, duplicates: 0 }, 202);
-      if (path === '/v1/characters') return json({ characters: [] });
+      if (path === '/v1/characters') return json({ characters: [testCharacter] });
       if (path === '/v1/model-configurations') return json({ configurations: [] });
+      if (path === '/v1/conversations') return json({ conversation_id: 'conversation-1' }, 201);
+      if (path === '/v1/conversations/conversation-1/messages') return json({ messages: [] });
       return json({ error: { message: `unexpected ${path}` } }, 404);
     });
   }
@@ -791,6 +1010,7 @@ describe('HSR message shell', () => {
     );
 
     render(<App />);
+    await screen.findByText(/账号已被停用/);
     fireEvent.click(await screen.findByRole('button', { name: '管理账号与同步' }));
     const panel = await screen.findByRole('dialog', { name: '账号与同步' });
 
@@ -824,7 +1044,7 @@ describe('HSR message shell', () => {
     expect((await screen.findAllByText(/LiteTavern Cloud 暂时不可用/)).length).toBeGreaterThan(0);
     expect(screen.getByText('同步异常')).toBeInTheDocument();
     // The character survives the outage, and nothing claims the data is gone.
-    expect(screen.getAllByText('流萤').length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('流萤')).length).toBeGreaterThan(0);
     expect(screen.queryByText(/数据.*丢失[^。]/)).not.toBeInTheDocument();
   });
 
@@ -889,6 +1109,7 @@ describe('HSR message shell', () => {
   });
 
   it('uses the imported card PNG as the avatar and keeps the profile a single page', async () => {
+    cacheCharacters([localFireflyCharacter]);
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
       if (path === '/v1/identities/anonymous') return json({ user_id: 'user-1' });
@@ -906,7 +1127,7 @@ describe('HSR message shell', () => {
     render(<App />);
 
     const avatar = await screen.findByRole('img', { name: '流萤头像' });
-    expect(avatar).toHaveAttribute('src', '/v1/characters/firefly-card/avatar');
+    expect(avatar).toHaveAttribute('src', localFireflyCharacter.avatar_seed);
     fireEvent.click(screen.getByRole('button', { name: '打开流萤档案' }));
     expect(await screen.findByRole('heading', { name: '流萤' })).toBeInTheDocument();
 
@@ -923,7 +1144,7 @@ describe('HSR message shell', () => {
 
   it('edits a profile field in place instead of opening the editor', async () => {
     const requests: Array<{ path: string; method: string; body?: string }> = [];
-    let description = '星核猎手成员';
+    cacheCharacters([localFireflyCharacter]);
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const path = String(input);
       requests.push({
@@ -933,7 +1154,7 @@ describe('HSR message shell', () => {
       });
       if (path === '/v1/identities/anonymous') return json({ user_id: 'user-1' });
       if (path === '/v1/characters') return json({ characters: [{
-        character_id: 'firefly-card', name: '流萤', profile_summary: description,
+        character_id: 'firefly-card', name: '流萤', profile_summary: '星核猎手成员',
         personality_summary: '温柔而坚定', first_message: '又见面了。', avatar_seed: '流萤',
         is_owned: true, last_message: null
       }] });
@@ -942,13 +1163,12 @@ describe('HSR message shell', () => {
       }
       if (path === '/v1/characters/firefly-card/memories') return json({ memories: [] });
       if (path === '/v1/characters/firefly-card/card' && init?.method === 'PUT') {
-        description = (JSON.parse(String(init.body)) as { description: string }).description;
         return json({ character_id: 'firefly-card' });
       }
       if (path === '/v1/characters/firefly-card/card') {
         return json({
           normalized_data: {
-            name: '流萤', description, personality: '温柔而坚定', scenario: '',
+            name: '流萤', description: '星核猎手成员', personality: '温柔而坚定', scenario: '',
             first_message: '又见面了。', alternate_greetings: [], example_messages: '',
             system_prompt: '守住设定', post_history_instructions: '', tags: [],
             creator: { name: '', notes: '', character_version: '' }
@@ -975,19 +1195,17 @@ describe('HSR message shell', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => expect(screen.getByText('格拉默铁骑士')).toBeInTheDocument());
-    const update = requests.find((request) => request.method === 'PUT');
-    // The whole card is replaced by this endpoint, so an inline edit must carry
-    // the fields the reader could not see — not blank them out.
-    expect(JSON.parse(String(update?.body))).toMatchObject({
-      description: '格拉默铁骑士',
-      system_prompt: '守住设定',
-      personality: '温柔而坚定'
-    });
+    expect(requests.some((request) => request.method === 'PUT')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+    expect(screen.getByDisplayValue('格拉默铁骑士')).toBeInTheDocument();
   });
 
   it('shows the relationship summary the Cloud actually stored', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const path = String(input);
+      if (path === '/v1/auth/me') return json(identity(true));
+      if (path === '/v1/cloud/status') return json(cloudStatus());
+      if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') return json({ user_id: 'user-1' });
       if (path === '/v1/characters') return json({ characters: [{
         character_id: 'firefly-card', name: '流萤', profile_summary: '星核猎手成员',
@@ -1026,6 +1244,7 @@ describe('HSR message shell', () => {
   it('deletes the active character from the profile menu and falls back to the empty state', async () => {
     let deleted = false;
     const requests: Array<{ path: string; method: string }> = [];
+    cacheCharacters([localFireflyCharacter]);
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const path = String(input);
       requests.push({ path, method: init?.method ?? 'GET' });
@@ -1058,10 +1277,8 @@ describe('HSR message shell', () => {
     const confirm = await screen.findByRole('button', { name: '删除角色' });
     fireEvent.click(confirm);
 
-    await waitFor(() => {
-      expect(requests.some((r) => r.path === '/v1/characters/firefly-card' && r.method === 'DELETE')).toBe(true);
-    });
     expect(await screen.findByRole('button', { name: '新建角色' })).toBeInTheDocument();
+    expect(requests.some((r) => r.path === '/v1/characters/firefly-card' && r.method === 'DELETE')).toBe(false);
   });
 
   it('confirms and deletes a user message together with its later active branch', async () => {
@@ -1075,6 +1292,7 @@ describe('HSR message shell', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const path = String(input);
       requests.push({ path, method: init?.method ?? 'GET' });
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/cloud/status') return json(cloudStatus());
       if (path === '/v1/cloud/sync/checkpoint') return json({ sync: {} });
       if (path === '/v1/identities/anonymous') return json({ user_id: 'user-1' });
@@ -1110,12 +1328,13 @@ describe('HSR message shell', () => {
   });
 
   it('copies a sent message and edits it into a new multi-bubble turn', async () => {
-    const turns: Array<Record<string, unknown>> = [];
+    const generations: Array<Record<string, unknown>> = [];
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
 
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const path = String(input);
+      if (path === '/v1/auth/me') return json(identity(true));
       if (path === '/v1/cloud/status') return json(cloudStatus());
       if (path === '/v1/identities/anonymous') return json({ user_id: 'user-1' });
       if (path === '/v1/characters') return json({ characters: [{
@@ -1131,9 +1350,20 @@ describe('HSR message shell', () => {
         { message_id: 'm-3', role: 'ASSISTANT', content_text: '我认为该出发了。', status: 'COMPLETED' }
       ] });
       if (path === '/v1/conversations/conversation-1/reply-suggestions') return json({ suggestions: [] });
-      if (path === '/v1/conversations/conversation-1/turns') {
-        turns.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-        return json({ turn_id: 'turn-1', messages: ['那就走吧。'] }, 201);
+      if (path === '/v1/conversations/conversation-1/generations') {
+        generations.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return sse([
+          { event: 'start', data: { generation_request_id: 'generation-1' } },
+          { event: 'turn', data: {
+            protocol_version: 1,
+            turn_id: 'turn-1',
+            actions: [{ action_id: 'assistant-1', type: 'text', content: '那就走吧。' }]
+          } },
+          { event: 'done', data: {
+            generation_request_id: 'generation-1',
+            message_id: 'assistant-1'
+          } }
+        ]);
       }
       return json({ error: { message: `unexpected ${path}` } }, 404);
     });
@@ -1160,8 +1390,8 @@ describe('HSR message shell', () => {
 
     // The edit generates one turn carrying the rewritten text, and optimistically
     // drops the old branch (the original message + the reply that followed it).
-    await waitFor(() => expect(turns).toHaveLength(1));
-    expect(turns[0]).toMatchObject({
+    await waitFor(() => expect(generations).toHaveLength(1));
+    expect(generations[0]).toMatchObject({
       edit_of_message_id: 'm-2',
       input: { type: 'text', text: '你先说' }
     });

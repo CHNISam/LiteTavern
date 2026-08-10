@@ -251,6 +251,14 @@ describe('RelationshipImport', () => {
     // Only the memory the user kept is submitted, and uncertain items are never
     // promoted into the memory list on their own.
     expect(body.payload.memories.map((memory) => memory.content)).toEqual([MEMORY_ONE]);
+    expect(onImported).toHaveBeenCalledWith(
+      expect.objectContaining({ character_id: 'char-new', created_character: true }),
+      expect.objectContaining({
+        name: '星遥（迁移）',
+        description: '深夜电台主播',
+        personality: expect.stringContaining('温柔')
+      })
+    );
   });
 
   it('commits into an existing owned character when that target is chosen', async () => {

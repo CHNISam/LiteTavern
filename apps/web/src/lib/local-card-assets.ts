@@ -1,16 +1,14 @@
 import {
   embeddedCharacterBook,
   embeddedRegexScripts,
-  readCardFile,
   rewriteCardFile
 } from './card-file';
-import { readApiJson } from './api';
+import { fetchCharacterCard } from './character-card';
 import { t } from './i18n';
 import {
   regexScriptsForExport,
   saveCharacterRegexBundle
 } from './regex-engine';
-import { cloudUrl } from './runtime-config';
 import {
   characterCardWorldbook,
   exportWorldbook,
@@ -36,34 +34,40 @@ export async function storeImportedCardExtensions(
 }
 
 export async function buildLocalCharacterExport(
+  partition: string,
   characterId: string
 ): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(
-    cloudUrl(
-      `/v1/characters/${characterId}/export?asset_mode=LOCAL_EXTENSIONS_V1`
-    ),
-    { credentials: 'include' }
-  );
-  if (!response.ok) {
-    const payload = await readApiJson<{ error?: { message?: string } }>(response);
-    throw new Error(payload.error?.message ?? t().localAssets.cardExportFailed);
-  }
-  const base = await response.blob();
-  const card = await readCardFile(base);
-  if (!card) throw new Error(t().localAssets.cloudCardUnreadable);
+  const detail = await fetchCharacterCard(partition, characterId);
+  const model = detail.normalized_data;
+  const card = detail.raw_data ?? {
+    spec: 'chara_card_v3',
+    spec_version: '3.0',
+    data: {
+      name: model.name,
+      description: model.description,
+      personality: model.personality,
+      scenario: model.scenario,
+      first_mes: model.first_message,
+      alternate_greetings: model.alternate_greetings,
+      mes_example: model.example_messages,
+      system_prompt: model.system_prompt,
+      post_history_instructions: model.post_history_instructions,
+      tags: model.tags,
+      creator: model.creator.name,
+      creator_notes: model.creator.notes,
+      character_version: model.creator.character_version
+    }
+  };
+  const base = new Blob([JSON.stringify(card)], { type: 'application/json' });
   const localBook = await characterCardWorldbook(characterId);
   const characterBook = localBook
     ? await exportWorldbook(localBook.worldbook_id)
     : embeddedCharacterBook(card);
   const regexScripts = await regexScriptsForExport(characterId);
   const blob = await rewriteCardFile(base, characterBook, regexScripts);
-  const disposition = response.headers.get('Content-Disposition') ?? '';
-  const matched = disposition.match(/filename="?([^";]+)"?/i);
-  const extension = blob.type === 'image/png' ? 'png' : 'json';
   return {
     blob,
-    filename:
-      matched?.[1] ?? `litetavern-character-${characterId}.${extension}`
+    filename: `litetavern-character-${characterId}.json`
   };
 }
 

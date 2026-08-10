@@ -12,7 +12,7 @@ function character(overrides: Partial<Character> = {}): Character {
     profile_summary: '',
     personality_summary: '',
     first_message: '',
-    avatar_seed: '流萤',
+    avatar_seed: 'data:image/png;base64,firefly-v1',
     version: 1,
     ...overrides
   };
@@ -36,11 +36,15 @@ describe('Avatar', () => {
     fireEvent.error(screen.getByRole('img'));
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
 
-    rerender(<Avatar character={character({ character_id: 'silver-wolf', name: '银狼' })} />);
+    rerender(<Avatar character={character({
+      character_id: 'silver-wolf',
+      name: '银狼',
+      avatar_seed: 'data:image/png;base64,silver-wolf-v1'
+    })} />);
 
     expect(screen.getByRole('img')).toHaveAttribute(
       'src',
-      '/v1/characters/silver-wolf/avatar?v=1'
+      'data:image/png;base64,silver-wolf-v1'
     );
   });
 
@@ -48,8 +52,18 @@ describe('Avatar', () => {
     const { rerender } = render(<Avatar character={character()} />);
     fireEvent.error(screen.getByRole('img'));
 
-    rerender(<Avatar character={character({ version: 2 })} />);
+    rerender(<Avatar character={character({
+      version: 2,
+      avatar_seed: 'data:image/png;base64,firefly-v2'
+    })} />);
 
-    expect(screen.getByRole('img')).toHaveAttribute('src', '/v1/characters/firefly/avatar?v=2');
+    expect(screen.getByRole('img')).toHaveAttribute('src', 'data:image/png;base64,firefly-v2');
+  });
+
+  it('does not request a retired Cloud avatar route for legacy metadata', () => {
+    render(<Avatar character={character({ avatar_seed: 'legacy-seed' })} />);
+
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.getByText('流')).toBeInTheDocument();
   });
 });

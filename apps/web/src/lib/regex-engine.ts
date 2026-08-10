@@ -1,4 +1,5 @@
 import { expandMacros, type MacroContext } from './macro-engine';
+import { cloneJson } from './json-clone';
 import {
   getAllLocalRecords,
   getLocalRecord,
@@ -355,7 +356,7 @@ export async function regexScriptsForExport(
       (item) =>
         item.scope === 'CHARACTER' && item.character_id === characterId
     )
-    .map((item) => structuredClone(item.payload));
+    .map((item) => cloneJson(item.payload));
 }
 
 export async function authorizeCharacterRegex(

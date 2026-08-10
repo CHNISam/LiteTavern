@@ -43,9 +43,23 @@ export type CloudBlockReason =
    * separate from `PROVIDER_UNAVAILABLE` precisely so the client never invites a
    * retry that cannot succeed.
    */
-  | 'PLATFORM_MODELS_NOT_CONFIGURED';
+  | 'PLATFORM_MODELS_NOT_CONFIGURED'
+  /** The Worker is reachable but cannot satisfy this Web build's API contract. */
+  | 'CLOUD_CONTRACT_BLOCKED';
+
+export interface CloudCapabilities {
+  auth: boolean;
+  asset_sync: boolean;
+  platform_generation: boolean;
+  client_turn_sync: boolean;
+  reply_suggestions: boolean;
+  /** Temporary bridge for deployments that still expose pre-sync asset routes. */
+  legacy_http_migration?: boolean;
+}
 
 export interface CloudStatus {
+  contract_version: 2;
+  capabilities: CloudCapabilities;
   stage: 'ALPHA';
   account_state: AccountState;
   email_verified: boolean;
@@ -80,6 +94,21 @@ export interface CloudStatus {
   /** Null until Alpha is activated: there is no allowance to describe yet. */
   quota: CloudQuotaSnapshot | null;
   support: { enabled: boolean; url: string; headline: string; body: string };
+}
+
+const REQUIRED_CAPABILITIES: readonly (keyof CloudCapabilities)[] = [
+  'auth',
+  'asset_sync',
+  'platform_generation',
+  'client_turn_sync',
+  'reply_suggestions'
+];
+
+export function isCompatibleCloudStatus(value: unknown): value is CloudStatus {
+  if (!value || typeof value !== 'object') return false;
+  const status = value as Partial<CloudStatus>;
+  return status.contract_version === 2 && !!status.capabilities &&
+    REQUIRED_CAPABILITIES.every((capability) => status.capabilities?.[capability] === true);
 }
 
 /**
@@ -203,7 +232,26 @@ export interface CloudStatusResult {
  */
 export async function fetchCloudStatus(): Promise<CloudStatusResult> {
   try {
-    const response = await api<{ cloud: CloudStatus }>('/v1/cloud/status');
+    const response = await api<{ cloud: unknown }>('/v1/cloud/status');
+    if (!isCompatibleCloudStatus(response.cloud)) {
+      const legacy = response.cloud as CloudStatus;
+      return {
+        status: {
+          ...legacy,
+          contract_version: 2,
+          capabilities: {
+            auth: false,
+            asset_sync: false,
+            platform_generation: false,
+            client_turn_sync: false,
+            reply_suggestions: false
+          },
+          platform_models_available: false,
+          block_reason: 'CLOUD_CONTRACT_BLOCKED'
+        },
+        offline: false
+      };
+    }
     cacheStatus(response.cloud);
     return { status: response.cloud, offline: false };
   } catch (reason) {
@@ -259,7 +307,7 @@ export async function reportSyncCheckpoint(input: {
       method: 'POST',
       body: JSON.stringify({
         device_key: deviceKey(),
-        status: input.status,
+        status: input.status === 'FAILED' ? 'FAILED' : 'SUCCESS',
         ...(input.clientRevision === undefined
           ? {}
           : { client_revision: input.clientRevision }),
@@ -463,6 +511,13 @@ export function resolveCloudNotice(status: CloudStatus | null): CloudNotice | nu
         tone: 'error',
         title: copy.platformNotConfigured.title,
         body: copy.platformNotConfigured.body,
+        byokHint: stillWorks
+      };
+    case 'CLOUD_CONTRACT_BLOCKED':
+      return {
+        tone: 'error',
+        title: copy.contractBlocked.title,
+        body: copy.contractBlocked.body,
         byokHint: stillWorks
       };
     case null:

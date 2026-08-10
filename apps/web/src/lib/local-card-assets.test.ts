@@ -4,11 +4,14 @@ import {
   buildLocalCharacterExport,
   storeImportedCardExtensions
 } from './local-card-assets';
+import { saveLocalCharacter } from './character-card';
+import { resetChatRepositoryForTests } from './chat-repository';
 import { resetLoreDatabaseForTests } from './lore-store';
 
 afterEach(async () => {
   vi.restoreAllMocks();
   await resetLoreDatabaseForTests();
+  await resetChatRepositoryForTests();
 });
 
 describe('local character-card extensions', () => {
@@ -55,19 +58,35 @@ describe('local character-card extensions', () => {
       '星遥',
       false
     );
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(source), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Disposition': 'attachment; filename="star.json"'
-        }
-      })
-    );
+    await saveLocalCharacter({
+      partition: 'guest',
+      characterId: 'character-1',
+      model: {
+        name: '星遥', description: '电台主播', personality: '', scenario: '',
+        first_message: '', alternate_greetings: [], example_messages: '',
+        system_prompt: '', post_history_instructions: '', tags: [],
+        creator: { name: '', notes: '', character_version: '' }
+      },
+      detail: {
+        normalized_data: {
+          name: '星遥', description: '电台主播', personality: '', scenario: '',
+          first_message: '', alternate_greetings: [], example_messages: '',
+          system_prompt: '', post_history_instructions: '', tags: [],
+          creator: { name: '', notes: '', character_version: '' }
+        },
+        raw_data: source,
+        source_metadata: {
+          compatibility_level: 'FORMAL', format: 'CCV3_JSON', container: 'JSON',
+          unapplied_fields: []
+        },
+        warnings: []
+      }
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
-    const result = await buildLocalCharacterExport('character-1');
+    const result = await buildLocalCharacterExport('guest', 'character-1');
     const card = await readCardFile(result.blob);
-    expect(result.filename).toBe('star.json');
+    expect(result.filename).toBe('litetavern-character-character-1.json');
     expect(card?.data).toMatchObject({
       extensions: {
         vendor: 'keep',
@@ -85,9 +104,6 @@ describe('local character-card extensions', () => {
         ]
       }
     });
-    expect(fetch).toHaveBeenCalledWith(
-      '/v1/characters/character-1/export?asset_mode=LOCAL_EXTENSIONS_V1',
-      { credentials: 'include' }
-    );
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

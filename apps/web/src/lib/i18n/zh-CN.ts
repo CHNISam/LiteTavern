@@ -97,6 +97,7 @@ export const zhCN = {
     swipePosition: (index: number, total: number) => `${index} / ${total}`,
     swipeFailed: '切换回复失败，请重试。',
     sendFailed: '发送失败，请稍后重试。',
+    conversationRebound: '缓存的会话已不在当前 Cloud 中。已创建新会话并恢复草稿，请确认后重新发送。',
     regexRemovedInput: '输入经 Regex 处理后为空，未发送。',
     regexInputTimeout: '一个 Regex 脚本执行超时，已使用原始输入。',
     localContextFailed: '本地上下文准备失败。',
@@ -720,6 +721,10 @@ export const zhCN = {
     platformNotConfigured: {
       title: '这个环境还没有开通云端模型',
       body: '这个环境还没有开通 LiteTavern Cloud 的云端模型，云端回复在这里无法使用，本次不会消耗额度。如果你需要它，请通过反馈入口告诉我们。'
+    },
+    contractBlocked: {
+      title: 'LiteTavern Cloud 版本不匹配',
+      body: '当前部署缺少此版客户端必需的 Cloud 能力，需要由部署管理员更新服务；重试不会解决这个问题。'
     },
     disclaimer:
       'LiteTavern Cloud Alpha 仍处于测试阶段。额度、模型和云服务规则可能根据实际成本、稳定性和测试结果进行调整。'

@@ -28,7 +28,7 @@ import { LoginSync } from './components/LoginSync';
 import { AboutPage } from './pages/AboutPage';
 import { SupportPage } from './pages/SupportPage';
 import {
-  ApiError, api, deleteCharacter, fetchCharacterDetail, fetchReplySuggestions, generateTurn, saveTurnBubble,
+  ApiError, api, fetchReplySuggestions,
   streamGeneration,
   activateMessageVariant,
   fetchMessageVariants,
@@ -37,6 +37,8 @@ import {
 import {
   fetchCharacterCard,
   patchCharacterCard,
+  saveLocalCharacter,
+  type CardDetail,
   type CharacterModel
 } from './lib/character-card';
 import { t as translate, useLocale, useT } from './lib/i18n';
@@ -56,18 +58,23 @@ import {
 } from './lib/cloud';
 import { useCloudAccount } from './lib/cloud-auth';
 import {
-  cacheCharacters,
-  cacheConversationId,
-  cacheMessages,
   cachedCharacters,
   cachedConversationId,
   cachedMessages
 } from './lib/local-cache';
-import { cloudUrl } from './lib/runtime-config';
+import { cloudBaseUrl, cloudUrl } from './lib/runtime-config';
 import { credentialStore } from './lib/credential-store';
-import { byokModelSelector } from './lib/byok-model';
+import { modelConfigurationStore } from './lib/model-configuration-store';
+import { streamByokGeneration } from './lib/byok-client';
+import { flushClientTurnOutbox } from './lib/client-turn-sync';
 import { copyText } from './lib/clipboard';
 import { createId } from './lib/id';
+import { getOrCreateDeviceId } from './lib/device-identity';
+import {
+  chatRepository,
+  repositoryPartition,
+  type RepositoryPrincipal
+} from './lib/chat-repository';
 import { TurnPlaybackController } from './lib/turn-playback';
 import { playClick, isMuted, setMuted } from './lib/sound';
 import { publicRouteForPath } from './public-routing';
@@ -126,7 +133,8 @@ const BLOCK_REASONS: readonly CloudBlockReason[] = [
   'PERIOD_QUOTA_EXHAUSTED',
   'CONCURRENT_GENERATION',
   'PROVIDER_UNAVAILABLE',
-  'PLATFORM_MODELS_NOT_CONFIGURED'
+  'PLATFORM_MODELS_NOT_CONFIGURED',
+  'CLOUD_CONTRACT_BLOCKED'
 ];
 
 /**
@@ -245,7 +253,6 @@ function ProductApp() {
     acceptAuthenticated,
     signOut
   } = useCloudAccount();
-  const localIdentityRef = useRef<AnonymousIdentity | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [cloud, setCloud] = useState<CloudStatus | null>(() => readCachedStatus());
   const [cloudChecking, setCloudChecking] = useState(true);
@@ -270,6 +277,14 @@ function ProductApp() {
   const [relationship, setRelationship] = useState<string | null>(null);
   const [memoryCount, setMemoryCount] = useState<number | null>(null);
   const started = useRef(false);
+  const [deviceId] = useState(() => getOrCreateDeviceId());
+  const repositoryEnvironment = cloudBaseUrl() || window.location.origin;
+  const repositoryPartitionRef = useRef(repositoryPartition({
+    environment: repositoryEnvironment,
+    principal: `guest:${deviceId}`
+  }));
+  const legacyCharacterMigrationAttempted = useRef(false);
+  const repositoryPrincipalRef = useRef<RepositoryPrincipal>(`guest:${deviceId}`);
 
   function toggleMute() {
     const next = !muted;
@@ -330,6 +345,32 @@ function ProductApp() {
   useEffect(() => {
     writeModelPreference({ usageMode, configurationId: selectedConfigurationId });
   }, [selectedConfigurationId, usageMode]);
+
+  async function adoptRepositoryPrincipal(principal: RepositoryPrincipal) {
+    if (repositoryPrincipalRef.current === principal) return;
+    repositoryPrincipalRef.current = principal;
+    const partition = repositoryPartition({
+      environment: repositoryEnvironment,
+      principal
+    });
+    repositoryPartitionRef.current = partition;
+    generationAbortRef.current?.abort();
+    playbackRef.current?.interrupt();
+    conversationIdRef.current = null;
+    setConversationId(null);
+    setMessages([]);
+    setActive(null);
+    const localCharacters = await chatRepository.listCharacters(partition);
+    setCharacters(localCharacters);
+    // The account-state effect below owns the single open for this principal. Doing
+    // an offline open here and a Cloud open immediately afterwards briefly exposes a
+    // stale composer, then clears it while a reader is interacting with it.
+  }
+
+  function persistMessages(conversationId: string, nextMessages: Message[]): void {
+    const partition = repositoryPartitionRef.current;
+    void chatRepository.replaceMessages(partition, conversationId, nextMessages);
+  }
 
   // Published on the document root, not on a component, because the composer is not
   // the only thing that has to move out from under the keyboard — panels and sheets
@@ -392,6 +433,16 @@ function ProductApp() {
         : translate().chat.sendFailed;
     setError(message);
     setErrorCode(apiError?.code ?? 'GENERATION_FAILED');
+    const directCode = reason && typeof reason === 'object' && 'code' in reason
+      ? String((reason as { code?: unknown }).code)
+      : null;
+    if (directCode === 'BYOK_DIRECT_CORS_BLOCKED') {
+      analytics.track('byok_direct_cors_blocked', {
+        pageName: 'chat',
+        ...(activeRef.current ? { characterId: activeRef.current.character_id } : {}),
+        ...(conversationIdRef.current ? { conversationId: conversationIdRef.current } : {})
+      });
+    }
     analytics.blockingError(
       analyticsErrorCode(apiError?.code ?? 'GENERATION_FAILED'),
       'chat',
@@ -413,13 +464,6 @@ function ProductApp() {
           ...current,
           { message_id: messageId, role: 'ASSISTANT', content_text: text, status: 'COMPLETED' }
         ]);
-        const conv = conversationIdRef.current;
-        const turn = turnIdRef.current;
-        // "Show one, write one" — persist the bubble the moment it appears. A retry
-        // is safe because the server dedupes on this client-supplied message_id.
-        if (!ctx.persisted && conv && turn) {
-          void saveTurnBubble(conv, turn, { message_id: messageId, text, bubble_no: ctx.sequenceNo }).catch(() => {});
-        }
         playClick();
       },
       onTypingChange: setTyping,
@@ -460,7 +504,13 @@ function ProductApp() {
     canonicalTurnFinalByActionRef.current.clear();
     setConversationId(null);
     setMessages([]);
-    setActive(character);
+    // Do not publish a sendable character until its conversation belongs to the
+    // current repository partition. Rendering the composer before this await chain
+    // completes creates a real race: a quick reply (or a fast reader) can submit
+    // while `conversationId` is still null, and the turn is silently discarded.
+    // Clearing the previous character also prevents its composer from targeting the
+    // conversation that is currently being rebound.
+    setActive(null);
     setView(nextView);
     setError(null);
     setErrorCode(null);
@@ -471,7 +521,21 @@ function ProductApp() {
     // `post_history_instructions` would keep being fields the app parses, stores and
     // never actually uses. Cloud dedupes on the card's content hash, so re-opening
     // the same character costs a comparison rather than a write.
-    const card = await fetchCharacterCard(character.character_id).catch(() => null);
+    let card = await fetchCharacterCard(
+      repositoryPartitionRef.current,
+      character.character_id
+    ).catch(() => null);
+    if (!card) {
+      // One-time migration for a card cached by a pre-local-first deployment.
+      // The 404 is intentionally ignored; new deployments never implement this route.
+      card = await api<CardDetail>(`/v1/characters/${character.character_id}/card`)
+        .catch(() => null);
+      if (card) {
+        await chatRepository.putCharacter(repositoryPartitionRef.current, {
+          ...character, local_card: card
+        });
+      }
+    }
     let created: { conversation_id: string; persona_id?: string | null };
     try {
       created = await api<{ conversation_id: string; persona_id?: string | null }>(
@@ -498,6 +562,7 @@ function ProductApp() {
       // "not signed in yet".
       if (reason instanceof ApiError && reason.code === 'GUEST') {
         if (token !== openTokenRef.current) return;
+        setActive(character);
         setMessages(
           character.first_message
             ? [
@@ -516,8 +581,14 @@ function ProductApp() {
     }
     // The reader has already moved on; writing this state back would drag them
     // to a contact they left, so the response is recorded and otherwise dropped.
-    cacheConversationId(character.character_id, created.conversation_id);
+    const partition = repositoryPartitionRef.current;
+    void chatRepository.openConversation(partition, {
+      conversationId: created.conversation_id,
+      characterId: character.character_id,
+      source: 'CLOUD'
+    });
     if (token !== openTokenRef.current) return;
+    setActive(character);
     conversationIdRef.current = created.conversation_id;
     setConversationId(created.conversation_id);
     const resolvedPersona = await resolveConversationPersona(
@@ -533,7 +604,11 @@ function ProductApp() {
       });
     }
     const loaded = await fetchMessages(created.conversation_id);
-    cacheMessages(created.conversation_id, loaded);
+    await chatRepository.replaceMessages(
+      partition,
+      created.conversation_id,
+      loaded
+    );
     if (token !== openTokenRef.current) return;
     setMessages(loaded);
   }
@@ -543,7 +618,7 @@ function ProductApp() {
    * browser read for the character is replayed from cache. Nothing is written and
    * the banner tells the user the state is stale, not lost.
    */
-  function openCharacterOffline(character: Character) {
+  async function openCharacterOffline(character: Character) {
     generationAbortRef.current?.abort();
     playbackRef.current?.interrupt();
     openTokenRef.current += 1;
@@ -552,10 +627,53 @@ function ProductApp() {
     setView('chat');
     clearSuggestions();
     setConversationPersonaId(null);
-    const cachedId = cachedConversationId(character.character_id);
+    const localConversation = await chatRepository.findConversation(
+      repositoryPartitionRef.current,
+      character.character_id,
+      'LOCAL'
+    );
+    const cloudConversation = localConversation
+      ? null
+      : await chatRepository.findConversation(
+          repositoryPartitionRef.current,
+          character.character_id,
+          'CLOUD'
+        );
+    let cachedId = localConversation?.conversationId ?? cloudConversation?.conversationId ?? null;
+    let restored = cachedId
+      ? await chatRepository.listMessages(repositoryPartitionRef.current, cachedId)
+      : [];
+    // One-time guest migration from the unpartitioned v1 cache. Account partitions
+    // never read it, which prevents a signed-in reader from inheriting another
+    // principal's conversation id.
+    if (!cachedId && repositoryPrincipalRef.current.startsWith('guest:')) {
+      cachedId = cachedConversationId(character.character_id);
+      restored = cachedId ? cachedMessages(cachedId) : [];
+      if (cachedId) {
+        await chatRepository.openConversation(repositoryPartitionRef.current, {
+          conversationId: cachedId,
+          characterId: character.character_id,
+          source: 'LOCAL'
+        });
+        await chatRepository.replaceMessages(
+          repositoryPartitionRef.current,
+          cachedId,
+          restored
+        );
+      }
+    }
     conversationIdRef.current = cachedId;
     setConversationId(cachedId);
-    setMessages(cachedId ? cachedMessages(cachedId) : []);
+    setMessages(
+      restored.length > 0 || !character.first_message
+        ? restored
+        : [{
+            message_id: `greeting-${character.character_id}`,
+            role: 'ASSISTANT',
+            content_text: character.first_message,
+            status: 'COMPLETED'
+          }]
+    );
   }
 
   /**
@@ -565,8 +683,10 @@ function ProductApp() {
    */
   async function loadProfileState(characterId: string) {
     try {
-      const detail = await fetchCharacterDetail(characterId);
-      setRelationship(detail.relationship_summary?.trim() || null);
+      const legacy = await api<{ character?: { relationship_summary?: string | null } }>(
+        `/v1/characters/${characterId}`
+      );
+      setRelationship(legacy.character?.relationship_summary?.trim() || null);
     } catch {
       setRelationship(null);
     }
@@ -581,12 +701,11 @@ function ProductApp() {
   // After an inline profile edit, re-read the character so the page shows what
   // was actually stored rather than the text that was typed.
   async function refreshActiveCharacter() {
-    const response = await api<{ characters: Character[] }>('/v1/characters');
-    setCharacters(response.characters);
-    cacheCharacters(response.characters);
+    const local = await chatRepository.listCharacters(repositoryPartitionRef.current);
+    setCharacters(local);
     const current = activeRef.current;
     if (!current) return;
-    const updated = response.characters.find((item) => item.character_id === current.character_id);
+    const updated = local.find((item) => item.character_id === current.character_id);
     if (updated) setActive(updated);
   }
 
@@ -596,6 +715,17 @@ function ProductApp() {
       const result = await fetchCloudStatus();
       if (result.status) setCloud(result.status);
       setCloudOffline(result.offline);
+      if (result.offline) {
+        analytics.track('cloud_transient_unreachable', {
+          pageName: analyticsPage,
+          properties: { retryable: true }
+        });
+      } else if (result.status?.block_reason === 'CLOUD_CONTRACT_BLOCKED') {
+        analytics.track('cloud_contract_blocked', {
+          pageName: analyticsPage,
+          properties: { retryable: false }
+        });
+      }
       if (!result.offline && result.status?.platform_models_available) {
         setCloudRuntimeBlock(null);
       }
@@ -627,12 +757,12 @@ function ProductApp() {
   }
 
   async function refreshCharacters(openCharacterId?: string) {
-    const response = await api<{ characters: Character[] }>('/v1/characters');
-    setCharacters(response.characters);
+    const local = await chatRepository.listCharacters(repositoryPartitionRef.current);
+    setCharacters(local);
     if (openCharacterId) {
       // After an import or an edit, land back on the profile that was just
       // changed so the result is visible.
-      const next = response.characters.find(
+      const next = local.find(
         (item) => item.character_id === openCharacterId
       );
       if (next) await openCharacter(next, active ? 'profile' : 'chat');
@@ -641,10 +771,10 @@ function ProductApp() {
 
   async function deleteActiveCharacter() {
     if (!active) return;
-    await deleteCharacter(active.character_id);
-    const response = await api<{ characters: Character[] }>('/v1/characters');
-    setCharacters(response.characters);
-    const next = response.characters[0];
+    await chatRepository.deleteCharacter(repositoryPartitionRef.current, active.character_id);
+    const local = await chatRepository.listCharacters(repositoryPartitionRef.current);
+    setCharacters(local);
+    const next = local[0];
     if (next) {
       await openCharacter(next);
     } else {
@@ -656,74 +786,143 @@ function ProductApp() {
   }
 
   async function bootstrap() {
-    const identityResponse = await api<{ user?: AnonymousIdentity }>(
-      '/v1/identities/anonymous',
-      { method: 'POST' }
-    );
-    if (
-      identityResponse.user?.identity_type === 'ANONYMOUS'
-      && identityResponse.user.anonymous_id
-    ) {
-      localIdentityRef.current = identityResponse.user;
-      await analytics.initialize({
-        userId: identityResponse.user.user_id,
-        anonymousId: identityResponse.user.anonymous_id,
-        url: window.location.href,
-        referrer: document.referrer,
-        appVersion: '0.1.0'
-      });
-      setAnalyticsReady(true);
-    }
+    void analytics.initialize({
+      userId: `guest:${deviceId}`,
+      anonymousId: deviceId,
+      url: window.location.href,
+      referrer: document.referrer,
+      appVersion: '0.1.0'
+    }).then(() => setAnalyticsReady(true));
     await refreshCloudStatus();
-    await migrateLegacyCloudAssets((input, init) =>
-      fetch(cloudUrl(String(input)), init)
-    ).catch(() => {
-      // The migration marker is intentionally not written on failure. A later
-      // startup can retry without duplicating already-local assets. Run this
-      // after the status refresh so local migration cannot delay Cloud state
-      // that is already visible in the shell.
-    });
-    const [characterResponse, configurationResponse] = await Promise.all([
-      api<{ characters: Character[] }>('/v1/characters'),
-      api<{ configurations: ModelConfiguration[] }>('/v1/model-configurations')
-    ]);
-    setCharacters(characterResponse.characters);
-    cacheCharacters(characterResponse.characters);
-    setConfigurations(configurationResponse.configurations);
-    const selectedStillExists = configurationResponse.configurations.some(
+    const localConfigurations = await modelConfigurationStore.list();
+    setConfigurations(localConfigurations);
+    const selectedStillExists = localConfigurations.some(
       (item) => item.model_configuration_id === initialModelPreference.configurationId
     );
-    if (!selectedStillExists && configurationResponse.configurations[0]) {
-      setSelectedConfigurationId(configurationResponse.configurations[0].model_configuration_id);
+    if (!selectedStillExists && localConfigurations[0]) {
+      setSelectedConfigurationId(localConfigurations[0].model_configuration_id);
     }
-    if (initialModelPreference.usageMode === 'BYOK' && !configurationResponse.configurations.length) {
+    if (initialModelPreference.usageMode === 'BYOK' && !localConfigurations.length) {
       setUsageMode('PLATFORM');
     }
-    if (characterResponse.characters[0]) await openCharacter(characterResponse.characters[0]);
-    void reportSyncCheckpoint({ status: 'SYNCED', clientRevision: Date.now() });
   }
 
-  /**
-   * LiteTavern Cloud is unreachable at startup. Rather than showing an empty app (or
-   * claiming the data is gone), fall back to the cached contact list and mark the
-   * session offline; BYOK and every local view keep working.
-   */
-  function bootstrapOffline() {
-    const cached = cachedCharacters();
-    setCloudChecking(false);
-    setCloudOffline(true);
+  /** Open the partitioned local repository without making any claim about Cloud. */
+  async function bootstrapLocal() {
+    let cached = await chatRepository.listCharacters(repositoryPartitionRef.current);
+    if (cached.length === 0 && repositoryPrincipalRef.current.startsWith('guest:')) {
+      cached = cachedCharacters();
+      if (cached.length > 0) {
+        await chatRepository.replaceCharacters(repositoryPartitionRef.current, cached);
+      }
+    }
     setCharacters(cached);
-    if (cached[0]) openCharacterOffline(cached[0]);
-    void reportSyncCheckpoint({ status: 'FAILED', errorCode: 'CLOUD_UNREACHABLE' });
+    if (cached[0]) await openCharacterOffline(cached[0]);
   }
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    // The offline banner already states the situation; adding an inline error would
-    // say the same thing twice and read as two separate problems.
-    void bootstrap().catch(() => bootstrapOffline());
+    // Local rendering and optional Cloud discovery are independent. A blocked or
+    // slow IndexedDB operation must not prevent auth/status discovery, and a Cloud
+    // failure must not prevent the local repository from opening.
+    void bootstrapLocal().catch(() => undefined);
+    void bootstrap().catch(() => {
+      setCloudChecking(false);
+      setCloudOffline(true);
+    });
   }, []);
+
+  useEffect(() => {
+    if (accountState === 'restoring') return;
+    if (accountState === 'authenticated' && cloudChecking) return;
+    const principal: RepositoryPrincipal = accountState === 'authenticated' && account
+      ? `account:${account.user_id}`
+      : `guest:${deviceId}`;
+    const legacyHttpMigration = accountState === 'authenticated' && !cloudOffline &&
+      cloud?.capabilities.legacy_http_migration !== false;
+    let cancelled = false;
+    void adoptRepositoryPrincipal(principal).then(async () => {
+      if (cancelled) return;
+      if (accountState === 'authenticated') {
+        // These compatibility reads can only belong to a signed-in Cloud account.
+        // A guest has no legacy Cloud partition and must launch without probing
+        // retired HTTP endpoints.
+        if (legacyHttpMigration) {
+          await migrateLegacyCloudAssets((input, init) =>
+            fetch(cloudUrl(String(input)), init)
+          ).catch(() => undefined);
+          await modelConfigurationStore.migrateLegacyOnce((input, init) =>
+            fetch(cloudUrl(String(input)), init)
+          ).catch(() => undefined);
+        }
+        if (cancelled) return;
+        setConfigurations(await modelConfigurationStore.list());
+        const partition = repositoryPartitionRef.current;
+        const replay = await flushClientTurnOutbox(
+          chatRepository,
+          partition,
+          (conversation, body) => api(`/v1/conversations/${conversation}/client-turns`, {
+            method: 'POST',
+            body: JSON.stringify(body)
+          })
+        );
+        if (replay.conflicts > 0) {
+          analytics.track('sync_conflict', {
+            pageName: 'chat',
+            properties: { count: replay.conflicts }
+          });
+        }
+        void reportSyncCheckpoint({
+          status: replay.pending > 0 || replay.conflicts > 0 ? 'FAILED' : 'SYNCED',
+          pendingCount: replay.pending + replay.conflicts,
+          ...(replay.conflicts > 0 ? { errorCode: 'SYNC_CONFLICT' } : {})
+        });
+      }
+      const local = await chatRepository.listCharacters(repositoryPartitionRef.current);
+      if (cancelled) return;
+      if (local.length > 0) {
+        setCharacters(local);
+        if (accountState === 'authenticated') await openCharacter(local[0]!);
+        else if (activeRef.current?.character_id !== local[0]!.character_id) {
+          await openCharacterOffline(local[0]!);
+        }
+      } else {
+        if (accountState !== 'authenticated' || !legacyHttpMigration) return;
+        // One-time compatibility read for accounts that predate sync/pull. It never
+        // backs local CRUD and a missing route is ignored; new deployments hydrate
+        // these entities through the versioned sync contract.
+        if (legacyCharacterMigrationAttempted.current) return;
+        legacyCharacterMigrationAttempted.current = true;
+        try {
+          const legacy = await api<{ characters: Character[] }>('/v1/characters');
+          if (cancelled) return;
+          await chatRepository.replaceCharacters(repositoryPartitionRef.current, legacy.characters);
+          setCharacters(legacy.characters);
+          if (legacy.characters[0]) {
+            if (accountState === 'authenticated') await openCharacter(legacy.characters[0]);
+            else if (activeRef.current?.character_id !== legacy.characters[0].character_id) {
+              await openCharacterOffline(legacy.characters[0]);
+            }
+          }
+        } catch {
+          // The local partition remains a usable empty repository.
+        }
+      }
+    }).catch(() => {
+      // Auth/status restoration is optional bootstrap work. A late completion after
+      // unmount (or after a principal transition) must not escape as an unhandled
+      // rejection or overwrite the repository that replaced it.
+    });
+    return () => { cancelled = true; };
+  }, [
+    account?.user_id,
+    accountState,
+    cloud?.capabilities.legacy_http_migration,
+    cloudChecking,
+    cloudOffline,
+    deviceId
+  ]);
 
   // After registration / login / merge the session cookie has rotated. Adopt the new
   // account state and pull the (possibly merged) character list without disturbing the
@@ -732,9 +931,6 @@ function ProductApp() {
     acceptAuthenticated(user);
     setLoginOpen(false);
     await refreshCloudStatus();
-    const response = await api<{ characters: Character[] }>('/v1/characters');
-    setCharacters(response.characters);
-    cacheCharacters(response.characters);
   }
 
   // Sign out revokes only the Cloud account session. Browser-local characters,
@@ -776,14 +972,14 @@ function ProductApp() {
     });
   }, [active, analyticsPage, analyticsReady, conversationId]);
 
-  // Resolve the model selector used by the single model call for a turn.
-  async function resolveModelSelector(): Promise<Record<string, unknown>> {
-    if (usageMode !== 'BYOK') return { usage_mode: 'PLATFORM' };
-    const configuration = configurations.find((item) => item.model_configuration_id === selectedConfigurationId);
+  async function resolveByokConnection() {
+    const configuration = configurations.find(
+      (item) => item.model_configuration_id === selectedConfigurationId
+    ) ?? configurations[0];
     if (!configuration) throw new Error(t.chat.byokMissingConfiguration);
     const key = await credentialStore.readSecret(configuration.credential_id);
     if (!key) throw new Error(t.chat.byokMissingKey);
-    return byokModelSelector(configuration, key);
+    return { configuration, key };
   }
 
   function updateQuickReplies(next: QuickReplySettings) {
@@ -861,7 +1057,6 @@ function ProductApp() {
     setImpersonating(true);
     if (trigger === 'MANUAL') setError(null);
     try {
-      const selector = await resolveModelSelector();
       const scanMessages = transcript.flatMap((message) =>
         message.role === 'USER' || message.role === 'ASSISTANT'
           ? [
@@ -902,6 +1097,26 @@ function ProductApp() {
        * running, and a new key would race it rather than retry it.
        */
       const ask = async (): Promise<Awaited<ReturnType<typeof fetchReplySuggestions>>> => {
+        if (usageMode === 'BYOK') {
+          const connection = await resolveByokConnection();
+          const answer = await streamByokGeneration({
+            configuration: connection.configuration,
+            apiKey: connection.key,
+            character,
+            transcript,
+            input: `Suggest up to four short messages the user could send next. Write one per line in ${locale}.`,
+            ...('clientContext' in clientContext
+              ? { clientContext: clientContext.clientContext }
+              : {})
+          });
+          return {
+            suggestions: answer.split(/\r?\n/)
+              .map((line) => line.replace(/^[-*\d.)\s]+/, '').trim())
+              .filter(Boolean)
+              .slice(0, 4)
+          };
+        }
+        const selector = { usage_mode: 'PLATFORM' };
         try {
           return await fetchReplySuggestions(targetConversationId, selector, {
             idempotencyKey: keyFor(suggestionAttemptRef.current.attempt),
@@ -959,6 +1174,69 @@ function ProductApp() {
     });
   }
 
+  async function ensureLocalConversation(character: Character): Promise<string> {
+    const partition = repositoryPartitionRef.current;
+    const existing = await chatRepository.findConversation(
+      partition,
+      character.character_id,
+      'LOCAL'
+    );
+    const localId = existing?.conversationId ?? `local-${createId()}`;
+    if (!existing) {
+      await chatRepository.openConversation(partition, {
+        conversationId: localId,
+        characterId: character.character_id,
+        source: 'LOCAL'
+      });
+      await chatRepository.replaceMessages(partition, localId, messages);
+    }
+    conversationIdRef.current = localId;
+    setConversationId(localId);
+    return localId;
+  }
+
+  async function queueClientTurnSync(
+    targetConversationId: string,
+    mutationId: string,
+    baseHeadId: string | null,
+    user: Message,
+    assistants: Message[]
+  ): Promise<void> {
+    if (accountState !== 'authenticated' || targetConversationId.startsWith('local-')) return;
+    const partition = repositoryPartitionRef.current;
+    const record = {
+      mutationId,
+      conversationId: targetConversationId,
+      baseHeadId,
+      user: { messageId: user.message_id, contentText: user.content_text },
+      assistants: assistants.map((message) => ({
+        messageId: message.message_id,
+        contentText: message.content_text,
+        status: message.status === 'INCOMPLETE' ? ('INCOMPLETE' as const) : ('COMPLETED' as const)
+      })),
+      status: 'PENDING' as const,
+      createdAt: new Date().toISOString()
+    };
+    await chatRepository.enqueueClientTurn(partition, record);
+    const result = await flushClientTurnOutbox(
+      chatRepository,
+      partition,
+      (conversation, body) => api(`/v1/conversations/${conversation}/client-turns`, {
+        method: 'POST',
+        body: JSON.stringify(body)
+      })
+    );
+    if (conversationIdRef.current === targetConversationId && result.latestHeadId) {
+      headIdRef.current = result.latestHeadId;
+    }
+    if (result.conflicts > 0) {
+      analytics.track('sync_conflict', {
+        pageName: 'chat',
+        conversationId: targetConversationId
+      });
+    }
+  }
+
   /**
    * One turn, in any of the three shapes it can take.
    *
@@ -980,7 +1258,11 @@ function ProductApp() {
   ) {
     const requestedText = rawText.trim();
     const controller = playbackRef.current;
-    if (!requestedText || !conversationId || !active || !controller) return;
+    if (!requestedText || !active || !controller) return;
+    const resolvedConversationId = conversationId ?? (
+      usageMode === 'BYOK' ? await ensureLocalConversation(active) : null
+    );
+    if (!resolvedConversationId) return;
     // Ignore repeat sends only while awaiting the model; during playback a new send
     // is allowed and interrupts the remaining bubbles.
     if (streamingRef.current || controller.getState() === 'GENERATING') return;
@@ -1084,7 +1366,7 @@ function ProductApp() {
       }
       localContext = await clientContextField(
         active.character_id,
-        conversationId,
+        resolvedConversationId,
         scanMessages,
         text,
         {
@@ -1099,7 +1381,8 @@ function ProductApp() {
       return;
     }
     playClick();
-    const targetConversationId = conversationId;
+    const targetConversationId = resolvedConversationId;
+    const baseHeadId = headIdRef.current;
     if (!editOfMessageId && !regenerateOfMessageId) setDraft('');
     clearSuggestions();
     setError(runtimeWarning);
@@ -1111,7 +1394,7 @@ function ProductApp() {
     ) {
       analytics.criticalAction('first_message_submit_attempted', 'chat', {
         ...(active ? { characterId: active.character_id } : {}),
-        ...(conversationId ? { conversationId } : {}),
+        conversationId: resolvedConversationId,
         result: 'attempted'
       });
       // The named program event: the user actually sent their first message in this
@@ -1119,35 +1402,36 @@ function ProductApp() {
       analytics.track('first_message_sent', {
         pageName: 'chat',
         ...(active ? { characterId: active.character_id } : {}),
-        ...(conversationId ? { conversationId } : {})
+        conversationId: resolvedConversationId
       });
     }
-    let selector: Record<string, unknown>;
+    let byokConnection: Awaited<ReturnType<typeof resolveByokConnection>> | null = null;
     try {
-      selector = await resolveModelSelector();
+      if (usageMode === 'BYOK') byokConnection = await resolveByokConnection();
     } catch (reason) {
       reportGenerationFailure(reason);
       return;
     }
+    const selector: Record<string, unknown> = { usage_mode: 'PLATFORM' };
     // Canonical actions already exist in Cloud. Once every send preflight passed,
     // reveal a pending remainder before appending the new user message so the visible
     // transcript agrees with the canonical head this request answers.
     semanticPlaybackDoneRef.current = null;
     controller.finishCanonicalPlayback();
     const userMessage: Message = { message_id: createId(), role: 'USER', content_text: text, status: 'COMPLETED' };
-    setMessages((current) => {
+    const optimisticMessages = (() => {
       // A regenerate writes no user message. It replaces the reply in place: the old
       // variant is dropped from the view for the duration of the turn, because two
       // answers to one message stacked on top of each other would read as the
       // character having said both.
       if (regenerateOfMessageId) {
-        const target = current.find(
+        const target = messages.find(
           (message) => message.message_id === regenerateOfMessageId
         );
         const finalId = canonicalTurnFinalByActionRef.current.get(
           regenerateOfMessageId
         );
-        return current.filter((message) => {
+        return messages.filter((message) => {
           if (message.role !== 'ASSISTANT') return true;
           if (target?.turn_no !== undefined) return message.turn_no !== target.turn_no;
           return finalId
@@ -1155,10 +1439,11 @@ function ProductApp() {
             : message.message_id !== regenerateOfMessageId;
         });
       }
-      const index = editOfMessageId ? current.findIndex((message) => message.message_id === editOfMessageId) : -1;
-      const kept = index >= 0 ? current.slice(0, index) : current;
+      const index = editOfMessageId ? messages.findIndex((message) => message.message_id === editOfMessageId) : -1;
+      const kept = index >= 0 ? messages.slice(0, index) : messages;
       return [...kept, userMessage];
-    });
+    })();
+    setMessages(optimisticMessages);
     const payload = {
       ...selector,
       response_protocol: 'semantic_actions_v1' as const,
@@ -1187,13 +1472,12 @@ function ProductApp() {
         : {})
     };
 
-    // Current deployments expose the real SSE route. Keep the legacy structured
-    // turn endpoint only as a compatibility fallback for an older Cloud that has no
-    // SSE route at all; once a stream starts, this request is never retried elsewhere.
+    // Generation has one authoritative path. A deployment without this SSE route is
+    // contract-incompatible; retrying the same turn through a retired endpoint can
+    // duplicate the user message and bind it to a different transcript.
     const abortController = new AbortController();
     const streamingMessageId = `stream-${turnRequestId}`;
     let streamedText = '';
-    let streamStarted = false;
     let semanticPlaybackStarted = false;
     const generationStartedAt = performance.now();
     generationAbortRef.current = abortController;
@@ -1201,6 +1485,72 @@ function ProductApp() {
     setSending(true);
     setTyping(true);
     try {
+      if (byokConnection) {
+        try {
+          const replyText = await streamByokGeneration({
+            configuration: byokConnection.configuration,
+            apiKey: byokConnection.key,
+            character: active,
+            transcript: historyMessages,
+            input: text,
+            ...('client_context' in localContext
+              ? { clientContext: localContext.client_context }
+              : {})
+          }, {
+            signal: abortController.signal,
+            onDelta: (delta) => {
+              streamedText += delta;
+              setTyping(false);
+              const streamed: Message = {
+                message_id: streamingMessageId,
+                role: 'ASSISTANT',
+                content_text: streamedText,
+                status: 'STREAMING'
+              };
+              setMessages([...optimisticMessages, streamed]);
+            }
+          });
+          const assistant: Message = {
+            message_id: createId(),
+            role: 'ASSISTANT',
+            content_text: replyText,
+            status: 'COMPLETED'
+          };
+          const completed = [...optimisticMessages, assistant];
+          setMessages(completed);
+          persistMessages(targetConversationId, completed);
+          if (!regenerateOfMessageId) {
+            void queueClientTurnSync(
+              targetConversationId, turnRequestId, baseHeadId, userMessage, [assistant]
+            );
+          }
+          if (replySuggestionsSettings.trigger === 'AUTOMATIC') {
+            void requestReplySuggestions({
+              trigger: 'AUTOMATIC',
+              conversationId: targetConversationId,
+              transcript: completed
+            });
+          }
+          return;
+        } catch (reason) {
+          const partial: Message[] = streamedText.trim()
+            ? [{
+                message_id: createId(), role: 'ASSISTANT',
+                content_text: streamedText, status: 'INCOMPLETE'
+              }]
+            : [];
+          const retained = [...optimisticMessages, ...partial];
+          setMessages(retained);
+          persistMessages(targetConversationId, retained);
+          if (!regenerateOfMessageId) {
+            void queueClientTurnSync(
+              targetConversationId, turnRequestId, baseHeadId, userMessage, partial
+            );
+          }
+          reportGenerationFailure(reason);
+          return;
+        }
+      }
       const result = await streamGeneration(targetConversationId, payload, {
         signal: abortController.signal,
         idempotencyKey: turnRequestId,
@@ -1226,7 +1576,6 @@ function ProductApp() {
           });
         }
       });
-      streamStarted = true;
       if (result.diagnosticTrace) {
         const traceText = result.turn
           ? result.turn.actions.map((action) => action.content).join('\n')
@@ -1245,8 +1594,27 @@ function ProductApp() {
       if (result.turn) {
         semanticPlaybackStarted = true;
         turnIdRef.current = result.turn.turn_id;
-        const finalAction = result.turn.actions.at(-1)!;
-        for (const action of result.turn.actions) {
+        const outputScripts = await regexScriptsForCharacter(active.character_id);
+        const displayActions = await Promise.all(result.turn.actions.map(async (action, index) => {
+          const transformed = await applyRegexScriptsBounded(action.content, outputScripts, {
+            placement: RegexPlacement.AI_OUTPUT,
+            depth: index,
+            macros: {
+              char: active.name,
+              description: active.profile_summary,
+              personality: active.personality_summary,
+              messages: macroMessages,
+              activationSeed: turnRequestId
+            }
+          });
+          return { ...action, content: transformed.text };
+        }));
+        const displayTurn = { ...result.turn, actions: displayActions };
+        const displayContentById = new Map(
+          displayActions.map((action) => [action.action_id, action.content])
+        );
+        const finalAction = displayActions.at(-1)!;
+        for (const action of displayActions) {
           canonicalTurnFinalByActionRef.current.set(
             action.action_id,
             finalAction.action_id
@@ -1260,19 +1628,33 @@ function ProductApp() {
         ));
         semanticPlaybackDoneRef.current = () => {
           void fetchMessages(targetConversationId).then((loaded) => {
-            cacheMessages(targetConversationId, loaded);
-            if (conversationIdRef.current === targetConversationId) setMessages(loaded);
+            // The same stale-branch rule as the delta protocol: a read that lacks the
+            // turn just acknowledged by the stream cannot replace what the reader
+            // watched arrive. Preserve local AI_OUTPUT transformations by action id
+            // without running Regex a second time.
+            if (!loaded.some((message) => message.message_id === finalAction.action_id)) return;
+            const displayed = loaded.map((message) => {
+              const content = displayContentById.get(message.message_id);
+              return content === undefined ? message : { ...message, content_text: content };
+            });
+            persistMessages(targetConversationId, displayed);
+            if (conversationIdRef.current === targetConversationId) setMessages(displayed);
             if (replySuggestionsSettings.trigger === 'AUTOMATIC') {
               void requestReplySuggestions({
                 trigger: 'AUTOMATIC',
                 conversationId: targetConversationId,
-                transcript: loaded
+                transcript: displayed
               });
             }
           }).catch(() => undefined);
         };
+        // The request-level typing indicator is owned by this component, while the
+        // action cadence below is owned by the playback controller. Hand the state
+        // over explicitly: a slow, single-action turn is displayed immediately, so
+        // the controller never enters its own typing state and cannot clear ours.
+        setTyping(false);
         controller.playSemanticTurn(
-          result.turn,
+          displayTurn,
           performance.now() - generationStartedAt
         );
         return;
@@ -1290,7 +1672,7 @@ function ProductApp() {
           result.messageId !== undefined &&
           loaded.some((message) => message.message_id === result.messageId);
         if (conversationIdRef.current === targetConversationId && persisted) {
-          cacheMessages(targetConversationId, loaded);
+          persistMessages(targetConversationId, loaded);
           setMessages(loaded);
           // The reply has landed and been persisted. Only now — and only if the reader
           // asked for it — is a second, separate call made for what they could say
@@ -1319,7 +1701,7 @@ function ProductApp() {
           (message) => message.message_id !== streamingMessageId
         ));
         void fetchMessages(targetConversationId).then((loaded) => {
-          cacheMessages(targetConversationId, loaded);
+          persistMessages(targetConversationId, loaded);
           if (conversationIdRef.current === targetConversationId) setMessages(loaded);
         }).catch(() => undefined);
         return;
@@ -1329,6 +1711,23 @@ function ProductApp() {
         void withRuntimeTraceLayers(apiError.diagnosticTrace, streamedText)
           .then(setGenerationTrace)
           .catch(() => undefined);
+      }
+
+      if (apiError?.code === 'CONVERSATION_NOT_FOUND' && active) {
+        try {
+          await openCharacter(active, 'chat');
+          setDraft(requestedText);
+          setError(t.chat.conversationRebound);
+          setErrorCode('CONVERSATION_REBOUND');
+          analytics.track('conversation_rebound', {
+            pageName: 'chat',
+            characterId: active.character_id,
+            conversationId: targetConversationId
+          });
+        } catch (rebindReason) {
+          reportGenerationFailure(rebindReason);
+        }
+        return;
       }
 
       // The conversation moved while this tab was looking at an older version of it,
@@ -1344,7 +1743,7 @@ function ProductApp() {
         ));
         try {
           const loaded = await fetchMessages(targetConversationId);
-          cacheMessages(targetConversationId, loaded);
+          persistMessages(targetConversationId, loaded);
           if (conversationIdRef.current === targetConversationId) setMessages(loaded);
         } catch {
           reportGenerationFailure(reason);
@@ -1352,30 +1751,20 @@ function ProductApp() {
         return;
       }
 
-      // The legacy structured endpoint knows nothing about variants: it would append a
-      // fresh turn instead of answering the same message again, which is a different
-      // thing from what the reader asked for. A regenerate against a Cloud too old to
-      // stream simply fails.
-      const legacyEndpoint =
-        !regenerateOfMessageId &&
-        !streamedText &&
-        [404, 405, 501].includes(apiError?.status ?? 0);
-      if (!legacyEndpoint) {
-        reportGenerationFailure(reason);
-        setMessages((current) => current.filter(
-          (message) => message.message_id !== streamingMessageId
-        ));
-        // The reply this turn was going to replace was taken out of the view when the
-        // turn started. It is still the server's answer, so put the transcript back
-        // rather than leaving the reader looking at a conversation with a hole in it.
-        if (regenerateOfMessageId) {
-          void fetchMessages(targetConversationId).then((loaded) => {
-            cacheMessages(targetConversationId, loaded);
-            if (conversationIdRef.current === targetConversationId) setMessages(loaded);
-          }).catch(() => undefined);
-        }
-        return;
+      reportGenerationFailure(reason);
+      setMessages((current) => current.filter(
+        (message) => message.message_id !== streamingMessageId
+      ));
+      // The reply this turn was going to replace was taken out of the view when the
+      // turn started. It is still the server's answer, so put the transcript back
+      // rather than leaving the reader looking at a conversation with a hole in it.
+      if (regenerateOfMessageId) {
+        void fetchMessages(targetConversationId).then((loaded) => {
+          persistMessages(targetConversationId, loaded);
+          if (conversationIdRef.current === targetConversationId) setMessages(loaded);
+        }).catch(() => undefined);
       }
+      return;
     } finally {
       if (generationAbortRef.current === abortController) {
         generationAbortRef.current = null;
@@ -1399,62 +1788,6 @@ function ProductApp() {
       }
     }
 
-    if (streamStarted) return;
-
-    // startTurn bumps the controller's version, so an earlier turn's pending bubbles
-    // are abandoned (already-shown ones stay). The model call happens inside generate,
-    // letting the controller fold its latency into the first bubble's lead time.
-    await controller.startTurn(async () => {
-      const plan = await generateTurn(
-        targetConversationId,
-        payload,
-        turnRequestId
-      );
-      turnIdRef.current = plan.turn_id;
-      // The reply carries the post-deduction quota, so the badge stays honest
-      // without an extra round trip.
-      if (plan.quota !== undefined) {
-        const quota = plan.quota;
-        setCloud((current) => (current ? { ...current, quota } : current));
-      }
-      // No suggestions here. A turn used to return user-reply candidates alongside the
-      // character's bubbles, and this line was the only thing that ever populated the
-      // strip — which meant it stopped appearing the moment normal chat moved to the
-      // streaming route, because a stream carries no such field. Both triggers go
-      // through `requestReplySuggestions` now, so the strip works on every deployment
-      // and a turn's prompt is only ever about the character.
-      const scripts = await regexScriptsForCharacter(active.character_id);
-      const processedMessages: string[] = [];
-      for (const [index, assistantText] of plan.messages.entries()) {
-        const result = await applyRegexScriptsBounded(
-          assistantText,
-          scripts,
-          {
-            placement: RegexPlacement.AI_OUTPUT,
-            depth: index,
-            macros: {
-              char: active.name,
-              description: active.profile_summary,
-              personality: active.personality_summary,
-              messages: [
-                ...macroMessages,
-                { role: 'user', content: text },
-                ...processedMessages.map((content) => ({
-                  role: 'assistant' as const,
-                  content
-                }))
-              ],
-              activationSeed: turnRequestId
-            }
-          }
-        );
-        if (result.timedOut) {
-          setError(t.chat.regexOutputTimeout);
-        }
-        processedMessages.push(result.text);
-      }
-      return processedMessages;
-    });
   }
 
   /**
@@ -1503,7 +1836,7 @@ function ProductApp() {
       if (!next) return;
       await activateMessageVariant(targetConversationId, next.message_id);
       const loaded = await fetchMessages(targetConversationId);
-      cacheMessages(targetConversationId, loaded);
+          persistMessages(targetConversationId, loaded);
       if (conversationIdRef.current === targetConversationId) setMessages(loaded);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t.chat.swipeFailed);
@@ -1514,7 +1847,10 @@ function ProductApp() {
     if (!active) return;
     setError(null);
     try {
-      const result = await buildLocalCharacterExport(active.character_id);
+      const result = await buildLocalCharacterExport(
+        repositoryPartitionRef.current,
+        active.character_id
+      );
       downloadLocalCharacterExport(result);
     } catch (reason) {
       setError(
@@ -1545,7 +1881,7 @@ function ProductApp() {
         { method: 'DELETE' }
       );
       const loaded = await fetchMessages(targetConversationId);
-      cacheMessages(targetConversationId, loaded);
+          persistMessages(targetConversationId, loaded);
       if (conversationIdRef.current === targetConversationId) setMessages(loaded);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t.chat.deleteMessageFailed);
@@ -1585,10 +1921,26 @@ function ProductApp() {
 
   // After a migration the imported character and the freshly created conversation
   // become the active ones, so the user lands straight in the new chat.
-  async function onRelationshipImported(result: { character_id: string; conversation_id: string }) {
-    const response = await api<{ characters: Character[] }>('/v1/characters');
-    setCharacters(response.characters);
-    const imported = response.characters.find((item) => item.character_id === result.character_id);
+  async function onRelationshipImported(
+    result: { character_id: string; conversation_id: string },
+    localCharacter?: CharacterModel
+  ) {
+    const partition = repositoryPartitionRef.current;
+    if (localCharacter) {
+      await saveLocalCharacter({
+        partition,
+        characterId: result.character_id,
+        model: localCharacter
+      });
+    }
+    await chatRepository.openConversation(partition, {
+      conversationId: result.conversation_id,
+      characterId: result.character_id,
+      source: 'CLOUD'
+    });
+    const local = await chatRepository.listCharacters(partition);
+    setCharacters(local);
+    const imported = local.find((item) => item.character_id === result.character_id);
     if (!imported) return;
     playbackRef.current?.interrupt();
     setTyping(false);
@@ -1666,6 +2018,7 @@ function ProductApp() {
             character={active} messages={messages} draft={draft} sending={sending} error={error}
             cloud={cloud} cloudService={cloudService} cloudNotice={cloudNotice}
             usageMode={usageMode} configurations={configurations} selectedConfigurationId={selectedConfigurationId}
+            conversationReady={usageMode === 'BYOK' || conversationId !== null}
             suggestions={suggestions} quickReplies={quickReplies}
             typing={typing} impersonating={impersonating}
             onProfile={() => setView('profile')}
@@ -1708,6 +2061,7 @@ function ProductApp() {
         ) : view === 'profile' ? (
           <ProfilePage
             character={active}
+            partition={repositoryPartitionRef.current}
             relationship={relationship}
             memoryCount={memoryCount}
             onChat={() => {
@@ -1757,6 +2111,7 @@ function ProductApp() {
       />
       <CharacterImport
         open={importOpen}
+        partition={repositoryPartitionRef.current}
         {...(importCharacterId ? { replaceCharacterId: importCharacterId } : {})}
         onClose={() => {
           setImportOpen(false);
@@ -1766,6 +2121,7 @@ function ProductApp() {
       />
       <CharacterEditor
         open={editorOpen}
+        partition={repositoryPartitionRef.current}
         {...(editorCharacterId ? { characterId: editorCharacterId } : {})}
         onClose={() => setEditorOpen(false)}
         onSaved={refreshCharacters}
@@ -2055,12 +2411,13 @@ function MessageEditor({ initial, onCancel, onSubmit }: {
   );
 }
 
-function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, cloudNotice, usageMode, configurations, selectedConfigurationId, suggestions, quickReplies, typing, impersonating, onProfile, onDraft, onSend, onStop, onPick, onQuickReply, onImpersonate, onEditSubmit, onDeleteMessage, onRegenerate, onSwipe, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
+function ChatPage({ character, messages, draft, sending, error, cloud, cloudService, cloudNotice, usageMode, configurations, selectedConfigurationId, conversationReady, suggestions, quickReplies, typing, impersonating, onProfile, onDraft, onSend, onStop, onPick, onQuickReply, onImpersonate, onEditSubmit, onDeleteMessage, onRegenerate, onSwipe, onUsageMode, onConfiguration, onProvider, onPlatformQuota, onRetryCloud }: {
   character: Character; messages: Message[]; draft: string; sending: boolean; error: string | null;
   cloud: CloudStatus | null;
   cloudService: CloudModelServiceState;
   cloudNotice: CloudNotice | null;
   usageMode: 'PLATFORM' | 'BYOK'; configurations: ModelConfiguration[]; selectedConfigurationId: string;
+  conversationReady: boolean;
   suggestions: string[]; quickReplies: QuickReplySettings; typing: boolean; impersonating: boolean;
   onProfile: () => void; onDraft: (value: string) => void; onSend: (event: FormEvent) => void; onStop: () => void; onPick: (text: string) => void;
   onQuickReply: (text: string) => void; onImpersonate: () => void;
@@ -2310,7 +2667,7 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
                   key={reply.id}
                   disabled={
                     sending || Boolean(draft.trim()) ||
-                    (quickReplies.behavior === 'SEND' && platformBlocked)
+                    (quickReplies.behavior === 'SEND' && (platformBlocked || !conversationReady))
                   }
                   title={reply.message}
                   onClick={() => {
@@ -2331,7 +2688,7 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
             title={t.chat.impersonateHint}
             disabled={
               sending || impersonating || Boolean(draft.trim()) ||
-              messages.length === 0 || platformBlocked
+              messages.length === 0 || platformBlocked || !conversationReady
             }
             onClick={onImpersonate}
           >
@@ -2375,7 +2732,7 @@ function ChatPage({ character, messages, draft, sending, error, cloud, cloudServ
           />
           <button
             type={sending ? 'button' : 'submit'}
-            disabled={!sending && (!draft.trim() || platformBlocked)}
+            disabled={!sending && (!draft.trim() || platformBlocked || !conversationReady)}
             aria-label={sending ? t.chat.stopGeneration : t.chat.sendMessage}
             className={sending ? 'stop-generation' : undefined}
             onClick={sending ? onStop : undefined}
@@ -2500,10 +2857,11 @@ function splitTraits(text: string): string[] | null {
  * shown.
  */
 function ProfilePage({
-  character, relationship, memoryCount, onChat, onMemories, onPersona, onWorldbooks,
+  character, partition, relationship, memoryCount, onChat, onMemories, onPersona, onWorldbooks,
   onEdit, onImport, onExport, onDelete, onFieldSaved
 }: {
   character: Character;
+  partition: string;
   relationship: string | null;
   memoryCount: number | null;
   onChat: () => void;
@@ -2531,7 +2889,7 @@ function ProfilePage({
   }, [menuOpen]);
 
   async function saveField(patch: Partial<CharacterModel>) {
-    await patchCharacterCard(character.character_id, patch);
+    await patchCharacterCard(partition, character.character_id, patch);
     await onFieldSaved();
   }
 
