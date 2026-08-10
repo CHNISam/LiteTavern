@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   isCompatibleCloudStatus,
+  readCachedStatus,
   reportSyncCheckpoint,
   resolveCloudModelServiceState,
   resolveCloudNotice,
@@ -75,6 +76,57 @@ describe('cloud deployment contract', () => {
       ...compatible,
       capabilities: { ...compatible.capabilities, client_turn_sync: false }
     })).toBe(false);
+  });
+});
+
+describe('cached status', () => {
+  afterEach(() => localStorage.clear());
+
+  it('ignores an entry written by a build with an older contract', () => {
+    // The cache outlives the build that wrote it. A reader who used LiteTavern before
+    // the v2 contract has an object in storage with no `capabilities` at all, and this
+    // used to hand it straight back under a bare `as CloudStatus`. `App` seeds its
+    // state from this read, so the first `capabilities.legacy_http_migration` threw
+    // during render: a blank page on every load, for everyone who had opened the app
+    // before — and unrecoverable by reloading, because the reload re-read the cache.
+    localStorage.setItem('litetavern.cloud.status.v1', JSON.stringify({
+      stage: 'ALPHA',
+      account_state: 'ALPHA',
+      email_verified: true,
+      platform_models_available: true,
+      block_reason: null,
+      byok_available: true
+    }));
+
+    expect(readCachedStatus()).toBeNull();
+  });
+
+  it('ignores an entry whose capabilities no longer satisfy this build', () => {
+    // Same rule, one step subtler: the shape is current but a capability this build
+    // requires is off. The network read answers to exactly this check, and a cache
+    // entry is that same claim made earlier.
+    const stale = status();
+    localStorage.setItem('litetavern.cloud.status.v1', JSON.stringify({
+      ...stale,
+      capabilities: { ...stale.capabilities, client_turn_sync: false }
+    }));
+
+    expect(readCachedStatus()).toBeNull();
+  });
+
+  it('returns an entry that still speaks this contract', () => {
+    // The cache has to keep working — it is what puts the last known state on screen
+    // before the network answers.
+    const current = status();
+    localStorage.setItem('litetavern.cloud.status.v1', JSON.stringify(current));
+
+    expect(readCachedStatus()).toEqual(current);
+  });
+
+  it('treats unreadable storage as no cache rather than throwing', () => {
+    localStorage.setItem('litetavern.cloud.status.v1', 'not json');
+
+    expect(readCachedStatus()).toBeNull();
   });
 });
 

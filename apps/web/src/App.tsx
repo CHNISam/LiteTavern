@@ -844,7 +844,7 @@ function ProductApp() {
       ? `account:${account.user_id}`
       : `guest:${deviceId}`;
     const legacyHttpMigration = accountState === 'authenticated' && !cloudOffline &&
-      cloud?.capabilities.legacy_http_migration !== false;
+      cloud?.capabilities?.legacy_http_migration !== false;
     let cancelled = false;
     void adoptRepositoryPrincipal(principal).then(async () => {
       if (cancelled) return;
@@ -922,7 +922,7 @@ function ProductApp() {
   }, [
     account?.user_id,
     accountState,
-    cloud?.capabilities.legacy_http_migration,
+    cloud?.capabilities?.legacy_http_migration,
     cloudChecking,
     cloudOffline,
     deviceId

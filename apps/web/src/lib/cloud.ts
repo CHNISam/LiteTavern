@@ -176,12 +176,28 @@ function storage(): Storage | null {
   }
 }
 
+/**
+ * The cached status, but only if it still speaks this build's contract.
+ *
+ * The cache outlives the build that wrote it. A reader who used LiteTavern before the
+ * v2 contract has a v1 object in storage — no `capabilities`, no `contract_version` —
+ * and this used to hand it back under a bare `as CloudStatus`, a claim nothing checked.
+ * The first read of `capabilities.legacy_http_migration` then threw during render and
+ * the app came up blank, on every load, for everyone who had ever opened it before:
+ * the reload that would normally clear a bad state re-read the same cache.
+ *
+ * `isCompatibleCloudStatus` already decided this question for the network response.
+ * A cache entry is the same claim made by an older build, so it answers to the same
+ * check, and anything it rejects is simply absent — the network read replaces it.
+ */
 export function readCachedStatus(): CloudStatus | null {
   const store = storage();
   if (!store) return null;
   try {
     const raw = store.getItem(STATUS_CACHE_KEY);
-    return raw ? (JSON.parse(raw) as CloudStatus) : null;
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    return isCompatibleCloudStatus(parsed) ? parsed : null;
   } catch {
     return null;
   }
