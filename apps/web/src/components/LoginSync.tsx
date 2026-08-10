@@ -40,6 +40,13 @@ function friendlyError(reason: unknown): string {
       return t().auth.mergeFailed;
     case 'TURNSTILE_FAILED':
       return t().auth.challengeFailed;
+    // Not the reader's failure, and not something retrying can fix. Kept apart
+    // from `TURNSTILE_FAILED` so a deployment whose secret no longer matches
+    // stops telling everyone they failed a challenge they actually passed.
+    case 'TURNSTILE_MISCONFIGURED':
+      return t().auth.challengeMisconfigured;
+    case 'TURNSTILE_UNAVAILABLE':
+      return t().auth.challengeUnavailableNow;
     case 'RATE_LIMITED':
       return t().auth.rateLimited;
     default:
@@ -68,6 +75,14 @@ export function LoginSync({
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
   const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  /**
+   * Bumped to force a brand-new widget. A Turnstile token is single-use, and the
+   * widget has no way to learn that the server rejected the one it minted — it
+   * simply stays green. Without this, every retry after a failed send resubmitted
+   * the same spent token, which the server answers `timeout-or-duplicate`: a
+   * `Success!` widget that can never succeed again.
+   */
+  const [challengeNonce, setChallengeNonce] = useState(0);
   const timerRef = useRef<number>(0);
 
   useEffect(() => {
@@ -80,6 +95,7 @@ export function LoginSync({
       setBusy(false);
       setCooldown(0);
       setChallengeToken(null);
+      setChallengeNonce((current) => current + 1);
       window.clearInterval(timerRef.current);
     }
   }, [open]);
@@ -124,6 +140,13 @@ export function LoginSync({
         setCooldown(0);
         window.clearInterval(timerRef.current);
       }
+      // The token may or may not have been spent — the server verifies it before
+      // most of the ways this can fail, and a spent token is indistinguishable
+      // from a live one out here. Discarding it and re-challenging is the only
+      // answer that cannot strand the reader on a token the server will refuse
+      // for as long as they keep pressing the button.
+      setChallengeToken(null);
+      setChallengeNonce((current) => current + 1);
       setError(friendlyError(reason));
     } finally {
       setBusy(false);
@@ -187,7 +210,11 @@ export function LoginSync({
               </div>
             </label>
             {turnstileSiteKey ? (
-              <Turnstile siteKey={turnstileSiteKey} onToken={setChallengeToken} />
+              <Turnstile
+                key={challengeNonce}
+                siteKey={turnstileSiteKey}
+                onToken={setChallengeToken}
+              />
             ) : (
               <p className="login-error" role="alert">{t.auth.challengeUnavailable}</p>
             )}
@@ -233,7 +260,11 @@ export function LoginSync({
             </button>
             {/* Resending needs its own challenge: the first token was consumed. */}
             {turnstileSiteKey && cooldown === 0 && (
-              <Turnstile siteKey={turnstileSiteKey} onToken={setChallengeToken} />
+              <Turnstile
+                key={challengeNonce}
+                siteKey={turnstileSiteKey}
+                onToken={setChallengeToken}
+              />
             )}
             <div className="login-secondary">
               <button

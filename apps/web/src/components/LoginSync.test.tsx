@@ -36,6 +36,24 @@ function installSolvedTurnstile() {
   };
 }
 
+/**
+ * A widget that mints a *different* token every time it is rendered, which is
+ * what the real one does. The shared stub above cannot see the difference
+ * between a fresh challenge and a resubmitted one; this can.
+ */
+function installCountingTurnstile() {
+  let issued = 0;
+  window.turnstile = {
+    render: (_element, options) => {
+      issued += 1;
+      options.callback(`token-${issued}`);
+      return `widget-${issued}`;
+    },
+    remove: () => {},
+    reset: () => {}
+  };
+}
+
 beforeEach(() => {
   installSolvedTurnstile();
 });
@@ -219,6 +237,79 @@ describe('LoginSync', () => {
       screen.getByText('当前环境未配置人机校验，暂时无法登录。')
     ).toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A Turnstile token is single-use, and the widget stays green whatever the
+   * server thinks of it. Resubmitting the same one turns any single failure into
+   * a permanent one — `timeout-or-duplicate` for as long as the reader keeps
+   * pressing the button, under a `Success!` that never goes away.
+   */
+  it('re-challenges after a failed send instead of resubmitting the spent token', async () => {
+    installCountingTurnstile();
+    const submitted: string[] = [];
+    let sends = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      submitted.push(JSON.parse(String(init?.body)).turnstile_token);
+      sends += 1;
+      if (sends === 1) {
+        return json(
+          { error: { code: 'TURNSTILE_FAILED', message: '人机校验未通过，请重试。' } },
+          403
+        );
+      }
+      return json({ success: true, message: 'ok' });
+    });
+
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} turnstileSiteKey="test-site-key" />);
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
+      target: { value: 'user@example.com' }
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '发送验证码' })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
+    expect(await screen.findByText('人机校验未通过，请重试。')).toBeInTheDocument();
+
+    // A fresh widget must have mounted and solved; the button is disabled until
+    // it has, so this is also the assertion that the token was discarded.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '发送验证码' })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
+    await screen.findByText('验证码已发送至 u***@example.com');
+
+    expect(submitted).toEqual(['token-1', 'token-2']);
+  });
+
+  it('names a misconfigured deployment rather than blaming the reader', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      json(
+        {
+          error: {
+            code: 'TURNSTILE_MISCONFIGURED',
+            message: '本环境的人机校验未正确配置，重试无法解决，请联系支持。',
+            retryable: false
+          }
+        },
+        503
+      )
+    );
+
+    render(<LoginSync open onClose={() => {}} onAuthenticated={() => {}} turnstileSiteKey="test-site-key" />);
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
+      target: { value: 'user@example.com' }
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '发送验证码' })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole('button', { name: '发送验证码' }));
+
+    expect(
+      await screen.findByText('本环境的人机校验配置有误，重试无法解决，请联系支持。')
+    ).toBeInTheDocument();
+    // The reader is never told they failed a challenge they actually passed.
+    expect(screen.queryByText('人机校验未通过，请重试。')).not.toBeInTheDocument();
   });
 
   it('lets the user go back and change the email', async () => {
