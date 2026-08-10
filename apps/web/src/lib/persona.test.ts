@@ -3,7 +3,8 @@ import {
   exportPersonas,
   importPersonas,
   listPersonas,
-  setDefaultPersona
+  setDefaultPersona,
+  draftFromCharacterCard
 } from './persona';
 import { resetLoreDatabaseForTests } from './lore-store';
 
@@ -62,6 +63,62 @@ describe('player Persona interchange', () => {
         role: 'user',
         future_field: 'keep'
       }
+    });
+  });
+
+  it('handles numeric SillyTavern enum imports for position and role', async () => {
+    await importPersonas({
+      personas: { 'test.png': 'Tester' },
+      persona_descriptions: {
+        'test.png': {
+          description: 'Testing numeric enums.',
+          position: 4,
+          role: 1
+        }
+      }
+    });
+    const personas = await listPersonas();
+    expect(personas[0]).toMatchObject({
+      position: 'AT_DEPTH',
+      role: 'user'
+    });
+  });
+
+  it('resolves duplicate names via numeric suffix', async () => {
+    await importPersonas({
+      personas: { 'a.png': 'Name' },
+      persona_descriptions: { 'a.png': { description: 'First' } }
+    });
+    await importPersonas({
+      personas: { 'b.png': 'Name', 'c.png': 'Name (2)' },
+      persona_descriptions: {
+        'b.png': { description: 'Second' },
+        'c.png': { description: 'Third' }
+      }
+    });
+    
+    // We should get Name, Name (2) generated for the first batch
+    // and Name (2), Name (3) generated for the second batch
+    // Because Name (2) is claimed in existing, it skips it for 'b' and makes it Name (3) (Wait, let's see how Set behaves)
+    const personas = await listPersonas();
+    const sorted = personas.map((p) => p.name).sort();
+    expect(sorted).toEqual(['Name', 'Name (2)', 'Name (3)']);
+  });
+});
+
+describe('draftFromCharacterCard', () => {
+  it('extracts fundamental persona details & swaps {{user}} / {{char}}', () => {
+    const draft = draftFromCharacterCard({
+      name: 'CharName',
+      description: '{{char}} is cool. {{char}} likes {{user}}.',
+      personality: '{{user}} sees {{char}} as a friend.'
+    });
+
+    expect(draft).toMatchObject({
+      name: 'CharName',
+      description: '{{user}} is cool. {{user}} likes {{char}}.\n\n{{char}} sees {{user}} as a friend.',
+      position: 'IN_PROMPT',
+      role: 'system'
     });
   });
 });

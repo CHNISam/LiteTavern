@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Check, LoaderCircle, Plus, Star, Trash2, UserRound, X } from 'lucide-react';
+import { Check, LoaderCircle, Plus, Star, Trash2, UserRound, X, Upload } from 'lucide-react';
 import {
   bindConversationPersona,
   createPersona,
   deletePersona,
   listPersonas,
   updatePersona,
+  importPersonas,
+  draftFromCharacterCard,
   type Persona
 } from '../lib/persona';
+import { readCardFile } from '../lib/card-file';
+import { processAvatarImage } from '../lib/avatar-image';
 import { t } from '../lib/i18n';
 
 const unavailable = () =>
@@ -66,6 +70,38 @@ export function PersonaPanel({ open, onClose }: { open: boolean; onClose: () => 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+
+  async function inspectFile(next: File | null) {
+    if (!next) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const parsed = await readCardFile(next);
+      if (!parsed) throw new Error(t().importer.parseFailed);
+
+      if ('personas' in parsed && 'persona_descriptions' in parsed) {
+        await importPersonas(parsed);
+      } else {
+        let avatarBlob: Blob | null = null;
+        if (next.type === 'image/png' || next.name.toLowerCase().endsWith('.png')) {
+          try {
+            avatarBlob = await processAvatarImage(next);
+          } catch {
+            // Unreadable avatar, defaults to missing.
+          }
+        }
+        
+        const avatarName = next.name || 'avatar.png';
+        const draft = draftFromCharacterCard(parsed, avatarName, avatarBlob);
+        await createPersona(draft);
+      }
+      await reload();
+    } catch (reason) {
+      setError(errorText(reason, t().persona.saveFailed));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function reload() {
     setLoading(true);
@@ -232,9 +268,23 @@ export function PersonaPanel({ open, onClose }: { open: boolean; onClose: () => 
           </ul>
 
           {editingId === null ? (
-            <button type="button" className="secondary-button persona-add" onClick={startCreate}>
-              <Plus size={16} /> {t().persona.create}
-            </button>
+            <div className="persona-add" style={{ display: 'flex', gap: '0.75rem', border: 'none', background: 'none' }}>
+              <button type="button" className="secondary-button" onClick={startCreate} style={{ margin: 0 }}>
+                <Plus size={16} /> {t().persona.create}
+              </button>
+              <label className="secondary-button" style={{ margin: 0, cursor: 'pointer' }}>
+                <input
+                  type="file"
+                  accept=".json,.png,application/json,image/png"
+                  style={{ display: 'none' }}
+                  onChange={(event) => {
+                    void inspectFile(event.target.files?.[0] ?? null);
+                    event.target.value = '';
+                  }}
+                />
+                <Upload size={16} /> {t().persona.importPersona}
+              </label>
+            </div>
           ) : (
             <div className="editor-section persona-form">
               <h3>{editingId === 'new' ? t().persona.createTitle : t().persona.editTitle}</h3>

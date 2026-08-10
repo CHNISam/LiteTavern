@@ -488,6 +488,7 @@ export const en: Dictionary = {
       `Delete the persona “${name}”? Conversations using it fall back to no persona.`,
     deleteFailed: 'Could not delete the persona.',
     create: 'New persona',
+    importPersona: 'Import persona',
     createTitle: 'New persona',
     editTitle: 'Edit persona',
     nameLabel: 'Name',

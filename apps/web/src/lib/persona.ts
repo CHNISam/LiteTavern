@@ -45,6 +45,11 @@ function clampDepth(value: unknown, fallback = 2): number {
 }
 
 function normalizePosition(value: unknown): PersonaPosition {
+  if (typeof value === 'number') {
+    if (value === 0) return 'NONE';
+    if (value === 4) return 'AT_DEPTH';
+    return 'IN_PROMPT'; // 1, 2, 3 fallback to IN_PROMPT internally
+  }
   const normalized = typeof value === 'string' ? value.toUpperCase() : '';
   if (normalized === 'AT_DEPTH') return 'AT_DEPTH';
   if (normalized === 'NONE') return 'NONE';
@@ -54,6 +59,11 @@ function normalizePosition(value: unknown): PersonaPosition {
 }
 
 function normalizeRole(value: unknown): PromptRole {
+  if (typeof value === 'number') {
+    if (value === 1) return 'user';
+    if (value === 2) return 'assistant';
+    return 'system';
+  }
   return value === 'user' || value === 'assistant' ? value : 'system';
 }
 
@@ -395,10 +405,41 @@ function draftsFromImport(value: unknown): {
   };
 }
 
+function ensureUniqueName(name: string, taken: Set<string>): string {
+  if (!taken.has(name)) {
+    taken.add(name);
+    return name;
+  }
+
+  let baseName = name;
+  let counter = 2;
+  const match = name.match(/^(.*?) \((\d+)\)$/);
+  if (match) {
+    baseName = match[1];
+    counter = parseInt(match[2], 10) + 1;
+  }
+
+  let unique = `${baseName} (${counter})`;
+  while (taken.has(unique)) {
+    counter += 1;
+    unique = `${baseName} (${counter})`;
+  }
+  
+  taken.add(unique);
+  return unique;
+}
+
 export async function importPersonas(value: unknown): Promise<PersonaImportResult> {
   const { drafts, defaultAvatarName } = draftsFromImport(value);
   if (!drafts.length) throw new Error(t().localAssets.personaImportEmpty);
-  const assets = drafts.map(assetFromDraft);
+  
+  const existingPersonas = await getAllLocalRecords<PersonaAsset>('personas');
+  const takenNames = new Set(existingPersonas.map((p) => p.name));
+  
+  const assets = drafts.map((draft) => {
+    draft.name = ensureUniqueName(draft.name, takenNames);
+    return assetFromDraft(draft);
+  });
   const defaultAsset = assets.find(
     (persona) => persona.avatar_name === defaultAvatarName
   );
@@ -454,4 +495,50 @@ export async function exportPersonas(): Promise<Record<string, unknown>> {
 /** Used only by migration cleanup/tests. */
 export async function clearConversationPersona(conversationId: string): Promise<void> {
   await deleteLocalRecord('bindings', bindingId('conversation', conversationId));
+}
+
+export function draftFromCharacterCard(
+  cardData: Record<string, unknown>,
+  avatarName: string | null = null,
+  avatarBlob: Blob | null = null
+): PersonaDraft {
+  const data = cardData.data && typeof cardData.data === 'object'
+    ? (cardData.data as Record<string, unknown>)
+    : cardData;
+
+  const text = (keys: string[]) => {
+    for (const key of keys) {
+      if (typeof data[key] === 'string') return data[key] as string;
+    }
+    return '';
+  };
+
+  const rawName = text(['name', 'char_name']).trim();
+  const rawDescription = text(['description', 'char_persona']);
+  const rawPersonality = text(['personality']);
+
+  const swapSemantics = (content: string) => {
+    return content
+      .replace(/\{\{user\}\}/gi, '__TEMP_USER_MACRO__')
+      .replace(/\{\{char\}\}/gi, '{{user}}')
+      .replace(/__TEMP_USER_MACRO__/g, '{{char}}');
+  };
+
+  const combinedDesc = [
+    swapSemantics(rawDescription),
+    swapSemantics(rawPersonality)
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  return {
+    name: rawName || t().localAssets.defaultUserLabel,
+    description: combinedDesc,
+    title: '',
+    position: 'IN_PROMPT',
+    role: 'system',
+    avatar_name: avatarName,
+    avatar_blob: avatarBlob,
+    avatar_missing: !avatarBlob
+  };
 }

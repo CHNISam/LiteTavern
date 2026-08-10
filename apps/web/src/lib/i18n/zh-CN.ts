@@ -459,6 +459,7 @@ export const zhCN = {
     deleteConfirm: (name: string) => `删除身份「${name}」？使用它的对话会回到未设置身份。`,
     deleteFailed: '删除身份失败。',
     create: '新建身份',
+    importPersona: '导入 Persona',
     createTitle: '新建身份',
     editTitle: '编辑身份',
     nameLabel: '名称',
