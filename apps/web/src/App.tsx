@@ -280,6 +280,10 @@ function ProductApp() {
   const conversationIdRef = useRef<string | null>(null);
   /** The last message the server said this conversation ends at. */
   const headIdRef = useRef<string | null>(null);
+  /** A send refused on a stale head, waiting for this turn to finish unwinding. */
+  const resendAfterHeadRefreshRef = useRef<
+    { text: string; editOfMessageId?: string } | null
+  >(null);
   const activeRef = useRef<Character | null>(null);
   /**
    * Which conversation state the candidates on screen describe.
@@ -976,7 +980,9 @@ function ProductApp() {
   async function submit(
     rawText: string,
     editOfMessageId?: string,
-    regenerateOfMessageId?: string
+    regenerateOfMessageId?: string,
+    /** Set only by the one automatic re-send below, so it cannot re-send itself. */
+    isHeadRetry = false
   ) {
     const requestedText = rawText.trim();
     const controller = playbackRef.current;
@@ -1332,10 +1338,22 @@ function ProductApp() {
       }
 
       // The conversation moved while this tab was looking at an older version of it,
-      // or this exact send already landed. Neither is a failure of the send, and
-      // neither should be retried: re-sending after a duplicate would be the reader
-      // asking for one message and getting two. Both are resolved by reading the
-      // server's branch, which is also what refreshes the head this tab sends next.
+      // or this exact send already landed. Both are resolved by reading the server's
+      // branch, which is also what refreshes the head this tab sends next.
+      //
+      // What happens *after* that read is where the two part company, and treating
+      // them alike is what made a message disappear. `DUPLICATE_MESSAGE` means the
+      // text reached Cloud, so re-sending would be the reader asking for one message
+      // and getting two. `HEAD_MISMATCH` is refused *before* any write — the store
+      // compares the head and returns without touching the conversation — so the
+      // text reached nobody. Dropping the optimistic row then left the reader
+      // looking at a composer they had already emptied, no error, and no message.
+      //
+      // A stale head is not rare enough to leave unhandled either: this tab only
+      // learns the head from a *successful* read, so any failed turn that moved the
+      // server's head guarantees the next send is refused. One upstream hiccup
+      // therefore costs two messages — the one that failed and the one silently
+      // swallowed behind it.
       if (apiError?.code === 'HEAD_MISMATCH' || apiError?.code === 'DUPLICATE_MESSAGE') {
         setMessages((current) => current.filter(
           (message) =>
@@ -1346,6 +1364,23 @@ function ProductApp() {
           const loaded = await fetchMessages(targetConversationId);
           cacheMessages(targetConversationId, loaded);
           if (conversationIdRef.current === targetConversationId) setMessages(loaded);
+          // That read is what taught this tab the current head, so the send it was
+          // refused for can now be written against the story as it actually stands.
+          // Queued rather than called: the guards at the top of `submit` still see
+          // this turn as in flight until the `finally` below has run.
+          //
+          // Once only. If the head moves again between that read and the retry, the
+          // reader is told rather than put in a loop that re-sends forever.
+          if (
+            apiError.code === 'HEAD_MISMATCH' &&
+            !isHeadRetry &&
+            !regenerateOfMessageId
+          ) {
+            resendAfterHeadRefreshRef.current = {
+              text: requestedText,
+              ...(editOfMessageId ? { editOfMessageId } : {})
+            };
+          }
         } catch {
           reportGenerationFailure(reason);
         }
@@ -1383,6 +1418,17 @@ function ProductApp() {
       streamingRef.current = false;
       setSending(false);
       if (!semanticPlaybackStarted) setTyping(false);
+
+      // A send Cloud refused on a stale head, now that the head is current and the
+      // guards above are clear. Taken before the automatic suggestions below and
+      // made to exclude them: a turn that never happened has nothing to suggest a
+      // reply to, and the resend will reach this block again when it settles.
+      const resend = resendAfterHeadRefreshRef.current;
+      resendAfterHeadRefreshRef.current = null;
+      if (resend) {
+        autoSuggestRef.current = null;
+        void submit(resend.text, resend.editOfMessageId, undefined, true);
+      }
 
       // The automatic trigger, and the only place it fires. It reads the transcript
       // captured above rather than state, which this closure still remembers from
