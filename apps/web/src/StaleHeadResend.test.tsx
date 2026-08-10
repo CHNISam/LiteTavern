@@ -35,6 +35,14 @@ function json(body: unknown, status = 200) {
 
 const CLOUD_STATUS = {
   cloud: {
+    contract_version: 2,
+    capabilities: {
+      auth: true,
+      asset_sync: true,
+      platform_generation: true,
+      client_turn_sync: true,
+      reply_suggestions: true
+    },
     stage: 'ALPHA',
     account_state: 'ALPHA',
     email_verified: true,
