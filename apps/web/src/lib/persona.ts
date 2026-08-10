@@ -414,7 +414,7 @@ function ensureUniqueName(name: string, taken: Set<string>): string {
   let baseName = name;
   let counter = 2;
   const match = name.match(/^(.*?) \((\d+)\)$/);
-  if (match) {
+  if (match && match[1] && match[2]) {
     baseName = match[1];
     counter = parseInt(match[2], 10) + 1;
   }
