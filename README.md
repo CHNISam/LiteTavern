@@ -101,15 +101,43 @@ npm.cmd run dev
 默认地址：`http://127.0.0.1:5173`
 
 本仓库只包含开源客户端。托管服务已迁出到 LiteTavern Cloud 私有仓库，客户端通过
-`VITE_CLOUD_BASE_URL` 以 HTTP 访问它，不共享任何构建依赖。开发时若需要本地后端，
-请在 LiteTavern Cloud 仓库中运行 `npm run dev`（`http://127.0.0.1:3000`），
-Vite 的 `/v1` 代理会自动转发过去。客户端也可以完全脱离 Cloud 单独运行。
+`VITE_CLOUD_BASE_URL` 以 HTTP 访问它，不共享任何构建依赖。客户端也可以完全脱离
+Cloud 单独运行——本地数据、角色和 BYOK 都不依赖它。
+
+开发时若需要本地后端，请在 LiteTavern Cloud 仓库中运行 **`npm run dev:worker`**
+（`http://127.0.0.1:3000`），Vite 的 `/v1` 代理会自动转发过去。不要用该仓库的
+`npm run dev`：那是 Desktop 运行时（Fastify + PGlite），它的 `/v1/cloud/status`
+仍是 ADR 之前的旧契约，浏览器客户端连上去会判定为 `CLOUD_CONTRACT_BLOCKED`。
+
+保持 `VITE_CLOUD_BASE_URL` 不设置，走同源 + `/v1` 代理。Worker 刻意不带 CORS 层，
+其会话 Cookie 是 `Secure` 的，跨源直连 `:3000` 不会工作。
 
 运行完整检查：
 
 ```powershell
 npm.cmd run check
 ```
+
+### 弹窗提示「Sync problem: LiteTavern Cloud is unreachable」时
+
+客户端把「连不上」和「连上了但契约不匹配」当作两种状态处理，排查顺序也不同。
+按下面的顺序走，第一个不通过的环节就是原因：
+
+1. **后端在跑吗** —— `netstat -ano | findstr :3000`。最常见的原因就是没启动。
+2. **状态接口通吗** —— `curl http://127.0.0.1:3000/v1/cloud/status`。
+   连接被拒（curl 退出码 7）即为「unreachable」，与本节标题的提示对应。
+3. **契约对得上吗** —— 同一响应里必须有 `contract_version: 2`，且 `capabilities`
+   的 `auth` / `asset_sync` / `platform_generation` / `client_turn_sync` /
+   `reply_suggestions` 五项全为 `true`。缺任意一项，客户端显示的是
+   `CLOUD_CONTRACT_BLOCKED`（被阻断），**不是**「unreachable」。判定逻辑见
+   `apps/web/src/lib/cloud.ts` 的 `isCompatibleCloudStatus`。
+4. **代理通吗** —— `curl http://127.0.0.1:5173/v1/cloud/status` 应与第 2 步同结果。
+5. **是不是绕开了代理** —— 只有在设置了 `VITE_CLOUD_BASE_URL` 时请求才会跨源直连
+   `:3000`，此时才需要关心 CORS 与 CSP。默认不设置、走同源代理时，`127.0.0.1:5173`
+   与 `localhost:5173` 都可用。
+
+注意客户端**不会**自动轮询云端状态，也没有 `online` 事件重试。后端起来之后，
+必须刷新页面或点账号弹窗里的重试按钮，状态才会重新判定。
 
 ## 仓库结构
 
