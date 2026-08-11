@@ -1,4 +1,5 @@
 import { createId } from './id';
+import { cloudUrl } from './runtime-config';
 
 export type AnalyticsEventName =
   | 'app_session_started'
@@ -273,7 +274,9 @@ export class AnalyticsClient {
             setItem() {}
           } as Storage)
         : localStorage);
-    this.fetcher = options.fetcher ?? fetch;
+    // Wrapped rather than stored bare: a `fetch` reference held on an instance
+    // property is invoked with that instance as `this`, which browsers reject.
+    this.fetcher = options.fetcher ?? ((input, init) => fetch(input, init));
     this.now = options.now ?? Date.now;
     this.sessionTimeoutMs = options.sessionTimeoutMs ?? SESSION_TIMEOUT_MS;
   }
@@ -589,7 +592,9 @@ export class AnalyticsClient {
 
   private async emit(event: AnalyticsEventPayload): Promise<void> {
     try {
-      await this.fetcher('/v1/analytics/events', {
+      // `cloudUrl` keeps same-origin deployments on the relative path and rewrites
+      // to the configured Cloud base when the client is served from another origin.
+      await this.fetcher(cloudUrl('/v1/analytics/events'), {
         method: 'POST',
         credentials: 'include',
         keepalive: true,

@@ -265,4 +265,43 @@ describe('analytics client', () => {
       /qr|wechat.?id|account|amount|payment/i
     );
   });
+
+  it('sends events to the configured Cloud base when the client is cross-origin', async () => {
+    const requests: StoredRequest[] = [];
+    window.__LITETAVERN__ = { cloudBaseUrl: 'https://cloud.litetavern.example/' };
+    try {
+      const client = new AnalyticsClient({
+        storage: memoryStorage(),
+        fetcher: async (input, init) => {
+          requests.push({
+            path: String(input),
+            events: JSON.parse(String(init?.body)).events as AnalyticsEventPayload[]
+          });
+          return new Response('{}', { status: 202 });
+        },
+        now: () => Date.parse('2026-07-27T01:00:00Z')
+      });
+      await client.initialize({
+        userId: '',
+        anonymousId: '',
+        url: 'https://litetavern.example/support?source=github',
+        referrer: '',
+        appVersion: '0.1.0'
+      });
+
+      client.supportEvent('support_method_click', {
+        source: 'github',
+        method: 'afdian',
+        placement: 'direct',
+        isAuthenticated: false
+      });
+      await Promise.resolve();
+
+      expect(requests.at(-1)?.path).toBe(
+        'https://cloud.litetavern.example/v1/analytics/events'
+      );
+    } finally {
+      delete window.__LITETAVERN__;
+    }
+  });
 });
