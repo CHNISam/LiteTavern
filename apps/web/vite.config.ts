@@ -1,24 +1,17 @@
 import { defineConfig, type Plugin } from 'vitest/config';
+import { loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { copyFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { parsePublicOrigins } from './src/lib/connect-origins';
+import { buildConnectOrigins } from './src/lib/connect-origins';
 import { BUILTIN_BYOK_ORIGIN_LIST } from './src/lib/byok-origins';
-
-function allowedConnectOrigins(): string[] {
-  return parsePublicOrigins(
-    process.env.VITE_CLOUD_BASE_URL,
-    process.env.VITE_BYOK_CONNECT_ORIGINS,
-    BUILTIN_BYOK_ORIGIN_LIST.join(' ')
-  );
-}
 
 // The production index.html ships a strict Content-Security-Policy. Vite's dev
 // server injects CSS (and HMR runtime) through inline <style>/<script>, which a
 // strict `style-src 'self'` / `script-src 'self'` blocks — leaving the app
 // completely unstyled in dev. This plugin relaxes the CSP for the dev server
 // only; the built index.html keeps the strict policy untouched.
-function devCspRelax(): Plugin {
+function devCspRelax(origins: string[]): Plugin {
   return {
     name: 'dev-csp-relax',
     apply: 'serve',
@@ -31,7 +24,7 @@ function devCspRelax(): Plugin {
             .replace(/style-src 'self'/, "style-src 'self' 'unsafe-inline'")
             .replace(
               /connect-src 'self'/,
-              `connect-src 'self' ws: ${allowedConnectOrigins().join(' ')}`.trimEnd()
+              `connect-src 'self' ws: ${origins.join(' ')}`.trimEnd()
             );
           return open + relaxed + close;
         }
@@ -43,12 +36,11 @@ function devCspRelax(): Plugin {
 // A static LiteTavern build may talk to LiteTavern Cloud on another origin, which a
 // strict `connect-src 'self'` would block. The Cloud origin is added to the built
 // page's CSP (and only there) when VITE_CLOUD_BASE_URL is set at build time.
-function cloudConnectSrc(): Plugin {
+function cloudConnectSrc(origins: string[]): Plugin {
   return {
     name: 'cloud-connect-src',
     apply: 'build',
     transformIndexHtml(html) {
-      const origins = allowedConnectOrigins();
       if (!origins.length) return html;
       return html.replace(
         /(content="[^"]*)connect-src 'self'/,
@@ -65,14 +57,14 @@ export function shouldWriteGithubPagesFallback(target: string | undefined): bool
 // Cloudflare Pages treats a build without 404.html as an SPA and reads `_redirects`.
 // GitHub Pages needs an index copy named 404.html, so only create it for an
 // explicitly targeted GitHub Pages build.
-function githubPagesFallback(): Plugin {
+function githubPagesFallback(deployTarget: string | undefined): Plugin {
   return {
     name: 'github-pages-spa-fallback',
     apply: 'build',
     async writeBundle(options) {
       if (
         !options.dir ||
-        !shouldWriteGithubPagesFallback(process.env.VITE_DEPLOY_TARGET)
+        !shouldWriteGithubPagesFallback(deployTarget)
       ) {
         return;
       }
@@ -84,23 +76,32 @@ function githubPagesFallback(): Plugin {
   };
 }
 
-export default defineConfig({
-  // Sub-path deployments (e.g. GitHub Pages project sites) set VITE_BASE_PATH.
-  base: process.env.VITE_BASE_PATH ?? '/',
-  plugins: [
-    react(),
-    devCspRelax(),
-    cloudConnectSrc(),
-    githubPagesFallback()
-  ],
-  server: {
-    port: 5173,
-    proxy: {
-      '/v1': 'http://127.0.0.1:3000'
+export default defineConfig(({ mode }) => {
+  // `loadEnv` reads the .env files *and* the VITE_-prefixed process.env entries
+  // CI injects. Reading process.env alone would silently ignore a local
+  // .env.local, leaving the page's connect-src narrower than the BYOK policy the
+  // same variable configures in the bundle — the provider saves, then the
+  // request dies on CSP.
+  const env = loadEnv(mode, __dirname, 'VITE_');
+  const connectOrigins = buildConnectOrigins(env, BUILTIN_BYOK_ORIGIN_LIST);
+  return {
+    // Sub-path deployments (e.g. GitHub Pages project sites) set VITE_BASE_PATH.
+    base: env.VITE_BASE_PATH ?? '/',
+    plugins: [
+      react(),
+      devCspRelax(connectOrigins),
+      cloudConnectSrc(connectOrigins),
+      githubPagesFallback(env.VITE_DEPLOY_TARGET)
+    ],
+    server: {
+      port: 5173,
+      proxy: {
+        '/v1': 'http://127.0.0.1:3000'
+      }
+    },
+    test: {
+      environment: 'jsdom',
+      setupFiles: './src/test/setup.ts'
     }
-  },
-  test: {
-    environment: 'jsdom',
-    setupFiles: './src/test/setup.ts'
-  }
+  };
 });

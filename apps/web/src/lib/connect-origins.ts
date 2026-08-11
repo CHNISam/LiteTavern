@@ -13,3 +13,23 @@ export function parsePublicOrigins(...values: Array<string | undefined>): string
   }
   return [...origins];
 }
+
+/**
+ * The origins the page's CSP `connect-src` must name.
+ *
+ * BYOK talks to the provider straight from the browser, so an origin the BYOK
+ * policy accepts is still unreachable unless it is also in `connect-src`. Both
+ * halves read the same build-time variables; this one takes them as a plain
+ * record so `vite.config.ts` can pass Vite's `loadEnv` result (which includes
+ * `.env` files, unlike `process.env`) and tests can pass a literal.
+ */
+export function buildConnectOrigins(
+  env: Record<string, string | undefined>,
+  builtinByokOrigins: readonly string[]
+): string[] {
+  return parsePublicOrigins(
+    env.VITE_CLOUD_BASE_URL,
+    env.VITE_BYOK_CONNECT_ORIGINS,
+    builtinByokOrigins.join(' ')
+  );
+}
