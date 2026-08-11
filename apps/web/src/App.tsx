@@ -43,7 +43,7 @@ import {
 } from './lib/character-card';
 import { t as translate, useLocale, useT } from './lib/i18n';
 import { trackKeyboardInset } from './lib/keyboard-inset';
-import { analytics, type AnalyticsPageName } from './lib/analytics';
+import { analytics, type AnalyticsEventName, type AnalyticsPageName } from './lib/analytics';
 import {
   fetchCloudStatus,
   quotaLabel,
@@ -440,8 +440,16 @@ function ProductApp() {
     const directCode = reason && typeof reason === 'object' && 'code' in reason
       ? String((reason as { code?: unknown }).code)
       : null;
-    if (directCode === 'BYOK_DIRECT_CORS_BLOCKED') {
-      analytics.track('byok_direct_cors_blocked', {
+    // One event name per direct-BYOK failure, so a permanent refusal never hides
+    // inside the counts of one that heals on its own.
+    const directEvents: Record<string, AnalyticsEventName> = {
+      BYOK_DIRECT_CORS_BLOCKED: 'byok_direct_cors_blocked',
+      BYOK_DIRECT_PROVIDER_ERROR: 'byok_direct_provider_error',
+      BYOK_DIRECT_EMPTY_COMPLETION: 'byok_direct_empty_completion'
+    };
+    const directEvent = directCode ? directEvents[directCode] : undefined;
+    if (directEvent) {
+      analytics.track(directEvent, {
         pageName: 'chat',
         ...(activeRef.current ? { characterId: activeRef.current.character_id } : {}),
         ...(conversationIdRef.current ? { conversationId: conversationIdRef.current } : {})
@@ -452,7 +460,14 @@ function ProductApp() {
       'chat',
       {
         errorStage: 'generation',
-        retryable: apiError?.retryable ?? false,
+        // A browser-direct BYOK failure carries its own verdict on whether
+        // waiting can fix it; reading only ApiError would file every one of them
+        // as permanent.
+        retryable:
+          apiError?.retryable ??
+          (reason && typeof reason === 'object' && 'retryable' in reason
+            ? (reason as { retryable?: unknown }).retryable === true
+            : false),
         ...(apiError?.requestId ? { requestId: apiError.requestId } : {}),
         ...(activeRef.current ? { characterId: activeRef.current.character_id } : {}),
         ...(conversationIdRef.current ? { conversationId: conversationIdRef.current } : {})
@@ -1516,18 +1531,24 @@ function ProductApp() {
               setMessages([...optimisticMessages, streamed]);
             }
           });
-          const assistant: Message = {
-            message_id: createId(),
-            role: 'ASSISTANT',
-            content_text: replyText,
-            status: 'COMPLETED'
-          };
-          const completed = [...optimisticMessages, assistant];
+          // An answer of nothing is not an answer. Storing one leaves a blank
+          // bubble under the character's name that survives a reload and reads
+          // as something they said, so the transcript keeps the reader's message
+          // and nothing else.
+          const assistants: Message[] = replyText.trim()
+            ? [{
+                message_id: createId(),
+                role: 'ASSISTANT',
+                content_text: replyText,
+                status: 'COMPLETED'
+              }]
+            : [];
+          const completed = [...optimisticMessages, ...assistants];
           setMessages(completed);
           persistMessages(targetConversationId, completed);
           if (!regenerateOfMessageId) {
             void queueClientTurnSync(
-              targetConversationId, turnRequestId, baseHeadId, userMessage, [assistant]
+              targetConversationId, turnRequestId, baseHeadId, userMessage, assistants
             );
           }
           if (replySuggestionsSettings.trigger === 'AUTOMATIC') {

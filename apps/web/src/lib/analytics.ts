@@ -18,7 +18,13 @@ export type AnalyticsEventName =
   | 'cloud_contract_blocked'
   | 'conversation_rebound'
   | 'sync_conflict'
+  // One event per browser-direct BYOK failure. A provider that refuses the
+  // request, one that answers with nothing, and one the browser never reached
+  // need different fixes, so merging them would bury the permanent ones in the
+  // noise of the transient.
   | 'byok_direct_cors_blocked'
+  | 'byok_direct_provider_error'
+  | 'byok_direct_empty_completion'
   // Founding Supporter claim funnel. These never carry contact details, amount
   // or message text — only where the claim was started from.
   | 'supporter_claim_opened'
