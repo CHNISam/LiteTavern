@@ -36,6 +36,11 @@ cannot be triggered at all. The documented release path from `main` has never wo
     `production.yml` requires a published, non-draft, non-prerelease `stable_tag`.
   - Repository variable `PRODUCTION_RELEASE_ENABLED` is `false`, which
     `scripts/release-policy.mjs` treats as a hard stop.
+- Staging had a fourth, unrelated blocker, now fixed: `staging.yml` runs
+  `npm audit --omit=dev --audit-level=high` with no `continue-on-error`, and it
+  exited 1 on GHSA-qwww-vcr4-c8h2 in react-router. Cutting a release branch before
+  that bump would have produced a red pipeline that looked like a branching problem.
+  `npm audit` now reports zero vulnerabilities.
 - Staging is **not** blocked by the branch drift. `staging.yml` triggers on push to
   `release/**` / `hotfix/**`, and a push trigger only needs the workflow file on the
   branch being pushed. Cutting `release/x.y.z` from `develop` makes staging run
@@ -120,10 +125,14 @@ Cloudflare Access before committing to anything irreversible.
   branding, release-policy tests and build all pass on `develop`.
 
 **Learnings:**
-- The drift is not uniform. Staging was blocked only by the absence of a release
-  branch; production is blocked by three independent things at once (workflow not on
-  the default branch, no published tag, release flag off). Treating "分支漂移" as one
-  fix would have unblocked none of them.
+- The drift is not uniform. Staging was blocked by a failing audit gate and the
+  absence of a release branch; production is blocked by three further independent
+  things (workflow not on the default branch, no published tag, release flag off).
+  Treating "分支漂移" as one fix would have unblocked none of them.
+- Staging also cannot succeed before the Cloud side exists: `deploy/staging`
+  service-binds `litetavern-cloud-staging`, a Worker that has never been deployed and
+  whose config still holds `REPLACE_WITH_STAGING_D1_DATABASE_ID`. Cut the release
+  branch only after Cloud staging is real, or the deploy fails on a dangling binding.
 
 ## Notes
 
