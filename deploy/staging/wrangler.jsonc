@@ -3,6 +3,9 @@
   "name": "litetavern-staging",
   "pages_build_output_dir": "../../apps/web/dist",
   "compatibility_date": "2026-07-29",
+  // See deploy/development/wrangler.jsonc: the binding names the Worker that
+  // `wrangler deploy --env staging` publishes. Wrangler 4 service bindings have no
+  // `environment` key; `deploy-bindings.test.ts` pins this target.
   "services": [
     { "binding": "CLOUD", "service": "litetavern-cloud-staging" }
   ]

@@ -3,6 +3,13 @@
   "name": "litetavern-dev",
   "pages_build_output_dir": "../../apps/web/dist",
   "compatibility_date": "2026-07-29",
+  // The Cloud Worker is declared as `litetavern-cloud` with named Wrangler
+  // environments, and `wrangler deploy --env development` publishes it under the
+  // flattened name `litetavern-cloud-development`. A service binding names that
+  // published Worker directly: Wrangler 4 service bindings accept only
+  // `binding`/`service`/`entrypoint`/`props`/`remote`, so an `environment` key
+  // here would fail config validation rather than make the target more explicit.
+  // `deploy-bindings.test.ts` pins each environment to its own Worker.
   "services": [
     { "binding": "CLOUD", "service": "litetavern-cloud-development" }
   ]
