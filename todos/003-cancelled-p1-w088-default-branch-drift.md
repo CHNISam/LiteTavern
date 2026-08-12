@@ -1,5 +1,5 @@
 ---
-status: ready
+status: cancelled
 priority: p1
 issue_id: "003"
 tags: [ci, github-actions, branching, deployment, release, w088]
@@ -134,6 +134,21 @@ Cloudflare Access before committing to anything irreversible.
   whose config still holds `REPLACE_WITH_STAGING_D1_DATABASE_ID`. Cut the release
   branch only after Cloud staging is real, or the deploy fails on a dangling binding.
 
+### 2026-08-12 - Cancelled
+
+**By:** Claude, on the maintainer's instruction
+
+Cancelled. The project has not entered real production or staging deployment, and no
+actual deployment failure has occurred. This was a hypothetical problem found by
+reading the configuration, not a reported one. If a real deployment later fails, file
+a bug against the observed failure rather than carrying this speculative item.
+
+The audit above is kept as reference material for whoever hits that failure. The one
+change that was applied and is being kept is the dependency bump in `daff961`, which
+cleared two high-severity advisories; that stands on its own merits regardless of
+this item's status.
+
 ## Notes
 
-- The Cloud repository has the same class of drift; see its `todos/002`.
+- The Cloud repository has the same class of drift; see its `todos/002`, cancelled
+  for the same reason.
