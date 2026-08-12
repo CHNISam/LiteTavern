@@ -73,7 +73,15 @@ function modelFor(configuration: ModelConfiguration, apiKey: string): LanguageMo
     ...(publicByokOrigins() ? { extraOrigins: publicByokOrigins() } : {})
   }).toString().replace(/\/$/, '');
   if (provider.adapter === 'ANTHROPIC') {
-    return createAnthropic({ apiKey, baseURL })(configuration.model_name);
+    // Anthropic's CORS allowlist rejects browser origins outright unless the
+    // request declares this header (verified against the real API: the
+    // preflight returns "Disallowed CORS origin" without it, and an open ACAO
+    // with it). The SDK never sets it on its own.
+    return createAnthropic({
+      apiKey,
+      baseURL,
+      headers: { 'anthropic-dangerous-direct-browser-access': 'true' }
+    })(configuration.model_name);
   }
   if (provider.adapter === 'GOOGLE') {
     return createGoogleGenerativeAI({ apiKey, baseURL })(configuration.model_name);

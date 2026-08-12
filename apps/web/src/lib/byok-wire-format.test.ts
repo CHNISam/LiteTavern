@@ -56,6 +56,37 @@ afterEach(async () => {
 });
 
 describe('browser-direct BYOK wire format', () => {
+  it('sends the browser-access header Anthropic requires to allow CORS', async () => {
+    let requestHeaders: IncomingMessage['headers'] | null = null;
+    server = createServer((request: IncomingMessage, response: ServerResponse) => {
+      requestHeaders = request.headers;
+      response.writeHead(400, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ error: { message: 'stub' } }));
+    });
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    const origin = `http://127.0.0.1:${port}`;
+    vi.stubEnv('VITE_BYOK_CONNECT_ORIGINS', origin);
+
+    await streamByokGeneration({
+      configuration: {
+        model_configuration_id: 'config-1', provider: 'anthropic', model_name: 'claude-sonnet-4-20250514',
+        display_name: 'Claude', base_url: `${origin}/v1`,
+        credential_id: 'credential-1', credential_configured: true
+      },
+      apiKey: 'test-key',
+      character: {
+        character_id: 'character-1', name: 'Nova', profile_summary: 'Pilot',
+        personality_summary: 'Calm', first_message: '', avatar_seed: 'Nova'
+      },
+      transcript: [],
+      input: 'hi'
+    }).catch(() => {});
+
+    expect(requestHeaders?.['anthropic-dangerous-direct-browser-access']).toBe('true');
+  });
+
   it('reaches an OpenAI-compatible provider and returns the streamed reply', async () => {
     const { origin, received } = await startProvider();
     vi.stubEnv('VITE_BYOK_CONNECT_ORIGINS', origin);
